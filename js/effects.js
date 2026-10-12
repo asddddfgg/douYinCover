@@ -1,40 +1,96 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const layerMain = document.getElementById('layer-main-title');
+    const presetsContainer = document.getElementById('effect-presets');
+    const mainSelect = document.getElementById('main-layer-effect-select');
+    const subSelect = document.getElementById('sub-layer-effect-select');
+    const btnAddEffect = document.getElementById('btn-add-custom-effect');
+    const effectCountEl = document.getElementById('effect-count');
 
-    const EFFECT_STYLES = {
-        normal: { name: "默认样式", css: "text-shadow: 2px 2px 4px rgba(0,0,0,0.8);" },
-        gradient: { name: "双色渐变", css: "background: linear-gradient(45deg, #ff3b5c, #ffeb3b); -webkit-background-clip: text; -webkit-text-fill-color: transparent;" },
-        neon: { name: "霓虹发光", css: "text-shadow: 0 0 10px #ff00de, 0 0 20px #ff00de, 0 0 40px #ff00de; color: #fff;" },
-        stereo: { name: "3D立体", css: "text-shadow: 2px 2px 0px #333, 4px 4px 0px #222, 6px 6px 0px #111, 8px 8px 10px rgba(0,0,0,0.8);" },
-        cyber: { name: "赛博机甲", css: "text-shadow: 3px 3px 0px #00ffff, -3px -3px 0px #ff0055; color: #ffff00;" },
-        glitch: { name: "故障艺术", css: "text-shadow: 2px 0 #ff0055, -2px 0 #00ffff;" },
-        retro: { name: "复古港风", css: "text-shadow: 3px 3px 0px #d35400, 6px 6px 0px #c0392b; color: #f1c40f;" },
-        gold: { name: "暗金奢华", css: "background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 2px 2px 4px rgba(0,0,0,0.6);" },
-        fire: { name: "烈火熔岩", css: "text-shadow: 0 0 8px #ff4500, 0 0 20px #ff8c00, 0 0 35px #ff0000; color: #ffe4b5;" }
-    };
+    function renderEffectsUI() {
+        if (!presetsContainer) return;
+        presetsContainer.innerHTML = '';
+        mainSelect.innerHTML = '';
+        subSelect.innerHTML = '';
 
-    window.EFFECT_STYLES = EFFECT_STYLES;
+        const keys = Object.keys(AppState.effectsMap);
+        if (effectCountEl) effectCountEl.textContent = keys.length;
 
-    document.querySelectorAll('.effect-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.effect-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+        keys.forEach(key => {
+            const effect = AppState.effectsMap[key];
 
-            const effect = btn.getAttribute('data-effect');
-            AppState.currentEffect = effect;
+            // 1. 渲染全局按钮
+            const btn = document.createElement('button');
+            btn.className = `effect-btn ${AppState.currentEffect === key ? 'active' : ''}`;
+            btn.setAttribute('data-effect', key);
+            btn.textContent = effect.name;
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.effect-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                AppState.currentEffect = key;
+                // 全局应用
+                applyEffectToElement(document.getElementById('main-layer-content'), key);
+                applyEffectToElement(document.getElementById('sub-layer-content'), key);
+                AppState.mainEffectKey = key;
+                AppState.subEffectKey = key;
+                mainSelect.value = key;
+                subSelect.value = key;
+                if (typeof rebalanceTextFlow === 'function') rebalanceTextFlow();
+            });
+            presetsContainer.appendChild(btn);
 
-            const mainContent = document.getElementById('main-layer-content');
-            if(mainContent) {
-                mainContent.style.cssText = `font-size: ${mainContent.style.fontSize}; color: ${mainContent.style.color};`;
-                mainContent.style.background = 'none';
-                mainContent.style.webkitBackgroundClip = 'initial';
-                mainContent.style.webkitTextFillColor = 'initial';
-
-                const preset = EFFECT_STYLES[effect];
-                if (preset) {
-                    mainContent.style.cssText += ";" + preset.css;
-                }
-            }
+            // 2. 渲染主/副图层独立下拉选择框
+            const opt1 = new Option(effect.name, key);
+            const opt2 = new Option(effect.name, key);
+            mainSelect.add(opt1);
+            subSelect.add(opt2);
         });
+
+        mainSelect.value = AppState.mainEffectKey || 'normal';
+        subSelect.value = AppState.subEffectKey || 'normal';
+    }
+
+    function applyEffectToElement(el, effectKey) {
+        if (!el) return;
+        const preset = AppState.effectsMap[effectKey] || AppState.effectsMap['normal'];
+        el.style.background = 'none';
+        el.style.webkitBackgroundClip = 'initial';
+        el.style.webkitTextFillColor = 'initial';
+        el.style.textShadow = 'none';
+        el.style.webkitTextStroke = 'initial';
+        
+        if (preset && preset.css) {
+            el.style.cssText += ';' + preset.css;
+        }
+    }
+
+    window.applyEffectToElement = applyEffectToElement;
+    window.renderEffectsUI = renderEffectsUI;
+
+    mainSelect.addEventListener('change', (e) => {
+        AppState.mainEffectKey = e.target.value;
+        applyEffectToElement(document.getElementById('main-layer-content'), e.target.value);
+        if (typeof rebalanceTextFlow === 'function') rebalanceTextFlow();
     });
+
+    subSelect.addEventListener('change', (e) => {
+        AppState.subEffectKey = e.target.value;
+        applyEffectToElement(document.getElementById('sub-layer-content'), e.target.value);
+        if (typeof rebalanceTextFlow === 'function') rebalanceTextFlow();
+    });
+
+    if (btnAddEffect) {
+        btnAddEffect.addEventListener('click', () => {
+            const name = prompt("请输入新特效名称 (例: 炫彩金光):");
+            if (!name) return;
+            const css = prompt("请输入 CSS 样式 (例: color: #ff00ff; text-shadow: 0 0 5px #00ffff;):");
+            if (!css) return;
+
+            const newKey = "custom_" + Date.now();
+            AppState.effectsMap[newKey] = { name: name, css: css };
+            LocalDB.saveProject(AppState);
+            renderEffectsUI();
+            alert("自定义特效添加成功！");
+        });
+    }
+
+    renderEffectsUI();
 });

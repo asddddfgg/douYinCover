@@ -16,12 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvasContainer = document.getElementById('canvas-container');
     const safeBottomLine = document.getElementById('safe-bottom-line');
 
-    const btnPrevPage = document.getElementById('btn-prev-page');
-    const btnNextPage = document.getElementById('btn-next-page');
-    const pageIndicator = document.getElementById('page-indicator');
-    const btnRebalance = document.getElementById('btn-rebalance');
-
-    // 核心：基于实际 DOM 测量与物理碰撞算法的动态文本流引擎 (Dynamic Flow Reflow Engine)
+    // 精确二分 DOM 排版测量引擎
     function rebalanceTextFlow() {
         const fullArticle = AppState.fullArticleText || "";
         if (!fullArticle) {
@@ -30,16 +25,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const safeLineRect = safeBottomLine.getBoundingClientRect();
         const layerMainTop = layerMain.offsetTop;
         const layerMainWidth = layerMain.clientWidth;
         const layerMainHeight = layerMain.clientHeight;
 
-        // 警戒底部：文本框底边与安全线 top 的最小值，确保文字绝对不穿透安全线！
-        const canvasRect = canvasContainer.getBoundingClientRect();
-        const maxAllowedBottomPx = Math.min(layerMainTop + layerMainHeight, safeLineRect.top - canvasRect.top);
+        let maxAllowedBottomPx = layerMainTop + layerMainHeight;
+        if (AppState.safeAreaEnabled) {
+            const safeLineRect = safeBottomLine.getBoundingClientRect();
+            const canvasRect = canvasContainer.getBoundingClientRect();
+            maxAllowedBottomPx = Math.min(maxAllowedBottomPx, safeLineRect.top - canvasRect.top);
+        }
 
-        // 创建隐藏测量容器进行精确字符二分测量
         const testContainer = document.createElement('div');
         testContainer.style.cssText = `
             position: absolute;
@@ -52,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
             line-height: 1.4;
             white-space: pre-wrap;
             word-break: break-all;
-            padding: 8px;
+            padding: 6px;
             box-sizing: border-box;
         `;
         canvasContainer.appendChild(testContainer);
@@ -63,13 +59,11 @@ document.addEventListener('DOMContentLoaded', () => {
         while (remainingText.length > 0) {
             testContainer.textContent = remainingText;
 
-            // 如果全部文字放入后依然不超过警戒线，直接作为最后一页
             if (testContainer.clientHeight <= (maxAllowedBottomPx - layerMainTop)) {
                 chunks.push(remainingText);
                 break;
             }
 
-            // 二分搜索找寻刚好填满该页的最大字符切割点
             let low = 0;
             let high = remainingText.length;
             let bestCutIndex = 1;
@@ -80,13 +74,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (testContainer.clientHeight <= (maxAllowedBottomPx - layerMainTop)) {
                     bestCutIndex = mid;
-                    low = mid + 1; // 尝试放入更多字符
+                    low = mid + 1;
                 } else {
-                    high = mid - 1; // 溢出了，缩小字符
+                    high = mid - 1;
                 }
             }
 
-            // 优先在换行符或自然标点处切断，保证阅读体验
             let textToCut = remainingText.substring(0, bestCutIndex);
             let naturalBreak = textToCut.lastIndexOf('\n');
             if (naturalBreak > bestCutIndex * 0.6) {
@@ -126,9 +119,16 @@ document.addEventListener('DOMContentLoaded', () => {
         mainContent.style.fontSize = AppState.mainFontSize + 'px';
         mainContent.style.color = AppState.mainColor;
 
-        subContent.textContent = AppState.subText + (chunks.length > 1 ? ` (${AppState.currentPageIndex + 1}/${chunks.length})` : '');
+        // 【修改3】：彻底移除 (1/2), (2/2) 页码后缀，保持纯净副标题！
+        subContent.textContent = AppState.subText;
         subContent.style.fontSize = AppState.subFontSize + 'px';
         subContent.style.color = AppState.subColor;
+
+        // 应用图层特效
+        if (typeof applyEffectToElement === 'function') {
+            applyEffectToElement(mainContent, AppState.mainEffectKey || AppState.currentEffect);
+            applyEffectToElement(subContent, AppState.subEffectKey || AppState.currentEffect);
+        }
 
         if (AppState.bgImage) {
             coverBg.style.backgroundImage = `url(${AppState.bgImage})`;
@@ -138,41 +138,45 @@ document.addEventListener('DOMContentLoaded', () => {
             coverBg.style.backgroundImage = 'none';
         }
 
-        document.querySelectorAll('.effect-btn').forEach(b => {
-            if (b.getAttribute('data-effect') === (AppState.currentEffect || 'normal')) {
-                b.click();
-            }
-        });
-
-        pageIndicator.textContent = `第 ${AppState.currentPageIndex + 1} / ${chunks.length} 页 (自动流排版)`;
         updateSidebarRight(chunks);
     }
 
+    // 【修改8】：图层特效变体组合算法（生成甲图主特效，乙/丙图自动多组特效变体）
     function updateSidebarRight(chunks) {
         const container = document.getElementById('sidebar-right-content');
         if (!container) return;
         container.innerHTML = '';
 
-        const styleMeta = (window.EFFECT_STYLES && window.EFFECT_STYLES[AppState.currentEffect]) || { css: "text-shadow: 2px 2px 4px rgba(0,0,0,0.8);" };
+        const effectKeys = Object.keys(AppState.effectsMap);
         const bgCss = AppState.bgImage ? `url(${AppState.bgImage})` : (AppState.bgColor || "linear-gradient(135deg, #2c3e50, #34495e)");
 
         chunks.forEach((chunkText, idx) => {
             const isCurrent = idx === AppState.currentPageIndex;
+
+            // 主图甲保留用户设定的特效A/B/C，后续连载图自动分配特效组合变体（A2B3C1等）
+            let mainEffKey = AppState.mainEffectKey || 'normal';
+            let subEffKey = AppState.subEffectKey || 'normal';
+
+            if (idx > 0 && effectKeys.length > 1) {
+                mainEffKey = effectKeys[(effectKeys.indexOf(mainEffKey) + idx * 3) % effectKeys.length];
+                subEffKey = effectKeys[(effectKeys.indexOf(subEffKey) + idx * 5) % effectKeys.length];
+            }
+
+            const mainPreset = AppState.effectsMap[mainEffKey] || {};
+            const subPreset = AppState.effectsMap[subEffKey] || {};
+
             const cardEl = document.createElement('div');
             cardEl.className = `matrix-card ${isCurrent ? 'active-page-card' : ''}`;
 
             cardEl.innerHTML = `
                 <div class="matrix-thumb" style="background: ${bgCss}; background-size: cover; background-position: center;">
-                    <div style="font-size: 11px; font-weight: 800; ${styleMeta.css}; word-break: break-all; padding: 4px; overflow:hidden; max-height:140px;">${chunkText}</div>
-                    <div style="font-size: 8px; color: ${AppState.subColor}; margin-top: 2px; text-shadow: 1px 1px 2px rgba(0,0,0,0.8);">${AppState.subText} (${idx + 1}/${chunks.length})</div>
+                    <div style="font-size: 11px; font-weight: 800; ${mainPreset.css || ''}; word-break: break-all; padding: 4px; overflow:hidden; max-height:130px;">${chunkText}</div>
+                    <div style="font-size: 8px; color: ${AppState.subColor}; ${subPreset.css || ''}; margin-top: 2px;">${AppState.subText}</div>
                 </div>
                 <div class="matrix-card-info">
-                    <div class="matrix-card-header">
-                        <span>动态流封面 #${idx + 1} ${isCurrent ? '(当前)' : ''}</span>
-                    </div>
-                    <div class="matrix-actions">
-                        <button class="btn-select-page ${isCurrent ? 'active' : ''}" data-idx="${idx}">${isCurrent ? '编辑中' : '切到此页'}</button>
-                    </div>
+                    <div class="matrix-card-header">${idx === 0 ? '甲图 (主风格)' : '乙/丙连载图 #' + (idx + 1)}</div>
+                    <div class="matrix-card-sub">正文特效: ${mainPreset.name || '默认'}<br>副标特效: ${subPreset.name || '默认'}</div>
+                    <button class="btn-select-page ${isCurrent ? 'active' : ''}" data-idx="${idx}">${isCurrent ? '编辑中' : '切换预览'}</button>
                 </div>
             `;
 
@@ -187,26 +191,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             container.appendChild(cardEl);
-        });
-    }
-
-    btnPrevPage.addEventListener('click', () => {
-        if (AppState.currentPageIndex > 0) {
-            AppState.currentPageIndex--;
-            renderCurrentPage();
-        }
-    });
-
-    btnNextPage.addEventListener('click', () => {
-        if (AppState.currentPageIndex < (AppState.pageChunks.length - 1)) {
-            AppState.currentPageIndex++;
-            renderCurrentPage();
-        }
-    });
-
-    if (btnRebalance) {
-        btnRebalance.addEventListener('click', () => {
-            rebalanceTextFlow();
         });
     }
 

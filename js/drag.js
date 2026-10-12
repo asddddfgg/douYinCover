@@ -21,9 +21,13 @@ function initDragAndResize(layer) {
             let newTop = initialTop + dy;
 
             const maxLeft = canvasContainer.clientWidth - layer.offsetWidth;
-            const safeLineRect = safeBottomLine.getBoundingClientRect();
-            const canvasRect = canvasContainer.getBoundingClientRect();
-            const maxAllowedTop = safeLineRect.top - canvasRect.top - layer.offsetHeight;
+            let maxAllowedTop = canvasContainer.clientHeight - layer.offsetHeight;
+
+            if (AppState.safeAreaEnabled) {
+                const safeLineRect = safeBottomLine.getBoundingClientRect();
+                const canvasRect = canvasContainer.getBoundingClientRect();
+                maxAllowedTop = safeLineRect.top - canvasRect.top - layer.offsetHeight;
+            }
 
             newLeft = Math.max(0, Math.min(newLeft, maxLeft));
             newTop = Math.max(0, Math.min(newTop, maxAllowedTop));
@@ -45,7 +49,23 @@ function initDragAndResize(layer) {
         window.addEventListener('mouseup', onMouseUp);
     });
 
-    // 处理右边缘 (宽度) 和底边缘 (高度) 的手感拖拽，实现实时文本流推挤/拉吸
+    // 【修改5】：图层右键上下文菜单事件监听
+    layer.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        document.querySelectorAll('.draggable-layer').forEach(l => l.classList.remove('active'));
+        layer.classList.add('active');
+
+        const contextMenu = document.getElementById('context-menu');
+        if (contextMenu) {
+            contextMenu.style.top = e.clientY + 'px';
+            contextMenu.style.left = e.clientX + 'px';
+            contextMenu.style.display = 'flex';
+            window.currentRightClickedLayer = layer;
+        }
+    });
+
     const handles = layer.querySelectorAll('.resize-handle');
     handles.forEach(handle => {
         handle.addEventListener('mousedown', (e) => {
@@ -61,20 +81,22 @@ function initDragAndResize(layer) {
                 const dy = moveEvent.clientY - startY;
 
                 if (hType === 'r' || hType === 'br' || hType === 'tr') {
-                    let newWidth = Math.max(120, Math.min(startWidth + dx, canvasContainer.clientWidth - layer.offsetLeft));
+                    let newWidth = Math.max(100, Math.min(startWidth + dx, canvasContainer.clientWidth - layer.offsetLeft));
                     layer.style.width = newWidth + 'px';
                 }
 
                 if (hType === 'b' || hType === 'br' || hType === 'bl') {
-                    const safeLineRect = safeBottomLine.getBoundingClientRect();
-                    const canvasRect = canvasContainer.getBoundingClientRect();
-                    const maxPossibleHeight = safeLineRect.top - canvasRect.top - layer.offsetTop;
+                    let maxPossibleHeight = canvasContainer.clientHeight - layer.offsetTop;
+                    if (AppState.safeAreaEnabled) {
+                        const safeLineRect = safeBottomLine.getBoundingClientRect();
+                        const canvasRect = canvasContainer.getBoundingClientRect();
+                        maxPossibleHeight = safeLineRect.top - canvasRect.top - layer.offsetTop;
+                    }
                     
-                    let newHeight = Math.max(80, Math.min(startHeight + dy, maxPossibleHeight));
+                    let newHeight = Math.max(60, Math.min(startHeight + dy, maxPossibleHeight));
                     layer.style.height = newHeight + 'px';
                 }
 
-                // 在拖拽手感改变框体尺寸时，实时重新重排文本流！
                 if (typeof rebalanceTextFlow === 'function') {
                     rebalanceTextFlow();
                 }
@@ -94,5 +116,44 @@ function initDragAndResize(layer) {
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.draggable-layer').forEach(layer => {
         initDragAndResize(layer);
+    });
+
+    // 右键上下文菜单全局点击消失与功能绑定
+    const contextMenu = document.getElementById('context-menu');
+    document.addEventListener('click', () => {
+        if (contextMenu) contextMenu.style.display = 'none';
+    });
+
+    document.getElementById('menu-bring-front')?.addEventListener('click', () => {
+        if (window.currentRightClickedLayer) {
+            window.currentRightClickedLayer.style.zIndex = 100;
+        }
+    });
+
+    document.getElementById('menu-send-back')?.addEventListener('click', () => {
+        if (window.currentRightClickedLayer) {
+            window.currentRightClickedLayer.style.zIndex = 2;
+        }
+    });
+
+    document.getElementById('menu-duplicate')?.addEventListener('click', () => {
+        if (window.currentRightClickedLayer) {
+            const clone = window.currentRightClickedLayer.cloneNode(true);
+            clone.style.top = (window.currentRightClickedLayer.offsetTop + 20) + 'px';
+            clone.style.left = (window.currentRightClickedLayer.offsetLeft + 20) + 'px';
+            document.getElementById('canvas-container').appendChild(clone);
+            initDragAndResize(clone);
+        }
+    });
+
+    document.getElementById('menu-delete')?.addEventListener('click', () => {
+        if (window.currentRightClickedLayer) {
+            // 不允许直接删除主/副标题，仅删除副本或贴纸
+            if (window.currentRightClickedLayer.id === 'layer-main-title' || window.currentRightClickedLayer.id === 'layer-sub-title') {
+                alert("文本主图层不可删除！");
+            } else {
+                window.currentRightClickedLayer.remove();
+            }
+        }
     });
 });

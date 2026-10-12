@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音/小红书爆款图文封面专家 - 动态文本流双向自动排版系统</title>
+    <title>抖音/小红书爆款图文封面专家 - 全功能高级定制版</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -13,12 +13,13 @@
         <header class="app-header">
             <div class="logo">
                 <i class="fa-solid fa-wand-magic-sparkles"></i>
-                <span>抖音/小红书爆款图文封面专家 (颠覆级动态文本流版)</span>
+                <span>抖音/小红书爆款图文封面专家</span>
             </div>
             <div class="header-actions">
                 <button id="btn-templates" class="btn secondary"><i class="fa-solid fa-layer-group"></i> 模板库</button>
                 <button id="btn-upload-bg" class="btn secondary"><i class="fa-solid fa-image"></i> 本地背景</button>
                 <input type="file" id="bg-file-input" accept="image/*" style="display: none;">
+                <button id="btn-toggle-safe" class="btn secondary active"><i class="fa-solid fa-shield-halved"></i> 安全线: 开启</button>
                 <button id="btn-export-current" class="btn secondary"><i class="fa-solid fa-download"></i> 导出当前页</button>
                 <button id="btn-export-all-zip" class="btn primary"><i class="fa-solid fa-file-zipper"></i> 一键打包全部图片(ZIP)</button>
             </div>
@@ -28,118 +29,120 @@
         <div class="main-workspace">
             <!-- 左侧控制面板 -->
             <aside class="sidebar-left">
-                <div class="panel-section page-manager-section" style="background: #202020; padding: 12px; border-radius: 8px; border: 1px solid #333;">
-                    <h3 style="margin-bottom: 8px;"><i class="fa-solid fa-diagram-project"></i> 动态文本流 (Flow Engine)</h3>
-                    <div style="font-size: 11px; color: #00ffcc; margin-bottom: 10px; line-height: 1.4;">
-                        <i class="fa-solid fa-circle-info"></i> 专家模式：随意拖动/缩放中间文本框，文字将根据框体大小与安全线<strong>双向自动推挤/吸回</strong>，绝不跑偏溢出！
-                    </div>
-                    <div style="display: flex; gap: 6px; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                        <button id="btn-prev-page" class="btn secondary" style="padding: 4px 8px; font-size: 12px;"><i class="fa-solid fa-chevron-left"></i> 上一页</button>
-                        <span id="page-indicator" style="color: #ff3b5c; font-weight: bold; font-size: 13px;">第 1 / 1 页</span>
-                        <button id="btn-next-page" class="btn secondary" style="padding: 4px 8px; font-size: 12px;">下一页 <i class="fa-solid fa-chevron-right"></i></button>
-                    </div>
-                    <div style="display: flex; gap: 6px;">
-                        <button id="btn-rebalance" class="btn primary" style="flex: 1; justify-content: center; padding: 6px;"><i class="fa-solid fa-arrows-split-up-and-left"></i> 全局重新平衡文本流</button>
-                    </div>
-                </div>
-
+                <!-- 1. 正文编辑 -->
                 <div class="panel-section">
-                    <h3><i class="fa-solid fa-pen-nib"></i> 全局连续正文 (粘贴长文自动流动)</h3>
+                    <h3><i class="fa-solid fa-pen-nib"></i> 全局正文内容 (长文自动连载)</h3>
                     <div class="form-group">
-                        <textarea id="main-title-text" rows="8" placeholder="在此粘贴长文，改变中间框体大小或字号，文字将自动在多页间无缝推挤与回流..."></textarea>
+                        <textarea id="main-title-text" rows="7" placeholder="粘贴您的完整文章，系统将自动无缝分页..."></textarea>
                     </div>
                     <div class="form-row">
-                        <label>全局字号: <span id="main-size-val">36px</span></label>
+                        <label>正文字号: <span id="main-size-val">36px</span></label>
                         <input type="range" id="main-font-size" min="20" max="64" value="36">
                     </div>
                     <div class="form-row">
                         <label>文字颜色</label>
                         <input type="color" id="main-text-color" value="#ffffff">
                     </div>
+                    <div class="form-row">
+                        <label>图层特效设置</label>
+                        <select id="main-layer-effect-select" class="custom-select"></select>
+                    </div>
                 </div>
 
+                <!-- 2. 副标题编辑 -->
                 <div class="panel-section">
                     <h3><i class="fa-solid fa-align-left"></i> 统一副标题 / 引导语</h3>
                     <div class="form-group">
-                        <textarea id="sub-title-text" rows="2" placeholder="输入统一副标题...">关注点赞，干货持续更新</textarea>
+                        <textarea id="sub-title-text" rows="2" placeholder="输入副标题...">关注点赞，干货持续更新</textarea>
                     </div>
                     <div class="form-row">
-                        <label>字号大小: <span id="sub-size-val">24px</span></label>
+                        <label>副标题字号: <span id="sub-size-val">24px</span></label>
                         <input type="range" id="sub-font-size" min="16" max="50" value="24">
                     </div>
                     <div class="form-row">
                         <label>文字颜色</label>
                         <input type="color" id="sub-text-color" value="#ffeb3b">
                     </div>
-                </div>
-
-                <div class="panel-section">
-                    <h3><i class="fa-solid fa-palette"></i> 全局艺术特效</h3>
-                    <div class="effect-buttons" id="effect-presets">
-                        <button class="effect-btn active" data-effect="normal">默认样式</button>
-                        <button class="effect-btn" data-effect="gradient">双色渐变</button>
-                        <button class="effect-btn" data-effect="neon">霓虹发光</button>
-                        <button class="effect-btn" data-effect="stereo">3D立体</button>
-                        <button class="effect-btn" data-effect="cyber">赛博机甲</button>
-                        <button class="effect-btn" data-effect="glitch">故障艺术</button>
-                        <button class="effect-btn" data-effect="retro">复古港风</button>
-                        <button class="effect-btn" data-effect="gold">暗金奢华</button>
-                        <button class="effect-btn" data-effect="fire">烈火熔岩</button>
+                    <div class="form-row">
+                        <label>图层特效设置</label>
+                        <select id="sub-layer-effect-select" class="custom-select"></select>
                     </div>
                 </div>
 
+                <!-- 3. 全局艺术特效库 -->
                 <div class="panel-section">
-                    <h3><i class="fa-solid fa-icons"></i> 贴纸库 (72+)</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h3 style="margin:0;"><i class="fa-solid fa-palette"></i> 全局艺术特效库 (<span id="effect-count">20+</span>)</h3>
+                        <button id="btn-add-custom-effect" class="btn secondary" style="padding: 2px 8px; font-size: 11px;"><i class="fa-solid fa-plus"></i> 自定义特效</button>
+                    </div>
+                    <div class="effect-buttons" id="effect-presets"></div>
+                </div>
+
+                <!-- 4. 贴纸库 (支持自定义扩展) -->
+                <div class="panel-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h3 style="margin:0;"><i class="fa-solid fa-icons"></i> 贴纸库</h3>
+                        <button id="btn-add-custom-sticker" class="btn secondary" style="padding: 2px 8px; font-size: 11px;"><i class="fa-solid fa-plus"></i> 添加贴纸</button>
+                    </div>
                     <div class="sticker-categories" id="sticker-cats">
                         <button class="cat-btn active" data-cat="all">全部</button>
                         <button class="cat-btn" data-cat="badge">徽章</button>
                         <button class="cat-btn" data-cat="arrow">箭头</button>
                         <button class="cat-btn" data-cat="emoji">表情</button>
                         <button class="cat-btn" data-cat="hot">热点</button>
+                        <button class="cat-btn" data-cat="custom">自定义</button>
                     </div>
                     <div class="sticker-grid" id="sticker-grid"></div>
                 </div>
             </aside>
 
-            <!-- 中间预览与编辑区：标准 9:16 画布 -->
+            <!-- 中间预览与编辑区 -->
             <main class="preview-area">
                 <div class="canvas-container" id="canvas-container">
                     <div class="cover-bg" id="cover-bg"></div>
-                    <!-- 物理底部安全线 (可作为约束边界) -->
+                    <!-- 物理防遮挡安全线 -->
                     <div class="safe-bottom-line" id="safe-bottom-line">
                         <span>抖音/小红书评论区防遮挡安全底线</span>
                     </div>
 
-                    <!-- 主正文动态流文本框 (支持自由拖拽与八向/边缘拉伸) -->
+                    <!-- 主正文图层 -->
                     <div class="draggable-layer text-layer active" id="layer-main-title" style="top: 15%; left: 8%; width: 300px; height: 380px;">
-                        <div class="layer-content" id="main-layer-content" style="outline: none;">文字加载中...</div>
-                        
-                        <!-- 拖拽与拉伸手柄 -->
+                        <div class="layer-content" id="main-layer-content">文字加载中...</div>
                         <div class="resize-handle top-left" data-handle="tl"></div>
                         <div class="resize-handle top-right" data-handle="tr"></div>
                         <div class="resize-handle bottom-left" data-handle="bl"></div>
                         <div class="resize-handle bottom-right" data-handle="br"></div>
                         <div class="resize-handle right-edge" data-handle="r" title="拖动改变宽度"></div>
-                        <div class="resize-handle bottom-edge" data-handle="b" title="拖动改变高度（文字将随手感精准排满并推挤下页）"></div>
+                        <div class="resize-handle bottom-edge" data-handle="b" title="拖动改变高度"></div>
                     </div>
 
                     <!-- 副标题图层 -->
                     <div class="draggable-layer text-layer" id="layer-sub-title" style="top: 80%; left: 8%; width: 300px; height: auto;">
                         <div class="layer-content" id="sub-layer-content">关注点赞，干货持续更新</div>
+                        <div class="resize-handle top-left" data-handle="tl"></div>
+                        <div class="resize-handle top-right" data-handle="tr"></div>
+                        <div class="resize-handle bottom-left" data-handle="bl"></div>
+                        <div class="resize-handle bottom-right" data-handle="br"></div>
+                        <div class="resize-handle right-edge" data-handle="r"></div>
+                        <div class="resize-handle bottom-edge" data-handle="b"></div>
                     </div>
-                </div>
-                <div class="preview-tip" id="flow-engine-status" style="color: #00ffcc; font-size: 13px; font-weight: bold;">
-                    <i class="fa-solid fa-shield-halved"></i> 动态文本流引擎就绪：拖拽底边或右边，文字将实时精准重排且永不越线！
                 </div>
             </main>
 
-            <!-- 右侧：严格 9:16 多页矩阵 -->
+            <!-- 右侧：严格 9:16 多页连载变体预览 -->
             <aside class="sidebar-right">
-                <h3><i class="fa-solid fa-grip"></i> 9:16 动态流页面序列</h3>
-                <div class="sidebar-right-content" id="sidebar-right-content" style="display: flex; flex-direction: column; gap: 14px; overflow-y: auto; max-height: calc(100vh - 120px);">
-                </div>
+                <h3 style="margin-bottom: 12px;"><i class="fa-solid fa-grip"></i> 9:16 连载序列与特效变体</h3>
+                <div class="sidebar-right-content" id="sidebar-right-content"></div>
             </aside>
         </div>
+    </div>
+
+    <!-- 图层右键上下文菜单 -->
+    <div id="context-menu" class="context-menu">
+        <div class="menu-item" id="menu-bring-front"><i class="fa-solid fa-arrow-up"></i> 置于顶层</div>
+        <div class="menu-item" id="menu-send-back"><i class="fa-solid fa-arrow-down"></i> 置于底层</div>
+        <div class="menu-item" id="menu-duplicate"><i class="fa-solid fa-copy"></i> 复制图层</div>
+        <div class="menu-item delete" id="menu-delete"><i class="fa-solid fa-trash"></i> 删除图层</div>
     </div>
 
     <!-- 模态框：模板库 -->
@@ -158,9 +161,9 @@
     <script src="js/state.js"></script>
     <script src="js/db.js"></script>
     <script src="js/stickers.js"></script>
+    <script src="js/effects.js"></script>
     <script src="js/text-layers.js"></script>
     <script src="js/drag.js"></script>
-    <script src="js/effects.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
