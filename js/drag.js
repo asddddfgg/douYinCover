@@ -1,15 +1,12 @@
 function initDragAndResize(layer) {
     const canvasContainer = document.getElementById('canvas-container');
-    const content = layer.querySelector('.layer-content');
+    const safeBottomLine = document.getElementById('safe-bottom-line');
 
     layer.addEventListener('mousedown', (e) => {
-        if (e.target.classList.contains('resize-handle') || (e.target.classList.contains('layer-content') && document.activeElement === e.target)) {
-            return;
-        }
+        if (e.target.classList.contains('resize-handle')) return;
         
         document.querySelectorAll('.draggable-layer').forEach(l => l.classList.remove('active'));
         layer.classList.add('active');
-        AppState.activeLayerId = layer.id;
 
         const startX = e.clientX;
         const startY = e.clientY;
@@ -24,13 +21,19 @@ function initDragAndResize(layer) {
             let newTop = initialTop + dy;
 
             const maxLeft = canvasContainer.clientWidth - layer.offsetWidth;
-            const maxTop = canvasContainer.clientHeight - layer.offsetHeight;
+            const safeLineRect = safeBottomLine.getBoundingClientRect();
+            const canvasRect = canvasContainer.getBoundingClientRect();
+            const maxAllowedTop = safeLineRect.top - canvasRect.top - layer.offsetHeight;
 
             newLeft = Math.max(0, Math.min(newLeft, maxLeft));
-            newTop = Math.max(0, Math.min(newTop, maxTop));
+            newTop = Math.max(0, Math.min(newTop, maxAllowedTop));
 
             layer.style.left = newLeft + 'px';
             layer.style.top = newTop + 'px';
+
+            if (typeof rebalanceTextFlow === 'function') {
+                rebalanceTextFlow();
+            }
         }
 
         function onMouseUp() {
@@ -42,25 +45,38 @@ function initDragAndResize(layer) {
         window.addEventListener('mouseup', onMouseUp);
     });
 
-    // 四角缩放字号
-    const handles = layer.querySelectorAll('.resize-handle:not(.right-edge)');
+    // 处理右边缘 (宽度) 和底边缘 (高度) 的手感拖拽，实现实时文本流推挤/拉吸
+    const handles = layer.querySelectorAll('.resize-handle');
     handles.forEach(handle => {
         handle.addEventListener('mousedown', (e) => {
             e.stopPropagation();
+            const hType = handle.dataset.handle;
             const startX = e.clientX;
-            const startFontSize = parseFloat(window.getComputedStyle(content).fontSize);
+            const startY = e.clientY;
+            const startWidth = layer.clientWidth;
+            const startHeight = layer.clientHeight;
 
             function onResizeMove(moveEvent) {
                 const dx = moveEvent.clientX - startX;
-                let newSize = startFontSize + (dx * 0.2);
-                newSize = Math.max(12, Math.min(newSize, 120));
-                content.style.fontSize = newSize + 'px';
-                
-                if(layer.id === 'layer-main-title') {
-                    const range = document.getElementById('main-font-size');
-                    const val = document.getElementById('main-size-val');
-                    if(range) range.value = Math.round(newSize);
-                    if(val) val.textContent = Math.round(newSize) + 'px';
+                const dy = moveEvent.clientY - startY;
+
+                if (hType === 'r' || hType === 'br' || hType === 'tr') {
+                    let newWidth = Math.max(120, Math.min(startWidth + dx, canvasContainer.clientWidth - layer.offsetLeft));
+                    layer.style.width = newWidth + 'px';
+                }
+
+                if (hType === 'b' || hType === 'br' || hType === 'bl') {
+                    const safeLineRect = safeBottomLine.getBoundingClientRect();
+                    const canvasRect = canvasContainer.getBoundingClientRect();
+                    const maxPossibleHeight = safeLineRect.top - canvasRect.top - layer.offsetTop;
+                    
+                    let newHeight = Math.max(80, Math.min(startHeight + dy, maxPossibleHeight));
+                    layer.style.height = newHeight + 'px';
+                }
+
+                // 在拖拽手感改变框体尺寸时，实时重新重排文本流！
+                if (typeof rebalanceTextFlow === 'function') {
+                    rebalanceTextFlow();
                 }
             }
 
@@ -73,80 +89,10 @@ function initDragAndResize(layer) {
             window.addEventListener('mouseup', onResizeUp);
         });
     });
-
-    // 右侧边缘手柄：仅改变容器宽度/高度，字号大小绝对不变
-    const rightEdgeHandle = layer.querySelector('.resize-handle.right-edge');
-    if(rightEdgeHandle) {
-        rightEdgeHandle.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-            const startX = e.clientX;
-            const startWidth = layer.offsetWidth;
-
-            function onWidthMove(moveEvent) {
-                const dx = moveEvent.clientX - startX;
-                let newWidth = startWidth + dx;
-                newWidth = Math.max(80, Math.min(newWidth, canvasContainer.clientWidth - layer.offsetLeft));
-                layer.style.width = newWidth + 'px';
-            }
-
-            function onWidthUp() {
-                window.removeEventListener('mousemove', onWidthMove);
-                window.removeEventListener('mouseup', onWidthUp);
-            }
-
-            window.addEventListener('mousemove', onWidthMove);
-            window.addEventListener('mouseup', onWidthUp);
-        });
-    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.draggable-layer').forEach(layer => {
         initDragAndResize(layer);
     });
-
-    const contextMenu = document.getElementById('context-menu');
-    const menuDelete = document.getElementById('menu-delete');
-    const menuCopy = document.getElementById('menu-copy');
-    let targetLayer = null;
-
-    document.addEventListener('contextmenu', (e) => {
-        const layer = e.target.closest('.draggable-layer');
-        if (layer) {
-            e.preventDefault();
-            targetLayer = layer;
-            contextMenu.style.display = 'block';
-            contextMenu.style.left = e.clientX + 'px';
-            contextMenu.style.top = e.clientY + 'px';
-        } else {
-            contextMenu.style.display = 'none';
-        }
-    });
-
-    document.addEventListener('click', () => {
-        contextMenu.style.display = 'none';
-    });
-
-    if (menuDelete) {
-        menuDelete.addEventListener('click', () => {
-            if (targetLayer && targetLayer.id !== 'layer-main-title') {
-                targetLayer.remove();
-            } else {
-                alert('主标题为核心图层，不能删除！');
-            }
-        });
-    }
-
-    if (menuCopy) {
-        menuCopy.addEventListener('click', () => {
-            if (targetLayer) {
-                const clone = targetLayer.cloneNode(true);
-                clone.id = 'layer-' + Date.now();
-                clone.style.top = (targetLayer.offsetTop + 20) + 'px';
-                clone.style.left = (targetLayer.offsetLeft + 20) + 'px';
-                document.getElementById('canvas-container').appendChild(clone);
-                initDragAndResize(clone);
-            }
-        });
-    }
 });

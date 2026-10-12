@@ -14,7 +14,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .sidebar-left, .sidebar-right { width: 340px; background-color: #181818; border-right: 1px solid #2d2d2d; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
 .sidebar-right { border-right: none; border-left: 1px solid #2d2d2d; }
 .panel-section h3 { font-size: 14px; color: #b0b0b0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-.form-group textarea { width: 100%; background: #252525; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 6px; resize: none; font-size: 14px; }
+.form-group textarea { width: 100%; background: #252525; border: 1px solid #333; color: #fff; padding: 10px; border-radius: 6px; resize: none; font-size: 13px; line-height: 1.5; }
 .form-group textarea:focus { border-color: #ff3b5c; outline: none; }
 .form-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 13px; color: #aaa; }
 .form-row input[type="range"] { flex: 1; margin-left: 15px; }
@@ -35,38 +35,35 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .canvas-container { width: 360px; height: 640px; background: linear-gradient(135deg, #2c3e50, #34495e); position: relative; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 2px solid #333; }
 .cover-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-position: center; z-index: 1; }
 
-/* 去掉了虚线框和安全线文字提示，保留隐藏安全区边界约束 */
-.safe-line-hidden { position: absolute; top: 15%; bottom: 15%; left: 10%; right: 10%; pointer-events: none; z-index: 2; display: none; }
+.safe-bottom-line { position: absolute; bottom: 80px; left: 0; width: 100%; height: 2px; background: rgba(255, 59, 92, 0.7); border-top: 1px dashed #ff3b5c; z-index: 5; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.safe-bottom-line span { background: rgba(255, 59, 92, 0.9); color: #fff; font-size: 9px; padding: 1px 6px; border-radius: 3px; font-weight: bold; }
 
-.draggable-layer { position: absolute; z-index: 10; cursor: move; user-select: none; padding: 8px; border: 2px solid transparent; transition: border-color 0.1s; }
-.draggable-layer.active { border-color: #ff3b5c; }
-.layer-content { outline: none; white-space: pre-wrap; word-break: break-all; font-weight: 800; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); width: 100%; height: 100%; }
+.draggable-layer { position: absolute; z-index: 10; cursor: move; user-select: none; padding: 8px; border: 2px dashed rgba(255,59,92,0.4); border-radius: 6px; overflow: hidden; }
+.draggable-layer.active { border-color: #ff3b5c; border-style: solid; }
+.layer-content { outline: none; white-space: pre-wrap; word-break: break-all; font-weight: 800; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); width: 100%; height: 100%; overflow: hidden; }
 
-.resize-handle { position: absolute; width: 10px; height: 10px; background: #ff3b5c; border: 1px solid #fff; border-radius: 50%; display: none; }
-.draggable-layer.active .resize-handle { display: block; }
-.resize-handle.top-left { top: -5px; left: -5px; cursor: nwse-resize; }
-.resize-handle.top-right { top: -5px; right: -5px; cursor: nesw-resize; }
-.resize-handle.bottom-left { bottom: -5px; left: -5px; cursor: nesw-resize; }
-.resize-handle.bottom-right { bottom: -5px; right: -5px; cursor: nwse-resize; }
-.resize-handle.right-edge { top: 50%; right: -6px; transform: translateY(-50%); width: 8px; height: 24px; border-radius: 4px; cursor: ew-resize; background: #00ffcc; display: none; }
-.draggable-layer.active .resize-handle.right-edge { display: block; }
+.resize-handle { position: absolute; background: #ff3b5c; border: 1px solid #fff; z-index: 20; }
+.resize-handle.top-left { top: -5px; left: -5px; width: 10px; height: 10px; border-radius: 50%; cursor: nwse-resize; }
+.resize-handle.top-right { top: -5px; right: -5px; width: 10px; height: 10px; border-radius: 50%; cursor: nesw-resize; }
+.resize-handle.bottom-left { bottom: -5px; left: -5px; width: 10px; height: 10px; border-radius: 50%; cursor: nesw-resize; }
+.resize-handle.bottom-right { bottom: -5px; right: -5px; width: 10px; height: 10px; border-radius: 50%; cursor: nwse-resize; }
+
+.resize-handle.right-edge { top: 50%; right: -6px; transform: translateY(-50%); width: 8px; height: 28px; border-radius: 4px; cursor: ew-resize; background: #00ffcc; display: block; }
+.resize-handle.bottom-edge { bottom: -6px; left: 50%; transform: translateX(-50%); width: 28px; height: 8px; border-radius: 4px; cursor: ns-resize; background: #00ffcc; display: block; }
 
 .preview-tip { margin-top: 15px; font-size: 12px; color: #777; display: flex; align-items: center; gap: 6px; }
 
-/* 右侧矩阵卡片 */
-.tab-btn { background: #252525; border: 1px solid #333; color: #aaa; padding: 6px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; flex: 1; text-align: center; }
-.tab-btn.active { background: #ff3b5c; color: #fff; border-color: #ff3b5c; }
-
-.matrix-card { background: #202020; border: 1px solid #2d2d2d; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; position: relative; }
-.matrix-card-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #bbb; }
-.matrix-thumb { width: 100%; height: 180px; background: #111; border-radius: 6px; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 10px; text-align: center; background-size: cover; background-position: center; }
-.matrix-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.btn-pin { background: #2d2d2d; border: 1px solid #444; color: #fff; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; }
-.btn-pin.pinned { background: #ff3b5c; border-color: #ff3b5c; }
+.matrix-card { background: #202020; border: 1px solid #2d2d2d; border-radius: 8px; padding: 10px; display: flex; align-items: center; gap: 12px; position: relative; }
+.matrix-card.active-page-card { border-color: #ff3b5c; background: #221518; }
+.matrix-thumb { width: 112.5px; height: 200px; background: #111; border-radius: 6px; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; text-align: center; background-size: cover; background-position: center; flex-shrink: 0; cursor: pointer; }
+.matrix-card-info { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.matrix-card-header { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: bold; color: #fff; }
+.matrix-actions { display: flex; gap: 6px; }
+.btn-select-page { background: #2d2d2d; border: 1px solid #444; color: #fff; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; }
+.btn-select-page.active { background: #ff3b5c; border-color: #ff3b5c; }
 .btn-download-thumb { background: #333; border: none; color: #fff; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; }
 .btn-download-thumb:hover { background: #ff3b5c; }
 
-/* 模态框 */
 .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
 .modal-content { background: #1a1a1a; border: 1px solid #333; width: 700px; max-height: 80vh; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
 .modal-header { padding: 16px 20px; border-bottom: 1px solid #2d2d2d; display: flex; justify-content: space-between; align-items: center; }
@@ -76,8 +73,3 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .template-card:hover { transform: translateY(-4px); border-color: #ff3b5c; }
 .template-thumb { height: 140px; background-size: cover; background-position: center; }
 .template-info { padding: 10px; font-size: 13px; text-align: center; color: #ddd; }
-
-.context-menu { display: none; position: absolute; background: #252525; border: 1px solid #333; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 2000; width: 120px; }
-.context-menu ul { list-style: none; padding: 4px 0; }
-.context-menu li { padding: 8px 14px; font-size: 13px; color: #ddd; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-.context-menu li:hover { background: #ff3b5c; color: #fff; }

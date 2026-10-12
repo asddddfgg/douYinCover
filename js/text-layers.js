@@ -7,211 +7,223 @@ document.addEventListener('DOMContentLoaded', () => {
     const subSizeVal = document.getElementById('sub-size-val');
     const mainColor = document.getElementById('main-text-color');
     const subColor = document.getElementById('sub-text-color');
-    const paginationModeSelect = document.getElementById('pagination-mode');
 
     const layerMain = document.getElementById('layer-main-title');
     const layerSub = document.getElementById('layer-sub-title');
+    const mainContent = document.getElementById('main-layer-content');
+    const subContent = document.getElementById('sub-layer-content');
+    const coverBg = document.getElementById('cover-bg');
+    const canvasContainer = document.getElementById('canvas-container');
+    const safeBottomLine = document.getElementById('safe-bottom-line');
 
-    const tabEffects = document.getElementById('tab-effects-matrix');
-    const tabCards = document.getElementById('tab-paginated-cards');
+    const btnPrevPage = document.getElementById('btn-prev-page');
+    const btnNextPage = document.getElementById('btn-next-page');
+    const pageIndicator = document.getElementById('page-indicator');
+    const btnRebalance = document.getElementById('btn-rebalance');
 
-    if (tabEffects && tabCards) {
-        tabEffects.addEventListener('click', () => {
-            tabEffects.classList.add('active');
-            tabCards.classList.remove('active');
-            AppState.activeTab = 'effects';
-            updateSidebarRight();
-        });
-        tabCards.addEventListener('click', () => {
-            tabCards.classList.add('active');
-            tabEffects.classList.remove('active');
-            AppState.activeTab = 'cards';
-            updateSidebarRight();
-        });
-    }
-
-    function getPaginatedPages() {
-        const fullText = mainInput.value;
-        const mode = paginationModeSelect.value;
-        AppState.paginationMode = mode;
-
-        if (mode === 'manual') {
-            // 按回车换行符分页
-            return fullText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
-        } else {
-            // 自动按字数分页（每页最多12个字）
-            const cleanText = fullText.replace(/\n/g, '');
-            const pages = [];
-            const chunkSize = 12;
-            for (let i = 0; i < cleanText.length; i += chunkSize) {
-                pages.push(cleanText.substring(i, i + chunkSize));
-            }
-            return pages.length > 0 ? pages : [fullText];
+    // 核心：基于实际 DOM 测量与物理碰撞算法的动态文本流引擎 (Dynamic Flow Reflow Engine)
+    function rebalanceTextFlow() {
+        const fullArticle = AppState.fullArticleText || "";
+        if (!fullArticle) {
+            AppState.pageChunks = [""];
+            renderCurrentPage();
+            return;
         }
+
+        const safeLineRect = safeBottomLine.getBoundingClientRect();
+        const layerMainTop = layerMain.offsetTop;
+        const layerMainWidth = layerMain.clientWidth;
+        const layerMainHeight = layerMain.clientHeight;
+
+        // 警戒底部：文本框底边与安全线 top 的最小值，确保文字绝对不穿透安全线！
+        const canvasRect = canvasContainer.getBoundingClientRect();
+        const maxAllowedBottomPx = Math.min(layerMainTop + layerMainHeight, safeLineRect.top - canvasRect.top);
+
+        // 创建隐藏测量容器进行精确字符二分测量
+        const testContainer = document.createElement('div');
+        testContainer.style.cssText = `
+            position: absolute;
+            visibility: hidden;
+            left: ${layerMain.offsetLeft}px;
+            top: ${layerMainTop}px;
+            width: ${layerMainWidth}px;
+            font-size: ${AppState.mainFontSize}px;
+            font-weight: 800;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-all;
+            padding: 8px;
+            box-sizing: border-box;
+        `;
+        canvasContainer.appendChild(testContainer);
+
+        const chunks = [];
+        let remainingText = fullArticle;
+
+        while (remainingText.length > 0) {
+            testContainer.textContent = remainingText;
+
+            // 如果全部文字放入后依然不超过警戒线，直接作为最后一页
+            if (testContainer.clientHeight <= (maxAllowedBottomPx - layerMainTop)) {
+                chunks.push(remainingText);
+                break;
+            }
+
+            // 二分搜索找寻刚好填满该页的最大字符切割点
+            let low = 0;
+            let high = remainingText.length;
+            let bestCutIndex = 1;
+
+            while (low <= high) {
+                let mid = Math.floor((low + high) / 2);
+                testContainer.textContent = remainingText.substring(0, mid);
+
+                if (testContainer.clientHeight <= (maxAllowedBottomPx - layerMainTop)) {
+                    bestCutIndex = mid;
+                    low = mid + 1; // 尝试放入更多字符
+                } else {
+                    high = mid - 1; // 溢出了，缩小字符
+                }
+            }
+
+            // 优先在换行符或自然标点处切断，保证阅读体验
+            let textToCut = remainingText.substring(0, bestCutIndex);
+            let naturalBreak = textToCut.lastIndexOf('\n');
+            if (naturalBreak > bestCutIndex * 0.6) {
+                bestCutIndex = naturalBreak + 1;
+            }
+
+            chunks.push(remainingText.substring(0, bestCutIndex));
+            remainingText = remainingText.substring(bestCutIndex);
+        }
+
+        canvasContainer.removeChild(testContainer);
+        AppState.pageChunks = chunks;
+
+        if (AppState.currentPageIndex >= chunks.length) {
+            AppState.currentPageIndex = Math.max(0, chunks.length - 1);
+        }
+
+        renderCurrentPage();
     }
 
-    function updateAllSync() {
-        const mText = mainInput.value;
-        const sText = subInput.value;
+    window.rebalanceTextFlow = rebalanceTextFlow;
 
-        layerMain.querySelector('.layer-content').textContent = mText;
-        layerSub.querySelector('.layer-content').textContent = sText;
+    function renderCurrentPage() {
+        const chunks = AppState.pageChunks || [""];
+        const curText = chunks[AppState.currentPageIndex] || "";
 
-        layerMain.querySelector('.layer-content').style.fontSize = mainSize.value + 'px';
-        layerMain.querySelector('.layer-content').style.color = mainColor.value;
-        mainSizeVal.textContent = mainSize.value + 'px';
+        mainInput.value = AppState.fullArticleText;
+        subInput.value = AppState.subText;
+        mainSize.value = AppState.mainFontSize;
+        mainSizeVal.textContent = AppState.mainFontSize + 'px';
+        subSize.value = AppState.subFontSize;
+        subSizeVal.textContent = AppState.subFontSize + 'px';
+        mainColor.value = AppState.mainColor;
+        subColor.value = AppState.subColor;
 
-        layerSub.querySelector('.layer-content').style.fontSize = subSize.value + 'px';
-        layerSub.querySelector('.layer-content').style.color = subColor.value;
-        subSizeVal.textContent = subSize.value + 'px';
+        mainContent.textContent = curText;
+        mainContent.style.fontSize = AppState.mainFontSize + 'px';
+        mainContent.style.color = AppState.mainColor;
 
-        AppState.mainText = mText;
-        AppState.subText = sText;
-        LocalDB.saveProject(AppState);
+        subContent.textContent = AppState.subText + (chunks.length > 1 ? ` (${AppState.currentPageIndex + 1}/${chunks.length})` : '');
+        subContent.style.fontSize = AppState.subFontSize + 'px';
+        subContent.style.color = AppState.subColor;
 
-        updateSidebarRight();
+        if (AppState.bgImage) {
+            coverBg.style.backgroundImage = `url(${AppState.bgImage})`;
+            coverBg.style.backgroundColor = 'transparent';
+        } else if (AppState.bgColor) {
+            canvasContainer.style.background = AppState.bgColor;
+            coverBg.style.backgroundImage = 'none';
+        }
+
+        document.querySelectorAll('.effect-btn').forEach(b => {
+            if (b.getAttribute('data-effect') === (AppState.currentEffect || 'normal')) {
+                b.click();
+            }
+        });
+
+        pageIndicator.textContent = `第 ${AppState.currentPageIndex + 1} / ${chunks.length} 页 (自动流排版)`;
+        updateSidebarRight(chunks);
     }
 
-    // 核心右侧面板更新逻辑：支持全特效对比矩阵（带固定/取消固定到前排）以及文本分页卡片预览下载
-    function updateSidebarRight() {
+    function updateSidebarRight(chunks) {
         const container = document.getElementById('sidebar-right-content');
         if (!container) return;
         container.innerHTML = '';
 
-        const canvasContainer = document.getElementById('canvas-container');
-        const currentBg = canvasContainer.style.background || AppState.bgColor;
-        const currentBgImage = AppState.bgImage ? `url(${AppState.bgImage})` : currentBg;
-        const sText = subInput.value;
-        const sColor = subColor.value;
-        const activeEffect = AppState.currentEffect;
+        const styleMeta = (window.EFFECT_STYLES && window.EFFECT_STYLES[AppState.currentEffect]) || { css: "text-shadow: 2px 2px 4px rgba(0,0,0,0.8);" };
+        const bgCss = AppState.bgImage ? `url(${AppState.bgImage})` : (AppState.bgColor || "linear-gradient(135deg, #2c3e50, #34495e)");
 
-        if (AppState.activeTab === 'effects') {
-            // 模式1：多特效风格对比矩阵预览
-            // 获取所有特效：包括当前选中的主选效果、被固定的效果、以及其它所有效果
-            const allEffects = Object.keys(window.EFFECT_STYLES || {});
-            
-            // 排序：先展示已固定的，再展示当前主选的，最后展示其余未选的
-            let sortedEffects = [];
-            AppState.pinnedEffects.forEach(eff => { if(!sortedEffects.includes(eff)) sortedEffects.push(eff); });
-            if (activeEffect && !sortedEffects.includes(activeEffect)) sortedEffects.push(activeEffect);
-            allEffects.forEach(eff => { if(!sortedEffects.includes(eff)) sortedEffects.push(eff); });
+        chunks.forEach((chunkText, idx) => {
+            const isCurrent = idx === AppState.currentPageIndex;
+            const cardEl = document.createElement('div');
+            cardEl.className = `matrix-card ${isCurrent ? 'active-page-card' : ''}`;
 
-            sortedEffects.forEach(effKey => {
-                const styleMeta = window.EFFECT_STYLES[effKey];
-                if (!styleMeta) return;
-
-                const isPinned = AppState.pinnedEffects.includes(effKey);
-                const isMainSelected = effKey === activeEffect;
-
-                const cardEl = document.createElement('div');
-                cardEl.className = 'matrix-card';
-                if (isMainSelected) cardEl.style.borderColor = '#ff3b5c';
-
-                cardEl.innerHTML = `
+            cardEl.innerHTML = `
+                <div class="matrix-thumb" style="background: ${bgCss}; background-size: cover; background-position: center;">
+                    <div style="font-size: 11px; font-weight: 800; ${styleMeta.css}; word-break: break-all; padding: 4px; overflow:hidden; max-height:140px;">${chunkText}</div>
+                    <div style="font-size: 8px; color: ${AppState.subColor}; margin-top: 2px; text-shadow: 1px 1px 2px rgba(0,0,0,0.8);">${AppState.subText} (${idx + 1}/${chunks.length})</div>
+                </div>
+                <div class="matrix-card-info">
                     <div class="matrix-card-header">
-                        <span>${styleMeta.name} ${isMainSelected ? '(当前主选)' : ''}</span>
-                        <div class="matrix-actions">
-                            <button class="btn-pin ${isPinned ? 'pinned' : ''}" data-eff="${effKey}">${isPinned ? '已固定置顶' : '固定效果'}</button>
-                            <button class="btn-download-thumb" data-eff="${effKey}"><i class="fa-solid fa-download"></i> 下载卡片</button>
-                        </div>
+                        <span>动态流封面 #${idx + 1} ${isCurrent ? '(当前)' : ''}</span>
                     </div>
-                    <div class="matrix-thumb" style="background: ${currentBgImage};">
-                        <div style="font-size: 16px; font-weight: 800; ${styleMeta.css}; word-break: break-all; padding: 10px;">${mainInput.value}</div>
-                        <div style="font-size: 11px; color: ${sColor}; margin-top: 6px; text-shadow: 1px 1px 2px rgba(0,0,0,0.8);">${sText}</div>
+                    <div class="matrix-actions">
+                        <button class="btn-select-page ${isCurrent ? 'active' : ''}" data-idx="${idx}">${isCurrent ? '编辑中' : '切到此页'}</button>
                     </div>
-                `;
+                </div>
+            `;
 
-                // 绑定固定按钮事件
-                cardEl.querySelector('.btn-pin').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (isPinned) {
-                        AppState.pinnedEffects = AppState.pinnedEffects.filter(k => k !== effKey);
-                    } else {
-                        AppState.pinnedEffects.push(effKey);
-                    }
-                    updateSidebarRight();
-                });
-
-                // 绑定单卡片点击下载事件
-                cardEl.querySelector('.btn-download-thumb').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    downloadThumbCard(styleMeta, mainInput.value, sText, currentBgImage);
-                });
-
-                container.appendChild(cardEl);
+            cardEl.querySelector('.matrix-thumb').addEventListener('click', () => {
+                AppState.currentPageIndex = idx;
+                renderCurrentPage();
             });
 
-        } else {
-            // 模式2：文本分页卡片预览
-            const pages = getPaginatedPages();
-            pages.forEach((pageText, idx) => {
-                const cardEl = document.createElement('div');
-                cardEl.className = 'matrix-card';
-                cardEl.innerHTML = `
-                    <div class="matrix-card-header">
-                        <span>分页卡片 #${idx + 1}</span>
-                        <div class="matrix-actions">
-                            <button class="btn-download-thumb" data-page="${idx}"><i class="fa-solid fa-download"></i> 下载此页</button>
-                        </div>
-                    </div>
-                    <div class="matrix-thumb" style="background: ${currentBgImage};">
-                        <div style="font-size: 18px; font-weight: 800; color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); word-break: break-all; padding: 10px;">${pageText}</div>
-                        <div style="font-size: 11px; color: ${sColor}; margin-top: 6px; text-shadow: 1px 1px 2px rgba(0,0,0,0.8);">${sText}</div>
-                    </div>
-                `;
-
-                cardEl.querySelector('.btn-download-thumb').addEventListener('click', () => {
-                    downloadPageCard(pageText, sText, currentBgImage, idx + 1);
-                });
-
-                container.appendChild(cardEl);
+            cardEl.querySelector('.btn-select-page').addEventListener('click', () => {
+                AppState.currentPageIndex = idx;
+                renderCurrentPage();
             });
-        }
-    }
 
-    window.updateSidebarRight = updateSidebarRight;
-
-    function downloadThumbCard(styleMeta, mainTxt, subTxt, bgImg) {
-        // 创建临时隐藏画布导出单张卡片
-        const tmp = document.createElement('div');
-        tmp.style.cssText = `position:fixed; top:-9999px; width:360px; height:640px; background:${bgImg}; background-size:cover; background-position:center; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:30px; text-align:center;`;
-        tmp.innerHTML = `
-            <div style="font-size:28px; font-weight:800; ${styleMeta.css}; word-break:break-all; margin-bottom:15px;">${mainTxt}</div>
-            <div style="font-size:16px; color:#ffeb3b; text-shadow:1px 1px 2px rgba(0,0,0,0.8);">${subTxt}</div>
-        `;
-        document.body.appendChild(tmp);
-        html2canvas(tmp, { scale: 2, useCORS: true }).then(canvas => {
-            const link = document.createElement('a');
-            link.download = `Cover_${styleMeta.name}_${Date.now()}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-            document.body.removeChild(tmp);
+            container.appendChild(cardEl);
         });
     }
 
-    function downloadPageCard(pageTxt, subTxt, bgImg, pageNum) {
-        const tmp = document.createElement('div');
-        tmp.style.cssText = `position:fixed; top:-9999px; width:360px; height:640px; background:${bgImg}; background-size:cover; background-position:center; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:30px; text-align:center;`;
-        tmp.innerHTML = `
-            <div style="font-size:32px; font-weight:800; color:#fff; text-shadow:2px 2px 6px rgba(0,0,0,0.9); word-break:break-all; margin-bottom:15px;">${pageTxt}</div>
-            <div style="font-size:16px; color:#ffeb3b; text-shadow:1px 1px 2px rgba(0,0,0,0.8);">${subTxt}</div>
-        `;
-        document.body.appendChild(tmp);
-        html2canvas(tmp, { scale: 2, useCORS: true }).then(canvas => {
-            const link = document.createElement('a');
-            link.download = `Page_${pageNum}_${Date.now()}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-            document.body.removeChild(tmp);
-        });
-    }
-
-    [mainInput, subInput, mainSize, subSize, mainColor, subColor, paginationModeSelect].forEach(el => {
-        if (el) {
-            el.addEventListener('input', updateAllSync);
-            el.addEventListener('change', updateAllSync);
+    btnPrevPage.addEventListener('click', () => {
+        if (AppState.currentPageIndex > 0) {
+            AppState.currentPageIndex--;
+            renderCurrentPage();
         }
     });
 
-    updateAllSync();
+    btnNextPage.addEventListener('click', () => {
+        if (AppState.currentPageIndex < (AppState.pageChunks.length - 1)) {
+            AppState.currentPageIndex++;
+            renderCurrentPage();
+        }
+    });
+
+    if (btnRebalance) {
+        btnRebalance.addEventListener('click', () => {
+            rebalanceTextFlow();
+        });
+    }
+
+    [mainInput, subInput, mainSize, subSize, mainColor, subColor].forEach(el => {
+        if (el) {
+            el.addEventListener('input', () => {
+                AppState.fullArticleText = mainInput.value;
+                AppState.subText = subInput.value;
+                AppState.mainFontSize = parseInt(mainSize.value);
+                AppState.mainColor = mainColor.value;
+                AppState.subFontSize = parseInt(subSize.value);
+                AppState.subColor = subColor.value;
+                LocalDB.saveProject(AppState);
+                rebalanceTextFlow();
+            });
+        }
+    });
+
+    setTimeout(rebalanceTextFlow, 150);
 });

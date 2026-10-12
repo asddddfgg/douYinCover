@@ -1,22 +1,18 @@
 const AppState = {
-    mainText: "爆款涨粉秘籍\n三天突破1万粉",
-    mainFontSize: 48,
+    currentPageIndex: 0,
+    fullArticleText: "爆款涨粉核心秘籍：\n三天突破1万粉丝播放量。\n全网都在寻找的超详细实操干货内容来了！\n在这里，我们引入了顶级专家级的【动态文本流引擎】。\n无论你如何拖拽改变中间正文框的高度、宽度，或者调整字号，文字都会在毫秒级内根据框体高度与底部防遮挡安全线进行精确计算。\n超出的文本会自动顺延推挤到下一页；当你拉大文本框时，下一页的文本又会自动无缝吸回！\n全过程无需手动切断，全自动保持绝对完美的排版疏密与艺术风格，一键打包导出 ZIP！",
+    mainFontSize: 36,
     mainColor: "#ffffff",
-    mainStrokeColor: "#000000",
-    
-    subText: "小白必看实操干货教程",
-    subFontSize: 28,
+    subText: "关注点赞，干货持续更新",
+    subFontSize: 24,
     subColor: "#ffeb3b",
-    
     currentEffect: "normal",
-    pinnedEffects: [], // 被固定的特效效果
-    customEffects: [],
     bgImage: "",
     bgColor: "linear-gradient(135deg, #2c3e50, #34495e)",
-    
-    paginationMode: "manual", // auto or manual
-    activeTab: "effects", // effects or cards
-    
+
+    // 各页独立保存的文本块（由 Flow Engine 动态重排生成）
+    pageChunks: [],
+
     stickersData: [
         { id: 1, cat: "badge", symbol: "🔥", name: "爆款" },
         { id: 2, cat: "badge", symbol: "💯", name: "满分" },

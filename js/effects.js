@@ -15,56 +15,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.EFFECT_STYLES = EFFECT_STYLES;
 
-    function bindEffectClicks() {
-        document.querySelectorAll('.effect-btn').forEach(btn => {
-            if (btn.dataset.bound) return;
-            btn.dataset.bound = "true";
+    document.querySelectorAll('.effect-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.effect-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
 
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.effect-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
+            const effect = btn.getAttribute('data-effect');
+            AppState.currentEffect = effect;
 
-                const effect = btn.getAttribute('data-effect');
-                AppState.currentEffect = effect;
-                applyEffectToMainCanvas(effect, btn.dataset.customStyle);
+            const mainContent = document.getElementById('main-layer-content');
+            if(mainContent) {
+                mainContent.style.cssText = `font-size: ${mainContent.style.fontSize}; color: ${mainContent.style.color};`;
+                mainContent.style.background = 'none';
+                mainContent.style.webkitBackgroundClip = 'initial';
+                mainContent.style.webkitTextFillColor = 'initial';
 
-                if (typeof updateSidebarRight === 'function') {
-                    updateSidebarRight();
-                }
-            });
-        });
-    }
-
-    bindEffectClicks();
-    window.bindEffectClicks = bindEffectClicks;
-
-    function applyEffectToMainCanvas(effect, customStyleStr = null) {
-        const mainContent = layerMain.querySelector('.layer-content');
-        mainContent.style.cssText = `font-size: ${mainContent.style.fontSize}; color: ${mainContent.style.color};`;
-        mainContent.style.background = 'none';
-        mainContent.style.webkitBackgroundClip = 'initial';
-        mainContent.style.webkitTextFillColor = 'initial';
-
-        if (customStyleStr) {
-            const obj = JSON.parse(customStyleStr);
-            if (obj.shadow) mainContent.style.textShadow = obj.shadow;
-            if (obj.color) {
-                if (obj.color.includes('gradient')) {
-                    mainContent.style.background = obj.color;
-                    mainContent.style.webkitBackgroundClip = 'text';
-                    mainContent.style.webkitTextFillColor = 'transparent';
-                } else {
-                    mainContent.style.color = obj.color;
+                const preset = EFFECT_STYLES[effect];
+                if (preset) {
+                    mainContent.style.cssText += ";" + preset.css;
                 }
             }
-            return;
-        }
-
-        const preset = EFFECT_STYLES[effect];
-        if (preset) {
-            mainContent.style.cssText += ";" + preset.css;
-        }
-    }
-
-    window.applyEffectToMainCanvas = applyEffectToMainCanvas;
+        });
+    });
 });
