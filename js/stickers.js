@@ -1,17 +1,78 @@
-/**
- * js/stickers.js - 贴纸与印章系统
- */
-const StickersLibrary = [
-    { id: 'stk-1', category: 'badge', emoji: '🔥', name: '爆款火苗' },
-    { id: 'stk-2', category: 'badge', emoji: '💯', name: '满分印章' },
-    { id: 'stk-3', category: 'badge', emoji: '⭐', name: '金星徽章' },
-    { id: 'stk-4', category: 'badge', emoji: '💎', name: '钻石精选' },
-    { id: 'stk-5', category: 'arrow', emoji: '👇', name: '向下引导' },
-    { id: 'stk-6', category: 'arrow', emoji: '👉', name: '向右引导' },
-    { id: 'stk-7', category: 'emoji', emoji: '🚀', name: '火箭加速' },
-    { id: 'stk-8', category: 'emoji', emoji: '💡', name: '灵感灯泡' },
-    { id: 'stk-9', category: 'tag', emoji: '⚡', name: '闪电快讯' },
-    { id: 'stk-10', category: 'tag', emoji: '🎯', name: '精准定位' },
-    { id: 'stk-11', category: 'badge', emoji: '🏆', name: '冠军奖杯' },
-    { id: 'stk-12', category: 'emoji', emoji: '✨', name: '魔法星光' }
-];
+// 贴纸模块：分类查看、添加、右键控制与拖拽
+document.addEventListener('DOMContentLoaded', () => {
+    const grid = document.getElementById('sticker-grid');
+    const catBtns = document.querySelectorAll('.cat-btn');
+    const canvasContainer = document.getElementById('canvas-container');
+    const stickerCount = document.getElementById('sticker-count');
+
+    if (stickerCount) {
+        stickerCount.textContent = "72+";
+    }
+
+    function renderStickers(cat = 'all') {
+        grid.innerHTML = '';
+        // 扩展生成72个模拟贴纸以便满足“全部（72）”
+        let fullList = [...AppState.stickersData];
+        if (fullList.length < 72) {
+            const symbols = ['🔥', '💯', '⭐', '👑', '🚀', '💰', '⚡', '🎯', '💡', '📌', '🎁', '💎', '🎉', '🌟', '💥', '✨'];
+            for (let i = fullList.length + 1; i <= 72; i++) {
+                fullList.push({
+                    id: i,
+                    cat: ['badge', 'arrow', 'emoji', 'hot'][i % 4],
+                    symbol: symbols[i % symbols.length],
+                    name: '贴纸' + i
+                });
+            }
+        }
+
+        const filtered = cat === 'all' ? fullList : fullList.filter(s => s.cat === cat);
+        
+        filtered.forEach(item => {
+            const el = document.createElement('div');
+            el.className = 'sticker-item';
+            el.innerHTML = item.symbol;
+            el.title = item.name;
+            el.addEventListener('click', () => {
+                addStickerToCanvas(item.symbol);
+            });
+            grid.appendChild(el);
+        });
+    }
+
+    catBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            catBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderStickers(btn.getAttribute('data-cat'));
+        });
+    });
+
+    renderStickers('all');
+
+    function addStickerToCanvas(symbol) {
+        const layerId = 'sticker-' + Date.now();
+        const layer = document.createElement('div');
+        layer.className = 'draggable-layer sticker-layer active';
+        layer.id = layerId;
+        layer.style.top = '50%';
+        layer.style.left = '50%';
+        layer.style.transform = 'translate(-50%, -50%)';
+        layer.innerHTML = `
+            <div class="layer-content" style="font-size: 50px;">${symbol}</div>
+            <div class="resize-handle top-left" data-handle="tl"></div>
+            <div class="resize-handle top-right" data-handle="tr"></div>
+            <div class="resize-handle bottom-left" data-handle="bl"></div>
+            <div class="resize-handle bottom-right" data-handle="br"></div>
+        `;
+        
+        // 激活并绑定拖拽
+        document.querySelectorAll('.draggable-layer').forEach(l => l.classList.remove('active'));
+        canvasContainer.appendChild(layer);
+        
+        if (typeof initDragAndResize === 'function') {
+            initDragAndResize(layer);
+        }
+    }
+
+    window.addStickerToCanvas = addStickerToCanvas;
+});

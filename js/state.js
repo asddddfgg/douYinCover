@@ -1,45 +1,42 @@
-/**
- * js/state.js - 全局状态管理
- */
-const state = {
-    text: "抖音爆款文字排版与 AE 质感特效生成器",
-    fontSize: 64,
-    lineHeight: 1.2,
-    letterSpacing: 0,
-    align: "center",
-    bold: true,
-    textColor: "#ffffff",
-    boxBg: "transparent",
-    bgImage: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1080&auto=format&fit=crop",
-    bgBrightness: 100,
-    bgOpacity: 50,
-    viewMode: "single",
-    exportScale: 2,
-    textBox: { x: 50, y: 50, w: 320, h: 400 },
-    savedBgs: [],
-    enabledEffects: [],
-    stickers: [
-        { id: 's1', emoji: '🔥', x: 20, y: 15, scale: 1 },
-        { id: 's2', emoji: '✨', x: 75, y: 20, scale: 1 }
+// 全局状态管理
+const AppState = {
+    mainText: "爆款涨粉秘籍",
+    mainFontSize: 48,
+    mainColor: "#ffffff",
+    mainStrokeColor: "#000000",
+    
+    subText: "3天突破10000粉丝播放",
+    subFontSize: 28,
+    subColor: "#ffeb3b",
+    
+    currentEffect: "normal",
+    bgImage: "",
+    bgColor: "linear-gradient(135deg, #2c3e50, #34495e)",
+    
+    activeLayerId: "layer-main-title",
+    
+    stickersData: [
+        { id: 1, cat: "badge", symbol: "🔥", name: "爆款" },
+        { id: 2, cat: "badge", symbol: "💯", name: "满分" },
+        { id: 3, cat: "badge", symbol: "⭐", name: "推荐" },
+        { id: 4, cat: "badge", symbol: "👑", name: "王者" },
+        { id: 5, cat: "arrow", symbol: "➡️", name: "右箭头" },
+        { id: 6, cat: "arrow", symbol: "⬆️", name: "上箭头" },
+        { id: 7, cat: "arrow", symbol: "🔥", name: "涨粉" },
+        { id: 8, cat: "arrow", symbol: "👉", name: "点击" },
+        { id: 9, cat: "emoji", symbol: "😂", name: "笑哭" },
+        { id: 10, cat: "emoji", symbol: "😱", name: "震惊" },
+        { id: 11, cat: "emoji", symbol: "🤔", name: "思考" },
+        { id: 12, cat: "emoji", symbol: "😎", name: "酷" },
+        { id: 13, cat: "hot", symbol: "💰", name: "财富" },
+        { id: 14, cat: "hot", symbol: "🚀", name: "起飞" },
+        { id: 15, cat: "hot", symbol: "🎯", name: "精准" },
+        { id: 16, cat: "hot", symbol: "⚡", name: "闪电" }
     ],
-    textLayers: [
-        { id: 'l1', text: '⚡ 独家精选爆款', x: 50, y: 10, fontSize: 16, color: '#05D9E8' },
-        { id: 'l2', text: '✨ AE PRO STUDIO', x: 50, y: 88, fontSize: 14, color: '#FFE600' }
-    ],
-    presets: []
-};
 
-// State persistence & listener helper
-const StateManager = {
-    subscribers: [],
-    subscribe(callback) {
-        this.subscribers.push(callback);
-    },
-    notify() {
-        this.subscribers.forEach(cb => cb(state));
-    },
-    update(partial) {
-        Object.assign(state, partial);
-        this.notify();
-    }
+    templates: [
+        { id: 1, title: "科技干货风", bg: "linear-gradient(135deg, #0f2027, #203a43, #2c5364)", main: "干货分享", sub: "小白必看教程" },
+        { id: 2, title: "情感励志风", bg: "linear-gradient(135deg, #ff4e50, #f9d423)", main: "人间清醒", sub: "改变命运的思维" },
+        { id: 3, title: "商业财商风", bg: "linear-gradient(135deg, #134e5e, #71b280)", main: "财富密码", sub: "普通人逆袭指南" }
+    ]
 };

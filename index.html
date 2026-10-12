@@ -3,246 +3,182 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音爆款文字排版与 AE 质感特效生成器 | Douyin Text FX Studio</title>
+    <title>抖音爆款封面设计器 - 专业版</title>
     <link rel="stylesheet" href="style.css">
-    <!-- html2canvas for export -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <!-- FontAwesome for Pro UI icons -->
+    <!-- FontAwesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <div id="app" class="app-container">
-        <!-- Top Navigation Bar -->
+    <div class="app-container">
+        <!-- 顶部导航栏 -->
         <header class="app-header">
-            <div class="brand">
-                <div class="logo-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
-                <div class="brand-title">
-                    <h1>抖音特效文字工坊</h1>
-                    <span>Douyin Text FX & AE Studio Pro</span>
-                </div>
+            <div class="logo">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>抖音爆款封面设计专家</span>
             </div>
             <div class="header-actions">
-                <button id="btn-preset-library" class="btn secondary" title="预设模板库"><i class="fa-solid fa-layer-group"></i> 模板库</button>
-                <button id="btn-save-project" class="btn secondary" title="保存项目到本地"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
-                <button id="btn-batch-export" class="btn primary glow" title="一键批量导出所有特效卡片"><i class="fa-solid fa-cloud-arrow-down"></i> 批量导出卡片</button>
+                <button id="btn-templates" class="btn secondary"><i class="fa-solid fa-layer-group"></i> 模板库</button>
+                <button id="btn-upload-bg" class="btn secondary"><i class="fa-solid fa-image"></i> 本地背景</button>
+                <input type="file" id="bg-file-input" accept="image/*" style="display: none;">
+                <button id="btn-export" class="btn primary"><i class="fa-solid fa-download"></i> 导出封面</button>
             </div>
         </header>
 
-        <!-- Main Workspace -->
-        <div class="workspace">
-            <!-- Left Sidebar: Controls & Rich Formatting -->
-            <aside class="sidebar-left" id="control-sidebar">
-                <div class="sidebar-tabs">
-                    <button class="tab-btn active" data-tab="tab-content"><i class="fa-solid fa-pen-nib"></i> 文案与图层</button>
-                    <button class="tab-btn" data-tab="tab-style"><i class="fa-solid fa-palette"></i> 排版与样式</button>
-                    <button class="tab-btn" data-tab="tab-stickers"><i class="fa-solid fa-face-smile"></i> 贴纸与装饰</button>
-                    <button class="tab-btn" data-tab="tab-bg"><i class="fa-solid fa-image"></i> 背景与封面</button>
+        <!-- 主体工作区 -->
+        <div class="main-workspace">
+            <!-- 左侧控制面板 -->
+            <aside class="sidebar-left">
+                <div class="panel-section">
+                    <h3><i class="fa-solid fa-heading"></i> 主标题设置</h3>
+                    <div class="form-group">
+                        <textarea id="main-title-text" rows="2" placeholder="输入主标题文案...">爆款涨粉秘籍</textarea>
+                    </div>
+                    <div class="form-row">
+                        <label>字体大小: <span id="main-size-val">48px</span></label>
+                        <input type="range" id="main-font-size" min="20" max="100" value="48">
+                    </div>
+                    <div class="form-row">
+                        <label>文字颜色</label>
+                        <input type="color" id="main-text-color" value="#ffffff">
+                    </div>
+                    <div class="form-row">
+                        <label>描边颜色</label>
+                        <input type="color" id="main-stroke-color" value="#000000">
+                    </div>
                 </div>
 
-                <div class="tab-content-container">
-                    <!-- Tab 1: Text & Layers -->
-                    <div class="tab-panel active" id="tab-content">
-                        <div class="control-group">
-                            <label><i class="fa-solid fa-keyboard"></i> 主文案输入</label>
-                            <textarea id="main-text-input" rows="3" placeholder="输入你想展示的抖音爆款文案，支持自动排版与物理分页...">抖音爆款文字排版与 AE 质感特效生成器</textarea>
-                            <div class="helper-text">双击画布文字框可直接编辑，支持回车换行。</div>
-                        </div>
-
-                        <!-- Independent Text Layers Integration -->
-                        <div class="control-group layer-manager-section">
-                            <div class="section-header-row">
-                                <label><i class="fa-solid fa-layer-group"></i> 独立副标题/角标图层</label>
-                                <button id="btn-add-text-layer" class="btn-xs primary"><i class="fa-solid fa-plus"></i> 添加图层</button>
-                            </div>
-                            <div id="text-layers-list" class="layers-list">
-                                <!-- Dynamically populated text layers -->
-                            </div>
-                        </div>
-
-                        <div class="control-group">
-                            <label><i class="fa-solid fa-book-open"></i> 分页与溢出控制</label>
-                            <div class="segmented-control" id="view-mode-toggle">
-                                <button class="seg-btn active" data-mode="single">单页卡片</button>
-                                <button class="seg-btn" data-mode="pagination">自动物理分页</button>
-                            </div>
-                        </div>
+                <div class="panel-section">
+                    <h3><i class="fa-solid fa-align-left"></i> 副标题设置</h3>
+                    <div class="form-group">
+                        <textarea id="sub-title-text" rows="2" placeholder="输入副标题文案...">3天突破10000粉丝播放</textarea>
                     </div>
-
-                    <!-- Tab 2: Typography & Style (Integrated Control Toolbar) -->
-                    <div class="tab-panel" id="tab-style">
-                        <!-- Typography Basic Controls -->
-                        <div class="control-section-title"><i class="fa-solid fa-font"></i> 基础排版参数</div>
-                        
-                        <div class="control-row-grid">
-                            <div class="control-item">
-                                <label>字号大小 (<span id="val-font-size">64</span>px)</label>
-                                <input type="range" id="input-font-size" min="24" max="160" value="64">
-                            </div>
-                            <div class="control-item">
-                                <label>行间距 (<span id="val-line-height">1.2</span>)</label>
-                                <input type="range" id="input-line-height" min="1.0" max="2.5" step="0.05" value="1.2">
-                            </div>
-                        </div>
-
-                        <div class="control-row-grid">
-                            <div class="control-item">
-                                <label>字间距 (<span id="val-letter-spacing">0</span>px)</label>
-                                <input type="range" id="input-letter-spacing" min="-5" max="30" value="0">
-                            </div>
-                            <div class="control-item">
-                                <label>文本对齐</label>
-                                <div class="btn-group-toggle" id="align-group">
-                                    <button class="icon-btn active" data-align="left" title="左对齐"><i class="fa-solid fa-align-left"></i></button>
-                                    <button class="icon-btn" data-align="center" title="居中对齐"><i class="fa-solid fa-align-center"></i></button>
-                                    <button class="icon-btn" data-align="right" title="右对齐"><i class="fa-solid fa-align-right"></i></button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="control-row-grid">
-                            <div class="control-item">
-                                <label>全局字重</label>
-                                <button id="btn-toggle-bold" class="btn-toggle active"><i class="fa-solid fa-bold"></i> 加粗 (900)</button>
-                            </div>
-                            <div class="control-item">
-                                <label>文字基础色</label>
-                                <div class="color-picker-wrapper">
-                                    <input type="color" id="input-text-color" value="#ffffff">
-                                    <button id="btn-reset-text-color" class="btn-xs">重置白</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Rich Text Box Background Color Buttons (黄粉青 + 封面精选色) -->
-                        <div class="control-section-title"><i class="fa-solid fa-fill-drip"></i> 文本卡片底色 & 封面主题</div>
-                        <div class="bg-preset-palette" id="box-bg-palette">
-                            <button class="bg-swatch" data-bg="transparent" style="background: rgba(0,0,0,0.3); border: 1px dashed rgba(255,255,255,0.4);" title="透明"></button>
-                            <!-- 黄粉青系列 -->
-                            <button class="bg-swatch" data-bg="#FFE600" style="background: #FFE600;" title="爆款明黄"></button>
-                            <button class="bg-swatch" data-bg="#FF2A6D" style="background: #FF2A6D;" title="霓虹粉红"></button>
-                            <button class="bg-swatch" data-bg="#05D9E8" style="background: #05D9E8;" title="赛博青蓝"></button>
-                            <!-- 封面经典色 -->
-                            <button class="bg-swatch" data-bg="#0B0F19" style="background: #0B0F19; border: 1px solid #333;" title="暗夜黑曜"></button>
-                            <button class="bg-swatch" data-bg="#1A103C" style="background: #1A103C;" title="极夜紫金"></button>
-                            <button class="bg-swatch" data-bg="#0D1B2A" style="background: #0D1B2A;" title="深海蓝调"></button>
-                            <button class="bg-swatch" data-bg="#FFFFFF" style="background: #FFFFFF;" title="纯净亮白"></button>
-                            <button class="bg-swatch" data-bg="linear-gradient(135deg, #FF0844 0%, #FFB199 100%)" style="background: linear-gradient(135deg, #FF0844 0%, #FFB199 100%);" title="落日余晖"></button>
-                            <button class="bg-swatch" data-bg="linear-gradient(135deg, #00C6FF 0%, #0072FF 100%)" style="background: linear-gradient(135deg, #00C6FF 0%, #0072FF 100%);" title="未来科技"></button>
-                        </div>
+                    <div class="form-row">
+                        <label>字体大小: <span id="sub-size-val">28px</span></label>
+                        <input type="range" id="sub-font-size" min="16" max="60" value="28">
                     </div>
-
-                    <!-- Tab 3: Stickers & Decorations -->
-                    <div class="tab-panel" id="tab-stickers">
-                        <div class="control-section-title"><i class="fa-solid fa-icons"></i> 抖音爆款贴纸 & 印章</div>
-                        <div class="sticker-category-bar">
-                            <button class="filter-chip active" data-category="all">全部</button>
-                            <button class="filter-chip" data-category="badge">徽章印章</button>
-                            <button class="filter-chip" data-category="arrow">箭头引导</button>
-                            <button class="filter-chip" data-category="emoji">表情符号</button>
-                            <button class="filter-chip" data-category="tag">热门标签</button>
-                        </div>
-                        <div id="stickers-grid" class="stickers-grid">
-                            <!-- Populated via stickers.js -->
-                        </div>
+                    <div class="form-row">
+                        <label>文字颜色</label>
+                        <input type="color" id="sub-text-color" value="#ffeb3b">
                     </div>
+                </div>
 
-                    <!-- Tab 4: Background & Cover -->
-                    <div class="tab-panel" id="tab-bg">
-                        <div class="control-section-title"><i class="fa-solid fa-photo-film"></i> 封面背景与滤镜</div>
-                        
-                        <div class="control-group">
-                            <label>背景图片 URL / 本地上传</label>
-                            <div class="file-upload-row">
-                                <input type="file" id="bg-file-input" accept="image/*" style="display:none;">
-                                <button id="btn-upload-bg" class="btn secondary full-width"><i class="fa-solid fa-upload"></i> 选择本地背景图</button>
-                            </div>
-                        </div>
+                <div class="panel-section">
+                    <h3><i class="fa-solid fa-palette"></i> 一键特效风格</h3>
+                    <div class="effect-buttons" id="effect-presets">
+                        <button class="effect-btn active" data-effect="normal">默认样式</button>
+                        <button class="effect-btn" data-effect="neon">霓虹发光</button>
+                        <button class="effect-btn" data-effect="cyber">赛博机甲</button>
+                        <button class="effect-btn" data-effect="gradient">双色渐变</button>
+                        <button class="effect-btn" data-effect="stereo">3D立体</button>
+                        <button class="effect-btn" data-effect="glitch">故障艺术</button>
+                    </div>
+                </div>
 
-                        <div class="control-row-grid">
-                            <div class="control-item">
-                                <label>背景亮度 (<span id="val-bg-brightness">100</span>%)</label>
-                                <input type="range" id="input-bg-brightness" min="20" max="200" value="100">
-                            </div>
-                            <div class="control-item">
-                                <label>背景遮罩不透明度 (<span id="val-bg-opacity">50</span>%)</label>
-                                <input type="range" id="input-bg-opacity" min="0" max="100" value="50">
-                            </div>
-                        </div>
-
-                        <div class="control-section-title">精选预设背景</div>
-                        <div class="bg-presets-grid" id="bg-presets-grid">
-                            <!-- Preset background swatches -->
-                        </div>
+                <div class="panel-section">
+                    <h3><i class="fa-solid fa-icons"></i> 贴纸库 (<span id="sticker-count">72</span>)</h3>
+                    <div class="sticker-categories" id="sticker-cats">
+                        <button class="cat-btn active" data-cat="all">全部</button>
+                        <button class="cat-btn" data-cat="badge">徽章</button>
+                        <button class="cat-btn" data-cat="arrow">箭头</button>
+                        <button class="cat-btn" data-cat="emoji">表情</button>
+                        <button class="cat-btn" data-cat="hot">热点</button>
+                    </div>
+                    <div class="sticker-grid" id="sticker-grid">
+                        <!-- 动态填充 -->
                     </div>
                 </div>
             </aside>
 
-            <!-- Center Canvas Area: 70+ Effects Preview Cards Grid -->
-            <main class="canvas-workspace">
-                <div class="workspace-toolbar">
-                    <div class="search-effects">
-                        <i class="fa-solid fa-magnifying-glass"></i>
-                        <input type="text" id="effect-search-input" placeholder="搜索 72 种 AE 质感/抖音爆款特效...">
+            <!-- 中间预览与编辑区 -->
+            <main class="preview-area">
+                <div class="canvas-container" id="canvas-container">
+                    <!-- 背景图 -->
+                    <div class="cover-bg" id="cover-bg"></div>
+                    <!-- 安全线提示 -->
+                    <div class="safe-line">
+                        <span class="safe-text">抖音推荐/评论区防遮挡安全线</span>
                     </div>
-                    <div class="filter-effects">
-                        <button class="chip active" data-filter="all">全部 (72)</button>
-                        <button class="chip" data-filter="neon">霓虹发光</button>
-                        <button class="chip" data-filter="cyber">赛博机甲</button>
-                        <button class="chip" data-filter="duotone">双色渐变</button>
-                        <button class="chip" data-filter="3d">3D立体</button>
-                        <button class="chip" data-filter="glitch">故障艺术</button>
+
+                    <!-- 主标题图层 -->
+                    <div class="draggable-layer text-layer active" id="layer-main-title" style="top: 40%; left: 50%; transform: translate(-50%, -50%);">
+                        <div class="layer-content" contenteditable="true" spellcheck="false">爆款涨粉秘籍</div>
+                        <div class="resize-handle top-left" data-handle="tl"></div>
+                        <div class="resize-handle top-right" data-handle="tr"></div>
+                        <div class="resize-handle bottom-left" data-handle="bl"></div>
+                        <div class="resize-handle bottom-right" data-handle="br"></div>
+                    </div>
+
+                    <!-- 副标题图层 -->
+                    <div class="draggable-layer text-layer" id="layer-sub-title" style="top: 60%; left: 50%; transform: translate(-50%, -50%);">
+                        <div class="layer-content" contenteditable="true" spellcheck="false">3天突破10000粉丝播放</div>
+                        <div class="resize-handle top-left" data-handle="tl"></div>
+                        <div class="resize-handle top-right" data-handle="tr"></div>
+                        <div class="resize-handle bottom-left" data-handle="bl"></div>
+                        <div class="resize-handle bottom-right" data-handle="br"></div>
                     </div>
                 </div>
-
-                <div class="cards-scroll-container">
-                    <div id="effects-cards-grid" class="effects-grid">
-                        <!-- Dynamically rendered 72 effect preview cards -->
-                    </div>
+                <div class="preview-tip">
+                    <i class="fa-solid fa-circle-info"></i> 提示：双击图层文字可直接编辑；拖拽四周控制柄（重点是右下角）缩放；右键可复制或删除图层。
                 </div>
             </main>
+
+            <!-- 右侧多卡片同步预览面板 -->
+            <aside class="sidebar-right">
+                <h3><i class="fa-solid fa-clone"></i> 多尺寸/多卡片同步效果</h3>
+                <div class="sync-cards-container" id="sync-cards-container">
+                    <div class="sync-card" data-card-id="1">
+                        <div class="card-preview-thumb" id="thumb-1">
+                            <div class="thumb-title">爆款涨粉秘籍</div>
+                            <div class="thumb-sub">3天突破10000粉丝播放</div>
+                        </div>
+                        <span>竖屏封面 (9:16)</span>
+                    </div>
+                    <div class="sync-card" data-card-id="2">
+                        <div class="card-preview-thumb landscape" id="thumb-2">
+                            <div class="thumb-title">爆款涨粉秘籍</div>
+                        </div>
+                        <span>横屏视频 (16:9)</span>
+                    </div>
+                    <div class="sync-card" data-card-id="3">
+                        <div class="card-preview-thumb square" id="thumb-3">
+                            <div class="thumb-title">爆款涨粉秘籍</div>
+                        </div>
+                        <span>正方形封面 (1:1)</span>
+                    </div>
+                </div>
+            </aside>
         </div>
     </div>
 
-    <!-- Right-Click Context Menu -->
-    <div id="context-menu" class="context-menu hidden">
+    <!-- 模态框：模板库 -->
+    <div class="modal" id="template-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>选择爆款封面模板</h3>
+                <button class="close-modal" id="close-template-modal">&times;</button>
+            </div>
+            <div class="modal-body" id="template-grid">
+                <!-- 动态模板 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 右键菜单 -->
+    <div class="context-menu" id="context-menu">
         <ul>
-            <li data-action="edit-text"><i class="fa-solid fa-pen"></i> 编辑文字内容</li>
-            <li data-action="center-align"><i class="fa-solid fa-align-center"></i> 居中对齐当前卡片</li>
-            <li data-action="toggle-bold"><i class="fa-solid fa-bold"></i> 切换加粗状态</li>
-            <li data-action="add-sticker"><i class="fa-solid fa-face-smile"></i> 添加随机热门贴纸</li>
-            <li data-action="reset-box"><i class="fa-solid fa-rotate-right"></i> 重置文本框尺寸与位置</li>
-            <li data-action="export-single"><i class="fa-solid fa-download"></i> 导出当前特效高清卡片</li>
+            <li id="menu-copy"><i class="fa-solid fa-copy"></i> 复制图层</li>
+            <li id="menu-delete"><i class="fa-solid fa-trash"></i> 删除图层</li>
         </ul>
     </div>
 
-    <!-- Modals / Export Dialog -->
-    <div id="export-modal" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3><i class="fa-solid fa-file-arrow-down"></i> 批量导出抖音高清卡片</h3>
-                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="modal-body">
-                <p>已准备好导出全部勾选的高清文字特效卡片 (9:16 竖屏短视频尺寸 / 1080x1920)。</p>
-                <div class="export-progress-bar" id="export-progress">
-                    <div class="progress-fill" style="width: 0%"></div>
-                </div>
-                <div id="export-status-text">准备就绪...</div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn secondary close-modal">取消</button>
-                <button id="btn-start-batch" class="btn primary">开始打包下载 (.zip / 批量图片)</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Script modules -->
+    <!-- JS 依赖 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="js/state.js"></script>
     <script src="js/db.js"></script>
-    <script src="js/effects.js"></script>
     <script src="js/stickers.js"></script>
     <script src="js/text-layers.js"></script>
     <script src="js/drag.js"></script>
+    <script src="js/effects.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
