@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音爆款封面设计器 - 专业版</title>
+    <title>抖音爆款封面设计器 - 专业版 v3</title>
     <link rel="stylesheet" href="style.css">
-    <!-- FontAwesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -34,7 +33,7 @@
                         <textarea id="main-title-text" rows="2" placeholder="输入主标题文案...">爆款涨粉秘籍</textarea>
                     </div>
                     <div class="form-row">
-                        <label>字体大小: <span id="main-size-val">48px</span></label>
+                        <label>字号大小: <span id="main-size-val">48px</span></label>
                         <input type="range" id="main-font-size" min="20" max="100" value="48">
                     </div>
                     <div class="form-row">
@@ -53,7 +52,7 @@
                         <textarea id="sub-title-text" rows="2" placeholder="输入副标题文案...">3天突破10000粉丝播放</textarea>
                     </div>
                     <div class="form-row">
-                        <label>字体大小: <span id="sub-size-val">28px</span></label>
+                        <label>字号大小: <span id="sub-size-val">28px</span></label>
                         <input type="range" id="sub-font-size" min="16" max="60" value="28">
                     </div>
                     <div class="form-row">
@@ -63,14 +62,20 @@
                 </div>
 
                 <div class="panel-section">
-                    <h3><i class="fa-solid fa-palette"></i> 一键特效风格</h3>
+                    <h3><i class="fa-solid fa-palette"></i> 一键特效风格 (实时多卡片同步)</h3>
                     <div class="effect-buttons" id="effect-presets">
                         <button class="effect-btn active" data-effect="normal">默认样式</button>
-                        <button class="effect-btn" data-effect="neon">霓虹发光</button>
-                        <button class="effect-btn" data-effect="cyber">赛博机甲</button>
                         <button class="effect-btn" data-effect="gradient">双色渐变</button>
+                        <button class="effect-btn" data-effect="neon">霓虹发光</button>
                         <button class="effect-btn" data-effect="stereo">3D立体</button>
+                        <button class="effect-btn" data-effect="cyber">赛博机甲</button>
                         <button class="effect-btn" data-effect="glitch">故障艺术</button>
+                        <button class="effect-btn" data-effect="retro">复古港风</button>
+                        <button class="effect-btn" data-effect="gold">暗金奢华</button>
+                        <button class="effect-btn" data-effect="fire">烈火熔岩</button>
+                    </div>
+                    <div class="custom-style-box" style="margin-top: 12px;">
+                        <button id="btn-custom-style" class="btn secondary" style="width: 100%; justify-content: center;"><i class="fa-solid fa-plus"></i> 自定义上传/添加新风格</button>
                     </div>
                 </div>
 
@@ -83,68 +88,48 @@
                         <button class="cat-btn" data-cat="emoji">表情</button>
                         <button class="cat-btn" data-cat="hot">热点</button>
                     </div>
-                    <div class="sticker-grid" id="sticker-grid">
-                        <!-- 动态填充 -->
-                    </div>
+                    <div class="sticker-grid" id="sticker-grid"></div>
                 </div>
             </aside>
 
             <!-- 中间预览与编辑区 -->
             <main class="preview-area">
                 <div class="canvas-container" id="canvas-container">
-                    <!-- 背景图 -->
                     <div class="cover-bg" id="cover-bg"></div>
-                    <!-- 安全线提示 -->
                     <div class="safe-line">
                         <span class="safe-text">抖音推荐/评论区防遮挡安全线</span>
                     </div>
 
-                    <!-- 主标题图层 -->
-                    <div class="draggable-layer text-layer active" id="layer-main-title" style="top: 40%; left: 50%; transform: translate(-50%, -50%);">
+                    <!-- 主标题图层：支持固定左顶点拖动、右侧拖拽改变容器宽/高而字号不变 -->
+                    <div class="draggable-layer text-layer active" id="layer-main-title" style="top: 40%; left: 10%; width: 280px; height: auto;">
                         <div class="layer-content" contenteditable="true" spellcheck="false">爆款涨粉秘籍</div>
                         <div class="resize-handle top-left" data-handle="tl"></div>
                         <div class="resize-handle top-right" data-handle="tr"></div>
                         <div class="resize-handle bottom-left" data-handle="bl"></div>
                         <div class="resize-handle bottom-right" data-handle="br"></div>
+                        <div class="resize-handle right-edge" data-handle="r" title="拖动改变宽度/高度，字号不变"></div>
                     </div>
 
                     <!-- 副标题图层 -->
-                    <div class="draggable-layer text-layer" id="layer-sub-title" style="top: 60%; left: 50%; transform: translate(-50%, -50%);">
+                    <div class="draggable-layer text-layer" id="layer-sub-title" style="top: 60%; left: 10%; width: 280px; height: auto;">
                         <div class="layer-content" contenteditable="true" spellcheck="false">3天突破10000粉丝播放</div>
                         <div class="resize-handle top-left" data-handle="tl"></div>
                         <div class="resize-handle top-right" data-handle="tr"></div>
                         <div class="resize-handle bottom-left" data-handle="bl"></div>
                         <div class="resize-handle bottom-right" data-handle="br"></div>
+                        <div class="resize-handle right-edge" data-handle="r" title="拖动改变宽度/高度，字号不变"></div>
                     </div>
                 </div>
                 <div class="preview-tip">
-                    <i class="fa-solid fa-circle-info"></i> 提示：双击图层文字可直接编辑；拖拽四周控制柄（重点是右下角）缩放；右键可复制或删除图层。
+                    <i class="fa-solid fa-circle-info"></i> 提示：右侧边缘手柄拖拽可改变文本框宽高而不改变字号；四角拖拽可缩放字号；右键可复制/删除。
                 </div>
             </main>
 
-            <!-- 右侧多卡片同步预览面板 -->
+            <!-- 右侧多卡片同步预览面板 (联动特效风格、文案、背景等) -->
             <aside class="sidebar-right">
-                <h3><i class="fa-solid fa-clone"></i> 多尺寸/多卡片同步效果</h3>
+                <h3><i class="fa-solid fa-clone"></i> 多风格/多卡片实时同步预览</h3>
                 <div class="sync-cards-container" id="sync-cards-container">
-                    <div class="sync-card" data-card-id="1">
-                        <div class="card-preview-thumb" id="thumb-1">
-                            <div class="thumb-title">爆款涨粉秘籍</div>
-                            <div class="thumb-sub">3天突破10000粉丝播放</div>
-                        </div>
-                        <span>竖屏封面 (9:16)</span>
-                    </div>
-                    <div class="sync-card" data-card-id="2">
-                        <div class="card-preview-thumb landscape" id="thumb-2">
-                            <div class="thumb-title">爆款涨粉秘籍</div>
-                        </div>
-                        <span>横屏视频 (16:9)</span>
-                    </div>
-                    <div class="sync-card" data-card-id="3">
-                        <div class="card-preview-thumb square" id="thumb-3">
-                            <div class="thumb-title">爆款涨粉秘籍</div>
-                        </div>
-                        <span>正方形封面 (1:1)</span>
-                    </div>
+                    <!-- 动态根据特效和卡片生成同步效果 -->
                 </div>
             </aside>
         </div>
@@ -157,8 +142,31 @@
                 <h3>选择爆款封面模板</h3>
                 <button class="close-modal" id="close-template-modal">&times;</button>
             </div>
-            <div class="modal-body" id="template-grid">
-                <!-- 动态模板 -->
+            <div class="modal-body" id="template-grid"></div>
+        </div>
+    </div>
+
+    <!-- 模态框：自定义风格添加 -->
+    <div class="modal" id="custom-style-modal">
+        <div class="modal-content" style="width: 450px;">
+            <div class="modal-header">
+                <h3>添加自定义特效风格</h3>
+                <button class="close-modal" id="close-custom-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
+                <div class="form-group">
+                    <label>风格名称</label>
+                    <input type="text" id="custom-style-name" placeholder="例如：极光炫彩" style="width:100%; padding:8px; background:#252525; border:1px solid #333; color:#fff; border-radius:4px;">
+                </div>
+                <div class="form-group">
+                    <label>CSS 文字阴影 (text-shadow)</label>
+                    <input type="text" id="custom-style-shadow" placeholder="0 0 15px #00ffcc, 0 0 30px #00ffcc" style="width:100%; padding:8px; background:#252525; border:1px solid #333; color:#fff; border-radius:4px;">
+                </div>
+                <div class="form-group">
+                    <label>文字渐变或颜色</label>
+                    <input type="text" id="custom-style-color" placeholder="#00ffcc 或 linear-gradient(...)" style="width:100%; padding:8px; background:#252525; border:1px solid #333; color:#fff; border-radius:4px;">
+                </div>
+                <button id="btn-save-custom-style" class="btn primary" style="justify-content: center; margin-top: 10px;">保存并应用新风格</button>
             </div>
         </div>
     </div>
@@ -171,7 +179,6 @@
         </ul>
     </div>
 
-    <!-- JS 依赖 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="js/state.js"></script>
     <script src="js/db.js"></script>

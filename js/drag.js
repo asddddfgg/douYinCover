@@ -1,11 +1,11 @@
-// 拖拽、安全线限制、四边/四角缩放控制
 function initDragAndResize(layer) {
     const canvasContainer = document.getElementById('canvas-container');
     const content = layer.querySelector('.layer-content');
 
+    // 拖拽移动（固定左顶点定位计算）
     layer.addEventListener('mousedown', (e) => {
-        if (e.target.classList.contains('resize-handle') || e.target.classList.contains('layer-content') && document.activeElement === e.target) {
-            return; // 点在手柄或正在编辑文本时不触发拖拽面板
+        if (e.target.classList.contains('resize-handle') || (e.target.classList.contains('layer-content') && document.activeElement === e.target)) {
+            return;
         }
         
         document.querySelectorAll('.draggable-layer').forEach(l => l.classList.remove('active'));
@@ -14,12 +14,8 @@ function initDragAndResize(layer) {
 
         const startX = e.clientX;
         const startY = e.clientY;
-        
-        const rect = layer.getBoundingClientRect();
-        const containerRect = canvasContainer.getBoundingClientRect();
-
-        let initialLeft = layer.offsetLeft;
-        let initialTop = layer.offsetTop;
+        const initialLeft = layer.offsetLeft;
+        const initialTop = layer.offsetTop;
 
         function onMouseMove(moveEvent) {
             let dx = moveEvent.clientX - startX;
@@ -28,7 +24,6 @@ function initDragAndResize(layer) {
             let newLeft = initialLeft + dx;
             let newTop = initialTop + dy;
 
-            // 限制不能超出整个编辑画面 (安全区域边界约束)
             const maxLeft = canvasContainer.clientWidth - layer.offsetWidth;
             const maxTop = canvasContainer.clientHeight - layer.offsetHeight;
 
@@ -37,7 +32,6 @@ function initDragAndResize(layer) {
 
             layer.style.left = newLeft + 'px';
             layer.style.top = newTop + 'px';
-            layer.style.transform = 'none';
         }
 
         function onMouseUp() {
@@ -49,21 +43,27 @@ function initDragAndResize(layer) {
         window.addEventListener('mouseup', onMouseUp);
     });
 
-    // 缩放逻辑 (支持从四个角/右下角拖拽缩放)
-    const handles = layer.querySelectorAll('.resize-handle');
+    // 四角缩放字号大小
+    const handles = layer.querySelectorAll('.resize-handle:not(.right-edge)');
     handles.forEach(handle => {
         handle.addEventListener('mousedown', (e) => {
             e.stopPropagation();
             const startX = e.clientX;
-            const startY = e.clientY;
             const startFontSize = parseFloat(window.getComputedStyle(content).fontSize);
 
             function onResizeMove(moveEvent) {
                 const dx = moveEvent.clientX - startX;
-                // 根据拖拽距离计算字体缩放
                 let newSize = startFontSize + (dx * 0.2);
                 newSize = Math.max(12, Math.min(newSize, 120));
                 content.style.fontSize = newSize + 'px';
+                
+                // 同步更新左侧滑动条
+                if(layer.id === 'layer-main-title') {
+                    const range = document.getElementById('main-font-size');
+                    const val = document.getElementById('main-size-val');
+                    if(range) range.value = Math.round(newSize);
+                    if(val) val.textContent = Math.round(newSize) + 'px';
+                }
             }
 
             function onResizeUp() {
@@ -75,6 +75,31 @@ function initDragAndResize(layer) {
             window.addEventListener('mouseup', onResizeUp);
         });
     });
+
+    // 右侧边缘手柄拖拽：仅改变文本框容器的宽度（宽、高变化），而内里字号大小绝对不变
+    const rightEdgeHandle = layer.querySelector('.resize-handle.right-edge');
+    if(rightEdgeHandle) {
+        rightEdgeHandle.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            const startX = e.clientX;
+            const startWidth = layer.offsetWidth;
+
+            function onWidthMove(moveEvent) {
+                const dx = moveEvent.clientX - startX;
+                let newWidth = startWidth + dx;
+                newWidth = Math.max(80, Math.min(newWidth, canvasContainer.clientWidth - layer.offsetLeft));
+                layer.style.width = newWidth + 'px';
+            }
+
+            function onWidthUp() {
+                window.removeEventListener('mousemove', onWidthMove);
+                window.removeEventListener('mouseup', onWidthUp);
+            }
+
+            window.addEventListener('mousemove', onWidthMove);
+            window.addEventListener('mouseup', onWidthUp);
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -82,7 +107,6 @@ document.addEventListener('DOMContentLoaded', () => {
         initDragAndResize(layer);
     });
 
-    // 右键菜单与复制/删除逻辑
     const contextMenu = document.getElementById('context-menu');
     const menuDelete = document.getElementById('menu-delete');
     const menuCopy = document.getElementById('menu-copy');

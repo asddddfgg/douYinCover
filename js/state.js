@@ -1,4 +1,3 @@
-// 全局状态管理
 const AppState = {
     mainText: "爆款涨粉秘籍",
     mainFontSize: 48,
@@ -10,6 +9,7 @@ const AppState = {
     subColor: "#ffeb3b",
     
     currentEffect: "normal",
+    customEffects: [],
     bgImage: "",
     bgColor: "linear-gradient(135deg, #2c3e50, #34495e)",
     
