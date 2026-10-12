@@ -1,17 +1,13 @@
-// 贴纸模块：分类查看、添加、右键控制与拖拽
 document.addEventListener('DOMContentLoaded', () => {
     const grid = document.getElementById('sticker-grid');
     const catBtns = document.querySelectorAll('.cat-btn');
     const canvasContainer = document.getElementById('canvas-container');
     const stickerCount = document.getElementById('sticker-count');
 
-    if (stickerCount) {
-        stickerCount.textContent = "72+";
-    }
+    if (stickerCount) stickerCount.textContent = "72+";
 
     function renderStickers(cat = 'all') {
         grid.innerHTML = '';
-        // 扩展生成72个模拟贴纸以便满足“全部（72）”
         let fullList = [...AppState.stickersData];
         if (fullList.length < 72) {
             const symbols = ['🔥', '💯', '⭐', '👑', '🚀', '💰', '⚡', '🎯', '💡', '📌', '🎁', '💎', '🎉', '🌟', '💥', '✨'];
@@ -26,15 +22,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const filtered = cat === 'all' ? fullList : fullList.filter(s => s.cat === cat);
-        
         filtered.forEach(item => {
             const el = document.createElement('div');
             el.className = 'sticker-item';
             el.innerHTML = item.symbol;
             el.title = item.name;
-            el.addEventListener('click', () => {
-                addStickerToCanvas(item.symbol);
-            });
+            el.addEventListener('click', () => addStickerToCanvas(item.symbol));
             grid.appendChild(el);
         });
     }
@@ -64,15 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="resize-handle bottom-left" data-handle="bl"></div>
             <div class="resize-handle bottom-right" data-handle="br"></div>
         `;
-        
-        // 激活并绑定拖拽
         document.querySelectorAll('.draggable-layer').forEach(l => l.classList.remove('active'));
         canvasContainer.appendChild(layer);
-        
-        if (typeof initDragAndResize === 'function') {
-            initDragAndResize(layer);
-        }
+        if (typeof initDragAndResize === 'function') initDragAndResize(layer);
     }
-
-    window.addStickerToCanvas = addStickerToCanvas;
 });

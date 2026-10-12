@@ -1,12 +1,22 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const effectButtons = document.querySelectorAll('.effect-btn');
     const layerMain = document.getElementById('layer-main-title');
-    const layerSub = document.getElementById('layer-sub-title');
 
-    // 绑定内置与动态特效按钮点击
+    const EFFECT_STYLES = {
+        normal: { name: "默认样式", css: "text-shadow: 2px 2px 4px rgba(0,0,0,0.8);" },
+        gradient: { name: "双色渐变", css: "background: linear-gradient(45deg, #ff3b5c, #ffeb3b); -webkit-background-clip: text; -webkit-text-fill-color: transparent;" },
+        neon: { name: "霓虹发光", css: "text-shadow: 0 0 10px #ff00de, 0 0 20px #ff00de, 0 0 40px #ff00de; color: #fff;" },
+        stereo: { name: "3D立体", css: "text-shadow: 2px 2px 0px #333, 4px 4px 0px #222, 6px 6px 0px #111, 8px 8px 10px rgba(0,0,0,0.8);" },
+        cyber: { name: "赛博机甲", css: "text-shadow: 3px 3px 0px #00ffff, -3px -3px 0px #ff0055; color: #ffff00;" },
+        glitch: { name: "故障艺术", css: "text-shadow: 2px 0 #ff0055, -2px 0 #00ffff;" },
+        retro: { name: "复古港风", css: "text-shadow: 3px 3px 0px #d35400, 6px 6px 0px #c0392b; color: #f1c40f;" },
+        gold: { name: "暗金奢华", css: "background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 2px 2px 4px rgba(0,0,0,0.6);" },
+        fire: { name: "烈火熔岩", css: "text-shadow: 0 0 8px #ff4500, 0 0 20px #ff8c00, 0 0 35px #ff0000; color: #ffe4b5;" }
+    };
+
+    window.EFFECT_STYLES = EFFECT_STYLES;
+
     function bindEffectClicks() {
         document.querySelectorAll('.effect-btn').forEach(btn => {
-            // 避免重复绑定
             if (btn.dataset.bound) return;
             btn.dataset.bound = "true";
 
@@ -16,11 +26,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const effect = btn.getAttribute('data-effect');
                 AppState.currentEffect = effect;
-                applyEffectToLayers(effect, btn.dataset.customStyle);
-                
-                // 触发右侧卡片实时同步预览更新
-                if (typeof updateSyncCards === 'function') {
-                    updateSyncCards();
+                applyEffectToMainCanvas(effect, btn.dataset.customStyle);
+
+                if (typeof updateSidebarRight === 'function') {
+                    updateSidebarRight();
                 }
             });
         });
@@ -29,68 +38,33 @@ document.addEventListener('DOMContentLoaded', () => {
     bindEffectClicks();
     window.bindEffectClicks = bindEffectClicks;
 
-    function applyEffectToLayers(effect, customStyleObj = null) {
+    function applyEffectToMainCanvas(effect, customStyleStr = null) {
         const mainContent = layerMain.querySelector('.layer-content');
-        
-        // 重置基础样式
         mainContent.style.cssText = `font-size: ${mainContent.style.fontSize}; color: ${mainContent.style.color};`;
         mainContent.style.background = 'none';
         mainContent.style.webkitBackgroundClip = 'initial';
         mainContent.style.webkitTextFillColor = 'initial';
 
-        if (customStyleObj) {
-            if (customStyleObj.shadow) mainContent.style.textShadow = customStyleObj.shadow;
-            if (customStyleObj.color) {
-                if (customStyleObj.color.includes('gradient')) {
-                    mainContent.style.background = customStyleObj.color;
+        if (customStyleStr) {
+            const obj = JSON.parse(customStyleStr);
+            if (obj.shadow) mainContent.style.textShadow = obj.shadow;
+            if (obj.color) {
+                if (obj.color.includes('gradient')) {
+                    mainContent.style.background = obj.color;
                     mainContent.style.webkitBackgroundClip = 'text';
                     mainContent.style.webkitTextFillColor = 'transparent';
                 } else {
-                    mainContent.style.color = customStyleObj.color;
+                    mainContent.style.color = obj.color;
                 }
             }
             return;
         }
 
-        switch(effect) {
-            case 'gradient':
-                mainContent.style.background = 'linear-gradient(45deg, #ff3b5c, #ffeb3b)';
-                mainContent.style.webkitBackgroundClip = 'text';
-                mainContent.style.webkitTextFillColor = 'transparent';
-                break;
-            case 'neon':
-                mainContent.style.textShadow = '0 0 10px #ff00de, 0 0 20px #ff00de, 0 0 40px #ff00de';
-                mainContent.style.color = '#fff';
-                break;
-            case 'stereo':
-                mainContent.style.textShadow = '2px 2px 0px #333, 4px 4px 0px #222, 6px 6px 0px #111, 8px 8px 10px rgba(0,0,0,0.8)';
-                break;
-            case 'cyber':
-                mainContent.style.textShadow = '3px 3px 0px #00ffff, -3px -3px 0px #ff0055';
-                mainContent.style.color = '#ffff00';
-                break;
-            case 'glitch':
-                mainContent.style.textShadow = '2px 0 #ff0055, -2px 0 #00ffff';
-                break;
-            case 'retro':
-                mainContent.style.textShadow = '3px 3px 0px #d35400, 6px 6px 0px #c0392b';
-                mainContent.style.color = '#f1c40f';
-                break;
-            case 'gold':
-                mainContent.style.background = 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)';
-                mainContent.style.webkitBackgroundClip = 'text';
-                mainContent.style.webkitTextFillColor = 'transparent';
-                mainContent.style.textShadow = '2px 2px 4px rgba(0,0,0,0.6)';
-                break;
-            case 'fire':
-                mainContent.style.textShadow = '0 0 8px #ff4500, 0 0 20px #ff8c00, 0 0 35px #ff0000';
-                mainContent.style.color = '#ffe4b5';
-                break;
-            default:
-                mainContent.style.textShadow = '2px 2px 4px rgba(0,0,0,0.8)';
-                break;
+        const preset = EFFECT_STYLES[effect];
+        if (preset) {
+            mainContent.style.cssText += ";" + preset.css;
         }
     }
 
-    window.applyEffectToLayers = applyEffectToLayers;
+    window.applyEffectToMainCanvas = applyEffectToMainCanvas;
 });

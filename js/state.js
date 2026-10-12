@@ -1,19 +1,21 @@
 const AppState = {
-    mainText: "爆款涨粉秘籍",
+    mainText: "爆款涨粉秘籍\n三天突破1万粉",
     mainFontSize: 48,
     mainColor: "#ffffff",
     mainStrokeColor: "#000000",
     
-    subText: "3天突破10000粉丝播放",
+    subText: "小白必看实操干货教程",
     subFontSize: 28,
     subColor: "#ffeb3b",
     
     currentEffect: "normal",
+    pinnedEffects: [], // 被固定的特效效果
     customEffects: [],
     bgImage: "",
     bgColor: "linear-gradient(135deg, #2c3e50, #34495e)",
     
-    activeLayerId: "layer-main-title",
+    paginationMode: "manual", // auto or manual
+    activeTab: "effects", // effects or cards
     
     stickersData: [
         { id: 1, cat: "badge", symbol: "🔥", name: "爆款" },
@@ -35,8 +37,8 @@ const AppState = {
     ],
 
     templates: [
-        { id: 1, title: "科技干货风", bg: "linear-gradient(135deg, #0f2027, #203a43, #2c5364)", main: "干货分享", sub: "小白必看教程" },
-        { id: 2, title: "情感励志风", bg: "linear-gradient(135deg, #ff4e50, #f9d423)", main: "人间清醒", sub: "改变命运的思维" },
-        { id: 3, title: "商业财商风", bg: "linear-gradient(135deg, #134e5e, #71b280)", main: "财富密码", sub: "普通人逆袭指南" }
+        { id: 1, title: "科技干货风", bg: "linear-gradient(135deg, #0f2027, #203a43, #2c5364)", main: "干货分享\n小白必看", sub: "教程合集" },
+        { id: 2, title: "情感励志风", bg: "linear-gradient(135deg, #ff4e50, #f9d423)", main: "人间清醒\n认知觉醒", sub: "改变思维" },
+        { id: 3, title: "商业财商风", bg: "linear-gradient(135deg, #134e5e, #71b280)", main: "财富密码\n逆袭指南", sub: "搞钱必备" }
     ]
 };

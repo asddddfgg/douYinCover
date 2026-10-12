@@ -34,8 +34,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .preview-area { flex: 1; background-color: #0d0d0d; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; padding: 20px; }
 .canvas-container { width: 360px; height: 640px; background: linear-gradient(135deg, #2c3e50, #34495e); position: relative; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 2px solid #333; }
 .cover-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-position: center; z-index: 1; }
-.safe-line { position: absolute; top: 15%; bottom: 15%; left: 10%; right: 10%; border: 1px dashed rgba(255, 255, 255, 0.4); pointer-events: none; z-index: 2; display: flex; justify-content: center; align-items: flex-end; }
-.safe-text { font-size: 10px; color: rgba(255, 255, 255, 0.5); background: rgba(0, 0, 0, 0.4); padding: 2px 6px; border-radius: 3px; margin-bottom: -8px; }
+
+/* 去掉了虚线框和安全线文字提示，保留隐藏安全区边界约束 */
+.safe-line-hidden { position: absolute; top: 15%; bottom: 15%; left: 10%; right: 10%; pointer-events: none; z-index: 2; display: none; }
 
 .draggable-layer { position: absolute; z-index: 10; cursor: move; user-select: none; padding: 8px; border: 2px solid transparent; transition: border-color 0.1s; }
 .draggable-layer.active { border-color: #ff3b5c; }
@@ -47,20 +48,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .resize-handle.top-right { top: -5px; right: -5px; cursor: nesw-resize; }
 .resize-handle.bottom-left { bottom: -5px; left: -5px; cursor: nesw-resize; }
 .resize-handle.bottom-right { bottom: -5px; right: -5px; cursor: nwse-resize; }
-/* 右侧边缘宽度调整手柄：拖动改变宽/高而不变字号 */
 .resize-handle.right-edge { top: 50%; right: -6px; transform: translateY(-50%); width: 8px; height: 24px; border-radius: 4px; cursor: ew-resize; background: #00ffcc; display: none; }
 .draggable-layer.active .resize-handle.right-edge { display: block; }
 
 .preview-tip { margin-top: 15px; font-size: 12px; color: #777; display: flex; align-items: center; gap: 6px; }
 
-/* 右侧多卡片同步预览面板 */
-.sync-cards-container { display: flex; flex-direction: column; gap: 14px; }
-.sync-card { background: #202020; border: 1px solid #2d2d2d; border-radius: 8px; padding: 10px; display: flex; align-items: center; gap: 12px; }
-.sync-card-thumb { width: 90px; height: 160px; background: #111; border-radius: 4px; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 6px; text-align: center; background-size: cover; background-position: center; }
-.sync-card-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.sync-card-title { font-size: 12px; font-weight: bold; color: #fff; }
-.sync-card-sub { font-size: 10px; color: #ffeb3b; }
-.sync-card-tag { font-size: 11px; background: #2d2d2d; padding: 2px 6px; border-radius: 4px; display: inline-block; color: #ff3b5c; width: fit-content; }
+/* 右侧矩阵卡片 */
+.tab-btn { background: #252525; border: 1px solid #333; color: #aaa; padding: 6px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; flex: 1; text-align: center; }
+.tab-btn.active { background: #ff3b5c; color: #fff; border-color: #ff3b5c; }
+
+.matrix-card { background: #202020; border: 1px solid #2d2d2d; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; position: relative; }
+.matrix-card-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #bbb; }
+.matrix-thumb { width: 100%; height: 180px; background: #111; border-radius: 6px; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 10px; text-align: center; background-size: cover; background-position: center; }
+.matrix-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.btn-pin { background: #2d2d2d; border: 1px solid #444; color: #fff; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; }
+.btn-pin.pinned { background: #ff3b5c; border-color: #ff3b5c; }
+.btn-download-thumb { background: #333; border: none; color: #fff; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; }
+.btn-download-thumb:hover { background: #ff3b5c; }
 
 /* 模态框 */
 .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }

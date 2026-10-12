@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. 本地背景图上传生效
     const btnUploadBg = document.getElementById('btn-upload-bg');
     const bgFileInput = document.getElementById('bg-file-input');
     const coverBg = document.getElementById('cover-bg');
@@ -19,8 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     AppState.bgImage = imageUrl;
                     LocalDB.saveProject(AppState);
 
-                    if (typeof updateSyncCards === 'function') {
-                        updateSyncCards();
+                    if (typeof updateSidebarRight === 'function') {
+                        updateSidebarRight();
                     }
                 };
                 reader.readAsDataURL(file);
@@ -28,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 2. 模板库弹窗
+    // 模板库
     const btnTemplates = document.getElementById('btn-templates');
     const templateModal = document.getElementById('template-modal');
     const closeTemplateModal = document.getElementById('close-template-modal');
@@ -73,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('main-title-text').dispatchEvent(new Event('input'));
     }
 
-    // 3. 自定义特效风格弹窗
+    // 自定义特效
     const btnCustomStyle = document.getElementById('btn-custom-style');
     const customModal = document.getElementById('custom-style-modal');
     const closeCustomModal = document.getElementById('close-custom-modal');
@@ -103,10 +102,17 @@ document.addEventListener('DOMContentLoaded', () => {
             newBtn.textContent = name;
             newBtn.dataset.customStyle = JSON.stringify({ shadow, color });
 
+            // 同时注册到全局 EFFECT_STYLES
+            if (window.EFFECT_STYLES) {
+                window.EFFECT_STYLES[effectKey] = {
+                    name: name,
+                    css: `${shadow ? 'text-shadow: '+shadow+';' : ''} ${color ? (color.includes('gradient') ? 'background:'+color+'; -webkit-background-clip:text; -webkit-text-fill-color:transparent;' : 'color:'+color+';') : ''}`
+                };
+            }
+
             effectPresetsContainer.appendChild(newBtn);
             customModal.style.display = 'none';
 
-            // 重新绑定点击事件
             if (typeof window.bindEffectClicks === 'function') {
                 window.bindEffectClicks();
             }
@@ -115,16 +121,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 4. 导出封面图片
+    // 导出无虚线框、无安全线文字的高清图片
     const btnExport = document.getElementById('btn-export');
     if (btnExport) {
         btnExport.addEventListener('click', () => {
             const container = document.getElementById('canvas-container');
+            // 临时取消所有图层的选中激活状态（去掉红框和控制柄）
             document.querySelectorAll('.draggable-layer').forEach(l => l.classList.remove('active'));
 
             html2canvas(container, { scale: 2, useCORS: true }).then(canvas => {
                 const link = document.createElement('a');
-                link.download = `DouyinCover_${Date.now()}.png`;
+                link.download = `DouyinCover_Clean_${Date.now()}.png`;
                 link.href = canvas.toDataURL('image/png');
                 link.click();
             }).catch(err => {

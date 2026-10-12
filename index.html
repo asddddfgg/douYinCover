@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音爆款封面设计器 - 专业版 v3</title>
+    <title>抖音爆款封面设计器 - 专家专业版 v4</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -19,7 +19,7 @@
                 <button id="btn-templates" class="btn secondary"><i class="fa-solid fa-layer-group"></i> 模板库</button>
                 <button id="btn-upload-bg" class="btn secondary"><i class="fa-solid fa-image"></i> 本地背景</button>
                 <input type="file" id="bg-file-input" accept="image/*" style="display: none;">
-                <button id="btn-export" class="btn primary"><i class="fa-solid fa-download"></i> 导出封面</button>
+                <button id="btn-export" class="btn primary"><i class="fa-solid fa-download"></i> 导出封面图片</button>
             </div>
         </header>
 
@@ -28,9 +28,17 @@
             <!-- 左侧控制面板 -->
             <aside class="sidebar-left">
                 <div class="panel-section">
-                    <h3><i class="fa-solid fa-heading"></i> 主标题设置</h3>
+                    <h3><i class="fa-solid fa-heading"></i> 主标题设置 (支持自动/手动分页)</h3>
                     <div class="form-group">
-                        <textarea id="main-title-text" rows="2" placeholder="输入主标题文案...">爆款涨粉秘籍</textarea>
+                        <textarea id="main-title-text" rows="3" placeholder="输入主标题文案，支持多页或回车手动分页...">爆款涨粉秘籍
+三天突破1万粉</textarea>
+                    </div>
+                    <div class="form-row">
+                        <label>分页模式</label>
+                        <select id="pagination-mode" style="background:#252525; color:#fff; border:1px solid #333; padding:4px 8px; border-radius:4px;">
+                            <option value="auto">字数溢出自动分页</option>
+                            <option value="manual" selected>按回车符号(换行)手控分页</option>
+                        </select>
                     </div>
                     <div class="form-row">
                         <label>字号大小: <span id="main-size-val">48px</span></label>
@@ -40,16 +48,12 @@
                         <label>文字颜色</label>
                         <input type="color" id="main-text-color" value="#ffffff">
                     </div>
-                    <div class="form-row">
-                        <label>描边颜色</label>
-                        <input type="color" id="main-stroke-color" value="#000000">
-                    </div>
                 </div>
 
                 <div class="panel-section">
                     <h3><i class="fa-solid fa-align-left"></i> 副标题设置</h3>
                     <div class="form-group">
-                        <textarea id="sub-title-text" rows="2" placeholder="输入副标题文案...">3天突破10000粉丝播放</textarea>
+                        <textarea id="sub-title-text" rows="2" placeholder="输入副标题文案...">小白必看实操干货教程</textarea>
                     </div>
                     <div class="form-row">
                         <label>字号大小: <span id="sub-size-val">28px</span></label>
@@ -62,7 +66,7 @@
                 </div>
 
                 <div class="panel-section">
-                    <h3><i class="fa-solid fa-palette"></i> 一键特效风格 (实时多卡片同步)</h3>
+                    <h3><i class="fa-solid fa-palette"></i> 一键特效风格 (点击主选效果)</h3>
                     <div class="effect-buttons" id="effect-presets">
                         <button class="effect-btn active" data-effect="normal">默认样式</button>
                         <button class="effect-btn" data-effect="gradient">双色渐变</button>
@@ -74,13 +78,13 @@
                         <button class="effect-btn" data-effect="gold">暗金奢华</button>
                         <button class="effect-btn" data-effect="fire">烈火熔岩</button>
                     </div>
-                    <div class="custom-style-box" style="margin-top: 12px;">
-                        <button id="btn-custom-style" class="btn secondary" style="width: 100%; justify-content: center;"><i class="fa-solid fa-plus"></i> 自定义上传/添加新风格</button>
+                    <div style="margin-top: 10px;">
+                        <button id="btn-custom-style" class="btn secondary" style="width: 100%; justify-content: center;"><i class="fa-solid fa-plus"></i> 自定义上传/添加新特效</button>
                     </div>
                 </div>
 
                 <div class="panel-section">
-                    <h3><i class="fa-solid fa-icons"></i> 贴纸库 (<span id="sticker-count">72</span>)</h3>
+                    <h3><i class="fa-solid fa-icons"></i> 贴纸库 (72+)</h3>
                     <div class="sticker-categories" id="sticker-cats">
                         <button class="cat-btn active" data-cat="all">全部</button>
                         <button class="cat-btn" data-cat="badge">徽章</button>
@@ -92,16 +96,15 @@
                 </div>
             </aside>
 
-            <!-- 中间预览与编辑区 -->
+            <!-- 中间预览与编辑区 (已无虚线框和安全线文字) -->
             <main class="preview-area">
                 <div class="canvas-container" id="canvas-container">
                     <div class="cover-bg" id="cover-bg"></div>
-                    <div class="safe-line">
-                        <span class="safe-text">抖音推荐/评论区防遮挡安全线</span>
-                    </div>
+                    <!-- 安全线（仅保留隐形防遮挡区约束，不显示虚线和文字） -->
+                    <div class="safe-line-hidden"></div>
 
-                    <!-- 主标题图层：支持固定左顶点拖动、右侧拖拽改变容器宽/高而字号不变 -->
-                    <div class="draggable-layer text-layer active" id="layer-main-title" style="top: 40%; left: 10%; width: 280px; height: auto;">
+                    <!-- 主标题图层：支持固定左顶点拖动、右侧边缘拖拽改变宽/高而字号不变 -->
+                    <div class="draggable-layer text-layer active" id="layer-main-title" style="top: 35%; left: 10%; width: 280px; height: auto;">
                         <div class="layer-content" contenteditable="true" spellcheck="false">爆款涨粉秘籍</div>
                         <div class="resize-handle top-left" data-handle="tl"></div>
                         <div class="resize-handle top-right" data-handle="tr"></div>
@@ -111,8 +114,8 @@
                     </div>
 
                     <!-- 副标题图层 -->
-                    <div class="draggable-layer text-layer" id="layer-sub-title" style="top: 60%; left: 10%; width: 280px; height: auto;">
-                        <div class="layer-content" contenteditable="true" spellcheck="false">3天突破10000粉丝播放</div>
+                    <div class="draggable-layer text-layer" id="layer-sub-title" style="top: 65%; left: 10%; width: 280px; height: auto;">
+                        <div class="layer-content" contenteditable="true" spellcheck="false">小白必看实操干货教程</div>
                         <div class="resize-handle top-left" data-handle="tl"></div>
                         <div class="resize-handle top-right" data-handle="tr"></div>
                         <div class="resize-handle bottom-left" data-handle="bl"></div>
@@ -121,15 +124,19 @@
                     </div>
                 </div>
                 <div class="preview-tip">
-                    <i class="fa-solid fa-circle-info"></i> 提示：右侧边缘手柄拖拽可改变文本框宽高而不改变字号；四角拖拽可缩放字号；右键可复制/删除。
+                    <i class="fa-solid fa-circle-info"></i> 提示：右侧边缘手柄可改变文本框宽高而不变字号；文本框支持回车手控分页生成多个分页卡片。
                 </div>
             </main>
 
-            <!-- 右侧多卡片同步预览面板 (联动特效风格、文案、背景等) -->
+            <!-- 右侧多特效对比矩阵与分页卡片预览面板 -->
             <aside class="sidebar-right">
-                <h3><i class="fa-solid fa-clone"></i> 多风格/多卡片实时同步预览</h3>
-                <div class="sync-cards-container" id="sync-cards-container">
-                    <!-- 动态根据特效和卡片生成同步效果 -->
+                <h3><i class="fa-solid fa-grip"></i> 全特效矩阵预览 & 文本分页卡片</h3>
+                <div class="tab-switches" style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <button class="tab-btn active" id="tab-effects-matrix">多特效风格对比矩阵</button>
+                    <button class="tab-btn" id="tab-paginated-cards">文本分页卡片预览</button>
+                </div>
+                <div class="sidebar-right-content" id="sidebar-right-content" style="display: flex; flex-direction: column; gap: 14px; overflow-y: auto; max-height: calc(100vh - 140px);">
+                    <!-- 动态渲染内容 -->
                 </div>
             </aside>
         </div>
@@ -146,7 +153,7 @@
         </div>
     </div>
 
-    <!-- 模态框：自定义风格添加 -->
+    <!-- 模态框：自定义特效风格添加 -->
     <div class="modal" id="custom-style-modal">
         <div class="modal-content" style="width: 450px;">
             <div class="modal-header">

@@ -2,7 +2,6 @@ function initDragAndResize(layer) {
     const canvasContainer = document.getElementById('canvas-container');
     const content = layer.querySelector('.layer-content');
 
-    // 拖拽移动（固定左顶点定位计算）
     layer.addEventListener('mousedown', (e) => {
         if (e.target.classList.contains('resize-handle') || (e.target.classList.contains('layer-content') && document.activeElement === e.target)) {
             return;
@@ -43,7 +42,7 @@ function initDragAndResize(layer) {
         window.addEventListener('mouseup', onMouseUp);
     });
 
-    // 四角缩放字号大小
+    // 四角缩放字号
     const handles = layer.querySelectorAll('.resize-handle:not(.right-edge)');
     handles.forEach(handle => {
         handle.addEventListener('mousedown', (e) => {
@@ -57,7 +56,6 @@ function initDragAndResize(layer) {
                 newSize = Math.max(12, Math.min(newSize, 120));
                 content.style.fontSize = newSize + 'px';
                 
-                // 同步更新左侧滑动条
                 if(layer.id === 'layer-main-title') {
                     const range = document.getElementById('main-font-size');
                     const val = document.getElementById('main-size-val');
@@ -76,7 +74,7 @@ function initDragAndResize(layer) {
         });
     });
 
-    // 右侧边缘手柄拖拽：仅改变文本框容器的宽度（宽、高变化），而内里字号大小绝对不变
+    // 右侧边缘手柄：仅改变容器宽度/高度，字号大小绝对不变
     const rightEdgeHandle = layer.querySelector('.resize-handle.right-edge');
     if(rightEdgeHandle) {
         rightEdgeHandle.addEventListener('mousedown', (e) => {
