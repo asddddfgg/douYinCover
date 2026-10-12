@@ -1,159 +1,128 @@
-function initDragAndResize(layer) {
-    const canvasContainer = document.getElementById('canvas-container');
-    const safeBottomLine = document.getElementById('safe-bottom-line');
+// Professional Canva Drag, Resize & Double-Click Inline ContentEditable Interaction
+function initDragModule() {
+    const wrapper = document.getElementById('layers-wrapper');
+    if (!wrapper) return;
 
-    layer.addEventListener('mousedown', (e) => {
-        if (e.target.classList.contains('resize-handle')) return;
-        
-        document.querySelectorAll('.draggable-layer').forEach(l => l.classList.remove('active'));
-        layer.classList.add('active');
+    let isDragging = false;
+    let isResizing = false;
+    let resizeDirection = null;
+    let dragLayer = null;
+    let startX = 0, startY = 0;
+    let initX = 0, initY = 0;
+    let initWidth = 0, initHeight = 0;
 
-        const startX = e.clientX;
-        const startY = e.clientY;
-        const initialLeft = layer.offsetLeft;
-        const initialTop = layer.offsetTop;
-
-        function onMouseMove(moveEvent) {
-            let dx = moveEvent.clientX - startX;
-            let dy = moveEvent.clientY - startY;
-
-            let newLeft = initialLeft + dx;
-            let newTop = initialTop + dy;
-
-            const maxLeft = canvasContainer.clientWidth - layer.offsetWidth;
-            let maxAllowedTop = canvasContainer.clientHeight - layer.offsetHeight;
-
-            if (AppState.safeAreaEnabled) {
-                const safeLineRect = safeBottomLine.getBoundingClientRect();
-                const canvasRect = canvasContainer.getBoundingClientRect();
-                maxAllowedTop = safeLineRect.top - canvasRect.top - layer.offsetHeight;
-            }
-
-            newLeft = Math.max(0, Math.min(newLeft, maxLeft));
-            newTop = Math.max(0, Math.min(newTop, maxAllowedTop));
-
-            layer.style.left = newLeft + 'px';
-            layer.style.top = newTop + 'px';
-
-            if (typeof rebalanceTextFlow === 'function') {
-                rebalanceTextFlow();
-            }
+    wrapper.addEventListener('mousedown', (e) => {
+        // If clicking inside an element currently in inline editing mode, allow text selection and cursor movement
+        if (e.target.isContentEditable || e.target.closest('.editing')) {
+            return;
         }
 
-        function onMouseUp() {
-            window.removeEventListener('mousemove', onMouseMove);
-            window.removeEventListener('mouseup', onMouseUp);
-        }
-
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp);
-    });
-
-    // 【修改5】：图层右键上下文菜单事件监听
-    layer.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        document.querySelectorAll('.draggable-layer').forEach(l => l.classList.remove('active'));
-        layer.classList.add('active');
-
-        const contextMenu = document.getElementById('context-menu');
-        if (contextMenu) {
-            contextMenu.style.top = e.clientY + 'px';
-            contextMenu.style.left = e.clientX + 'px';
-            contextMenu.style.display = 'flex';
-            window.currentRightClickedLayer = layer;
-        }
-    });
-
-    const handles = layer.querySelectorAll('.resize-handle');
-    handles.forEach(handle => {
-        handle.addEventListener('mousedown', (e) => {
+        // Check if clicking a 4-corner resize handle
+        const handle = e.target.closest('.resize-handle');
+        if (handle) {
             e.stopPropagation();
-            const hType = handle.dataset.handle;
-            const startX = e.clientX;
-            const startY = e.clientY;
-            const startWidth = layer.clientWidth;
-            const startHeight = layer.clientHeight;
+            e.preventDefault();
+            isResizing = true;
+            resizeDirection = handle.dataset.direction;
+            const targetEl = handle.closest('.canvas-layer');
+            dragLayer = state.layers.find(l => l.id === targetEl.dataset.id);
+            startX = e.clientX;
+            startY = e.clientY;
+            initWidth = dragLayer.width || 280;
+            initHeight = dragLayer.height || 100;
+            initX = dragLayer.x;
+            initY = dragLayer.y;
+            return;
+        }
 
-            function onResizeMove(moveEvent) {
-                const dx = moveEvent.clientX - startX;
-                const dy = moveEvent.clientY - startY;
+        const targetLayer = e.target.closest('.canvas-layer');
+        if (!targetLayer) {
+            // Clicked canvas blank area -> exit editing, deselect, hide toolbar
+            exitAllEditingMode();
+            state.selectedLayerId = null;
+            renderCanvas();
+            renderLayerList();
+            updateTopToolbarUI(null);
+            return;
+        }
 
-                if (hType === 'r' || hType === 'br' || hType === 'tr') {
-                    let newWidth = Math.max(100, Math.min(startWidth + dx, canvasContainer.clientWidth - layer.offsetLeft));
-                    layer.style.width = newWidth + 'px';
-                }
+        // Single click layer selection
+        exitAllEditingMode();
+        const layerId = targetLayer.dataset.id;
+        state.selectedLayerId = layerId;
+        dragLayer = state.getSelectedLayer();
 
-                if (hType === 'b' || hType === 'br' || hType === 'bl') {
-                    let maxPossibleHeight = canvasContainer.clientHeight - layer.offsetTop;
-                    if (AppState.safeAreaEnabled) {
-                        const safeLineRect = safeBottomLine.getBoundingClientRect();
-                        const canvasRect = canvasContainer.getBoundingClientRect();
-                        maxPossibleHeight = safeLineRect.top - canvasRect.top - layer.offsetTop;
-                    }
-                    
-                    let newHeight = Math.max(60, Math.min(startHeight + dy, maxPossibleHeight));
-                    layer.style.height = newHeight + 'px';
-                }
+        renderCanvas();
+        renderLayerList();
+        updateTopToolbarUI(dragLayer);
 
-                if (typeof rebalanceTextFlow === 'function') {
-                    rebalanceTextFlow();
-                }
-            }
+        if (e.button === 2) {
+            // Right click context menu
+            e.preventDefault();
+            const menu = document.getElementById('context-menu');
+            menu.style.display = 'block';
+            menu.style.left = e.pageX + 'px';
+            menu.style.top = e.pageY + 'px';
+            return;
+        }
 
-            function onResizeUp() {
-                window.removeEventListener('mousemove', onResizeMove);
-                window.removeEventListener('mouseup', onResizeUp);
-            }
-
-            window.addEventListener('mousemove', onResizeMove);
-            window.addEventListener('mouseup', onResizeUp);
-        });
+        // Init smooth dragging with exact offset delta
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        initX = dragLayer.x;
+        initY = dragLayer.y;
     });
+
+    document.addEventListener('mousemove', (e) => {
+        if (isResizing && dragLayer) {
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            if (resizeDirection.includes('e')) dragLayer.width = Math.max(80, initWidth + dx);
+            if (resizeDirection.includes('s')) dragLayer.height = Math.max(40, initHeight + dy);
+            
+            const el = document.querySelector(`.canvas-layer[data-id="${dragLayer.id}"]`);
+            if (el) {
+                el.style.width = dragLayer.width + 'px';
+                el.style.height = dragLayer.height + 'px';
+            }
+            return;
+        }
+
+        if (isDragging && dragLayer) {
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            dragLayer.x = initX + dx;
+            dragLayer.y = initY + dy;
+
+            const el = document.querySelector(`.canvas-layer[data-id="${dragLayer.id}"]`);
+            if (el) {
+                el.style.left = dragLayer.x + 'px';
+                el.style.top = dragLayer.y + 'px';
+            }
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging || isResizing) {
+            isDragging = false;
+            isResizing = false;
+            dragLayer = null;
+        }
+    });
+
+    wrapper.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.draggable-layer').forEach(layer => {
-        initDragAndResize(layer);
-    });
-
-    // 右键上下文菜单全局点击消失与功能绑定
-    const contextMenu = document.getElementById('context-menu');
-    document.addEventListener('click', () => {
-        if (contextMenu) contextMenu.style.display = 'none';
-    });
-
-    document.getElementById('menu-bring-front')?.addEventListener('click', () => {
-        if (window.currentRightClickedLayer) {
-            window.currentRightClickedLayer.style.zIndex = 100;
-        }
-    });
-
-    document.getElementById('menu-send-back')?.addEventListener('click', () => {
-        if (window.currentRightClickedLayer) {
-            window.currentRightClickedLayer.style.zIndex = 2;
-        }
-    });
-
-    document.getElementById('menu-duplicate')?.addEventListener('click', () => {
-        if (window.currentRightClickedLayer) {
-            const clone = window.currentRightClickedLayer.cloneNode(true);
-            clone.style.top = (window.currentRightClickedLayer.offsetTop + 20) + 'px';
-            clone.style.left = (window.currentRightClickedLayer.offsetLeft + 20) + 'px';
-            document.getElementById('canvas-container').appendChild(clone);
-            initDragAndResize(clone);
-        }
-    });
-
-    document.getElementById('menu-delete')?.addEventListener('click', () => {
-        if (window.currentRightClickedLayer) {
-            // 不允许直接删除主/副标题，仅删除副本或贴纸
-            if (window.currentRightClickedLayer.id === 'layer-main-title' || window.currentRightClickedLayer.id === 'layer-sub-title') {
-                alert("文本主图层不可删除！");
-            } else {
-                window.currentRightClickedLayer.remove();
+function exitAllEditingMode() {
+    if (state.editingLayerId) {
+        const editableEl = document.querySelector(`.canvas-layer[data-id="${state.editingLayerId}"] .text-content-editable`);
+        if (editableEl) {
+            const layer = state.layers.find(l => l.id === state.editingLayerId);
+            if (layer) {
+                layer.content = editableEl.innerHTML;
             }
         }
-    });
-});
+        state.editingLayerId = null;
+    }
+}

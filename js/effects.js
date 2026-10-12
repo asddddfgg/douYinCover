@@ -1,96 +1,53 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const presetsContainer = document.getElementById('effect-presets');
-    const mainSelect = document.getElementById('main-layer-effect-select');
-    const subSelect = document.getElementById('sub-layer-effect-select');
-    const btnAddEffect = document.getElementById('btn-add-custom-effect');
-    const effectCountEl = document.getElementById('effect-count');
+// 20 Art Effects Library
+const ART_EFFECTS = [
+    { id: 'effect-gradient', name: '双色渐变' },
+    { id: 'effect-neon', name: '霓虹发光' },
+    { id: 'effect-3d', name: '3D立体' },
+    { id: 'effect-cyber', name: '赛博机甲' },
+    { id: 'effect-glitch', name: '故障艺术' },
+    { id: 'effect-hk', name: '复古港风' },
+    { id: 'effect-gold', name: '暗金奢华' },
+    { id: 'effect-fire', name: '烈火熔岩' },
+    { id: 'effect-ice', name: '寒冰霜冻' },
+    { id: 'effect-black-stroke', name: '黑描边粗重' },
+    { id: 'effect-purple-mist', name: '紫雾迷幻' },
+    { id: 'effect-sunset', name: '日落晚霞' },
+    { id: 'effect-deep-sea', name: '深海湛蓝' },
+    { id: 'effect-jade', name: '翡翠绿光' },
+    { id: 'effect-candy', name: '梦幻糖果' },
+    { id: 'effect-metal', name: '重金属风' },
+    { id: 'effect-chalk', name: '粉笔手绘' },
+    { id: 'effect-lightning', name: '闪电高压' },
+    { id: 'effect-red-stroke', name: '红描边爆款' },
+    { id: 'effect-viral', name: '王牌爆款' }
+];
 
-    function renderEffectsUI() {
-        if (!presetsContainer) return;
-        presetsContainer.innerHTML = '';
-        mainSelect.innerHTML = '';
-        subSelect.innerHTML = '';
-
-        const keys = Object.keys(AppState.effectsMap);
-        if (effectCountEl) effectCountEl.textContent = keys.length;
-
-        keys.forEach(key => {
-            const effect = AppState.effectsMap[key];
-
-            // 1. 渲染全局按钮
-            const btn = document.createElement('button');
-            btn.className = `effect-btn ${AppState.currentEffect === key ? 'active' : ''}`;
-            btn.setAttribute('data-effect', key);
-            btn.textContent = effect.name;
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.effect-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                AppState.currentEffect = key;
-                // 全局应用
-                applyEffectToElement(document.getElementById('main-layer-content'), key);
-                applyEffectToElement(document.getElementById('sub-layer-content'), key);
-                AppState.mainEffectKey = key;
-                AppState.subEffectKey = key;
-                mainSelect.value = key;
-                subSelect.value = key;
-                if (typeof rebalanceTextFlow === 'function') rebalanceTextFlow();
-            });
-            presetsContainer.appendChild(btn);
-
-            // 2. 渲染主/副图层独立下拉选择框
-            const opt1 = new Option(effect.name, key);
-            const opt2 = new Option(effect.name, key);
-            mainSelect.add(opt1);
-            subSelect.add(opt2);
-        });
-
-        mainSelect.value = AppState.mainEffectKey || 'normal';
-        subSelect.value = AppState.subEffectKey || 'normal';
-    }
-
-    function applyEffectToElement(el, effectKey) {
-        if (!el) return;
-        const preset = AppState.effectsMap[effectKey] || AppState.effectsMap['normal'];
-        el.style.background = 'none';
-        el.style.webkitBackgroundClip = 'initial';
-        el.style.webkitTextFillColor = 'initial';
-        el.style.textShadow = 'none';
-        el.style.webkitTextStroke = 'initial';
+function initEffectsLibrary() {
+    const grid = document.getElementById('effects-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    
+    ART_EFFECTS.forEach(eff => {
+        const card = document.createElement('div');
+        card.className = `effect-card ${eff.id}`;
+        card.innerText = eff.name;
+        card.dataset.effectId = eff.id;
         
-        if (preset && preset.css) {
-            el.style.cssText += ';' + preset.css;
-        }
-    }
-
-    window.applyEffectToElement = applyEffectToElement;
-    window.renderEffectsUI = renderEffectsUI;
-
-    mainSelect.addEventListener('change', (e) => {
-        AppState.mainEffectKey = e.target.value;
-        applyEffectToElement(document.getElementById('main-layer-content'), e.target.value);
-        if (typeof rebalanceTextFlow === 'function') rebalanceTextFlow();
-    });
-
-    subSelect.addEventListener('change', (e) => {
-        AppState.subEffectKey = e.target.value;
-        applyEffectToElement(document.getElementById('sub-layer-content'), e.target.value);
-        if (typeof rebalanceTextFlow === 'function') rebalanceTextFlow();
-    });
-
-    if (btnAddEffect) {
-        btnAddEffect.addEventListener('click', () => {
-            const name = prompt("请输入新特效名称 (例: 炫彩金光):");
-            if (!name) return;
-            const css = prompt("请输入 CSS 样式 (例: color: #ff00ff; text-shadow: 0 0 5px #00ffff;):");
-            if (!css) return;
-
-            const newKey = "custom_" + Date.now();
-            AppState.effectsMap[newKey] = { name: name, css: css };
-            LocalDB.saveProject(AppState);
-            renderEffectsUI();
-            alert("自定义特效添加成功！");
+        card.addEventListener('click', () => {
+            const layer = state.getSelectedLayer();
+            if (!layer || layer.type !== 'text') {
+                alert('请先在画布中点击选中一个【文本图层】！');
+                return;
+            }
+            layer.effectClass = eff.id;
+            
+            document.querySelectorAll('.effect-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            
+            renderCanvas();
+            renderLayerList();
         });
-    }
-
-    renderEffectsUI();
-});
+        
+        grid.appendChild(card);
+    });
+}
