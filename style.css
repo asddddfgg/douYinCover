@@ -241,16 +241,48 @@ body {
     font-weight: bold;
 }
 
-/* Canvas Area */
+/* Canva 多页左右横向排列 + 自动换行容器 */
 .canvas-container {
     flex: 1;
     background: #0d1117;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    align-content: flex-start;
     position: relative;
     overflow: auto;
-    padding: 15px;
+    padding: 40px;
+    gap: 40px;
+}
+
+/* 单个分页外壳 */
+.canvas-page-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+/* 页面顶部的页码指示标签 */
+.page-badge {
+    position: absolute;
+    top: -26px;
+    left: 0;
+    background: #21262d;
+    color: #8b949e;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid #30363d;
+}
+
+.canvas-page-wrapper.active-page .page-badge {
+    background: #ff2442;
+    color: #fff;
+    border-color: #ff2442;
+    font-weight: bold;
 }
 
 .cover-canvas {
@@ -262,6 +294,12 @@ body {
     border-radius: 6px;
     overflow: hidden;
     user-select: none;
+    border: 2px solid transparent;
+    transition: border-color 0.2s;
+}
+
+.canvas-page-wrapper.active-page .cover-canvas {
+    border-color: #ff2442;
 }
 
 .canvas-bg {
@@ -407,7 +445,6 @@ body {
 .edge-handle.left  { left: -3px; }
 .edge-handle.right { right: -3px; }
 
-/* 选中时显示四角和左右线 */
 .canvas-layer.selected:not(.editing) .resize-handle,
 .canvas-layer.selected:not(.editing) .edge-handle {
     display: block;
@@ -456,6 +493,40 @@ body {
     height: 1px;
     background: #30363d;
     margin: 4px 0;
+}
+
+/* Canva Pagination List Styling */
+.page-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.page-item {
+    background: #21262d;
+    border: 1px solid #30363d;
+    padding: 8px 10px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.page-item:hover {
+    border-color: #ff2442;
+    background: #30363d;
+}
+
+.page-item.active {
+    border-color: #ff2442;
+    background: rgba(255, 36, 66, 0.15);
+    color: #ff2442;
+    font-weight: bold;
 }
 
 /* 20款艺术特效 */

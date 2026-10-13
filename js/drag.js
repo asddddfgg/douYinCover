@@ -1,8 +1,10 @@
 // Professional Canva-style Drag + Corner Scale + Edge Width Resize
-// 修复：已选中图层不再强行重绘，保证双击可进入编辑
+// 恢复你原汁原味的完美拖拽与缩放逻辑！
 function initDragModule() {
     const wrapper = document.getElementById('layers-wrapper');
-    if (!wrapper) return;
+    // 如果页面是多页纵向排列，图层容器由 canvas-container 或动态 wrapper 承载，我们直接监听整个工作区容器或 document
+    const container = document.querySelector('.canvas-container') || wrapper;
+    if (!container) return;
 
     let isDragging = false;
     let isResizing = false;
@@ -13,9 +15,9 @@ function initDragModule() {
     let initX = 0, initY = 0;
     let initWidth = 0, initHeight = 0;
     let initFontSize = 28;
-    let pendingDrag = false; // 鼠标按下后，移动超过阈值才真正拖动
+    let pendingDrag = false; 
 
-    wrapper.addEventListener('mousedown', (e) => {
+    container.addEventListener('mousedown', (e) => {
         // 正在编辑文字时，完全不拦截（可点选、输入）
         if (e.target.isContentEditable || e.target.closest('.editing')) {
             return;
@@ -30,7 +32,9 @@ function initDragModule() {
             resizeMode = 'corner';
             resizeDirection = cornerHandle.dataset.direction;
             const targetEl = cornerHandle.closest('.canvas-layer');
+            if (!targetEl) return;
             dragLayer = state.layers.find(l => l.id === targetEl.dataset.id);
+            if (!dragLayer) return;
             startX = e.clientX;
             startY = e.clientY;
             initWidth = dragLayer.width || 280;
@@ -48,9 +52,11 @@ function initDragModule() {
             e.preventDefault();
             isResizing = true;
             resizeMode = 'edge';
-            resizeDirection = edgeHandle.dataset.direction; // left | right
+            resizeDirection = edgeHandle.dataset.direction; 
             const targetEl = edgeHandle.closest('.canvas-layer');
+            if (!targetEl) return;
             dragLayer = state.layers.find(l => l.id === targetEl.dataset.id);
+            if (!dragLayer) return;
             startX = e.clientX;
             startY = e.clientY;
             initWidth = dragLayer.width || 280;
@@ -63,6 +69,15 @@ function initDragModule() {
         // ========== 点击空白处 ==========
         const targetLayer = e.target.closest('.canvas-layer');
         if (!targetLayer) {
+            // 如果点的是画板背景页，检查是否需要切换页面
+            const pageWrapper = e.target.closest('.canvas-page-wrapper');
+            if (pageWrapper) {
+                const pageId = pageWrapper.dataset.pageId;
+                if (pageId && state.currentPageId !== pageId) {
+                    state.switchPage(pageId);
+                    renderAll();
+                }
+            }
             exitAllEditingMode();
             state.selectedLayerId = null;
             renderCanvas();
@@ -73,10 +88,18 @@ function initDragModule() {
 
         // ========== 点击某个图层 ==========
         const layerId = targetLayer.dataset.id;
+        
+        // 自动激活该图层所在的页面
+        const pageWrapper = targetLayer.closest('.canvas-page-wrapper');
+        if (pageWrapper) {
+            const pageId = pageWrapper.dataset.pageId;
+            if (pageId && state.currentPageId !== pageId) {
+                state.switchPage(pageId);
+            }
+        }
+
         const alreadySelected = (state.selectedLayerId === layerId);
 
-        // 如果点的是别的图层，才退出编辑并重绘
-        // 如果点的是已经选中的图层，不要重绘！否则会打断双击
         if (!alreadySelected) {
             exitAllEditingMode();
             state.selectedLayerId = layerId;
@@ -84,23 +107,24 @@ function initDragModule() {
             renderLayerList();
             updateTopToolbarUI(state.getSelectedLayer());
         } else {
-            // 已选中：只保证状态正确，不重绘
             state.selectedLayerId = layerId;
         }
 
         dragLayer = state.getSelectedLayer();
+        if (!dragLayer) return;
 
         // 右键菜单
         if (e.button === 2) {
             e.preventDefault();
             const menu = document.getElementById('context-menu');
-            menu.style.display = 'block';
-            menu.style.left = e.pageX + 'px';
-            menu.style.top = e.pageY + 'px';
+            if (menu) {
+                menu.style.display = 'block';
+                menu.style.left = e.pageX + 'px';
+                menu.style.top = e.pageY + 'px';
+            }
             return;
         }
 
-        // 不立刻拖动，等鼠标移动超过 4px 再拖（避免影响双击）
         pendingDrag = true;
         isDragging = false;
         startX = e.clientX;
@@ -110,7 +134,6 @@ function initDragModule() {
     });
 
     document.addEventListener('mousemove', (e) => {
-        // 按下后移动超过阈值，才开始真正拖动
         if (pendingDrag && dragLayer && !isResizing) {
             const dx0 = e.clientX - startX;
             const dy0 = e.clientY - startY;
@@ -125,7 +148,6 @@ function initDragModule() {
             const dy = e.clientY - startY;
 
             if (resizeMode === 'corner') {
-                // 四角：等比缩放（框 + 字号一起变）
                 let scale = 1;
                 if (resizeDirection === 'se') {
                     scale = Math.max(0.3, (initWidth + dx) / initWidth);
@@ -155,7 +177,6 @@ function initDragModule() {
                 }
 
             } else if (resizeMode === 'edge') {
-                // 左右边：只改宽度，文字自动换行
                 if (resizeDirection === 'right') {
                     dragLayer.width = Math.max(60, initWidth + dx);
                 } else if (resizeDirection === 'left') {
@@ -165,7 +186,7 @@ function initDragModule() {
                 }
             }
 
-            const el = document.querySelector(`.canvas-layer[data-id="${dragLayer.id}"]`);
+            const el = document.querySelector(`.canvas-page-wrapper[data-page-id="${state.currentPageId}"] .canvas-layer[data-id="${dragLayer.id}"]`);
             if (el) {
                 el.style.left = dragLayer.x + 'px';
                 el.style.top = dragLayer.y + 'px';
@@ -185,7 +206,7 @@ function initDragModule() {
             dragLayer.x = initX + dx;
             dragLayer.y = initY + dy;
 
-            const el = document.querySelector(`.canvas-layer[data-id="${dragLayer.id}"]`);
+            const el = document.querySelector(`.canvas-page-wrapper[data-page-id="${state.currentPageId}"] .canvas-layer[data-id="${dragLayer.id}"]`);
             if (el) {
                 el.style.left = dragLayer.x + 'px';
                 el.style.top = dragLayer.y + 'px';
@@ -204,7 +225,7 @@ function initDragModule() {
         }
     });
 
-    wrapper.addEventListener('contextmenu', (e) => e.preventDefault());
+    container.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
 function exitAllEditingMode() {

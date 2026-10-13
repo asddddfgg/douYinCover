@@ -1,12 +1,19 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>抖音爆款封面设计器 (Canva Ultimate Pro)</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- 引入强大的 html2canvas 截图引擎，确保 100% 完美导出 PNG -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
+
+
+
 <body>
     <div class="app-container">
         <!-- Header & Canva-style Top Fixed Toolbar -->
@@ -88,10 +95,7 @@
 
             <!-- Center Canvas Area -->
             <main class="canvas-container">
-                <div id="cover-canvas" class="cover-canvas">
-                    <div id="canvas-bg" class="canvas-bg"></div>
-                    <div id="layers-wrapper" class="layers-wrapper"></div>
-                </div>
+                <!-- 这里改由 JS 动态渲染同屏纵向连续排布的多个分页画布 -->
             </main>
 
             <!-- Right Sidebar -->
@@ -116,6 +120,17 @@
                     <div id="bg-image-controls" class="control-group" style="display:none;">
                         <label>上传本地图片</label>
                         <input type="file" id="bg-image-file" accept="image/*">
+                    </div>
+                </div>
+
+                <!-- Canva 风格分页管理模块 -->
+                <div class="panel-section">
+                    <h3><i class="fa-solid fa-book-open"></i> 长文分页管理 (Canva 模式)</h3>
+                    <div class="page-manager-controls">
+                        <button id="btn-add-page" class="btn btn-primary" style="width:100%; justify-content:center; margin-bottom:10px;">
+                            <i class="fa-solid fa-plus"></i> 增加新分页
+                        </button>
+                        <div id="page-list" class="page-list"></div>
                     </div>
                 </div>
 
