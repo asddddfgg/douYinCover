@@ -93,6 +93,28 @@ function updateBackgroundView() {
     }
 }
 
+function enterTextEditMode(layerId) {
+    state.editingLayerId = layerId;
+    state.selectedLayerId = layerId;
+    renderCanvas();
+    renderLayerList();
+    updateTopToolbarUI(state.getSelectedLayer());
+
+    setTimeout(() => {
+        const currentEditable = document.querySelector(`.canvas-layer[data-id="${layerId}"] .text-content-editable`);
+        if (currentEditable) {
+            currentEditable.contentEditable = 'true';
+            currentEditable.focus();
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.selectNodeContents(currentEditable);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    }, 30);
+}
+
 function renderCanvas() {
     const wrapper = document.getElementById('layers-wrapper');
     wrapper.innerHTML = '';
@@ -137,29 +159,28 @@ function renderCanvas() {
                 textInner.classList.add(layer.effectClass);
             }
 
-            // Canva-standard Double Click to enter contentEditable inline text mode
+            // 双击进入编辑
             el.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
-                state.editingLayerId = layer.id;
-                renderCanvas();
-
-                // Focus and place cursor at end
-                setTimeout(() => {
-                    const currentEditable = document.querySelector(`.canvas-layer[data-id="${layer.id}"] .text-content-editable`);
-                    if (currentEditable) {
-                        currentEditable.focus();
-                        const range = document.createRange();
-                        const sel = window.getSelection();
-                        range.selectNodeContents(currentEditable);
-                        range.collapse(false);
-                        sel.removeAllRanges();
-                        sel.addRange(range);
-                    }
-                }, 10);
+                e.preventDefault();
+                if (layer.type === 'text') {
+                    enterTextEditMode(layer.id);
+                }
             });
 
             textInner.addEventListener('blur', () => {
                 layer.content = textInner.innerHTML;
+                // 失焦后退出编辑状态
+                if (state.editingLayerId === layer.id) {
+                    state.editingLayerId = null;
+                    // 轻微延迟再重绘，避免和点击冲突
+                    setTimeout(() => {
+                        if (!state.editingLayerId) {
+                            renderCanvas();
+                            renderLayerList();
+                        }
+                    }, 50);
+                }
             });
 
             el.appendChild(textInner);
@@ -171,10 +192,18 @@ function renderCanvas() {
             el.innerText = layer.content;
         }
 
-        // Canva-style 4-corner resize handles
+        // 四角缩放手柄
         ['nw', 'ne', 'sw', 'se'].forEach(dir => {
             const handle = document.createElement('div');
             handle.className = `resize-handle ${dir}`;
+            handle.dataset.direction = dir;
+            el.appendChild(handle);
+        });
+
+        // 左右边框中点调整线
+        ['left', 'right'].forEach(dir => {
+            const handle = document.createElement('div');
+            handle.className = `edge-handle ${dir}`;
             handle.dataset.direction = dir;
             el.appendChild(handle);
         });
@@ -192,8 +221,7 @@ function renderLayerList() {
         const item = document.createElement('div');
         item.className = `layer-item ${layer.id === state.selectedLayerId ? 'active' : ''}`;
         
-        // Strip HTML tags for clean preview title
-        const cleanContent = layer.content.replace(/<[^>]*>/g, '').substring(0, 10);
+        const cleanContent = (layer.content || '').replace(/<[^>]*>/g, '').substring(0, 10);
         item.innerHTML = `
             <span><i class="fa-solid ${layer.type === 'text' ? 'fa-font' : 'fa-face-smile'}"></i> ${cleanContent || '图层'}</span>
             <button class="btn" style="padding: 2px 6px; font-size:11px;" onclick="selectLayerFromList('${layer.id}')">选择</button>
