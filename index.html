@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,8 +10,6 @@
     <!-- 引入强大的 html2canvas 截图引擎，确保 100% 完美导出 PNG -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
-
-
 
 <body>
     <div class="app-container">
@@ -26,10 +23,16 @@
             <div id="text-toolbar" class="top-text-toolbar" style="display: none;">
                 <select id="tb-font" title="字体">
                     <option value="sans-serif">系统黑体</option>
-                    <option value="serif">宋体/衬线</option>
+                    <option value="serif">宋体/衬线体</option>
                     <option value="monospace">等宽体</option>
                     <option value="cursive">手写艺术体</option>
                 </select>
+                <!-- 上传本地手写字体按钮 -->
+                <button id="btn-upload-font" class="tool-btn" title="上传本地手写字体 (.ttf/.otf)" style="width: auto; padding: 0 6px; font-size: 10px;">
+                    <i class="fa-solid fa-upload"></i> 自定义字体
+                </button>
+                <input type="file" id="local-font-file" accept=".ttf,.otf" style="display: none;">
+
                 <div class="toolbar-separator"></div>
                 <select id="tb-fontsize" title="字号">
                     <option value="16px">16px</option>
@@ -111,7 +114,7 @@
                         </select>
                     </div>
                     <div id="bg-color-controls" class="control-group">
-                        <label>渐变调色板</label>
+                        <label>渐变调色板 / 纯色预设</label>
                         <div class="color-pickers">
                             <input type="color" id="bg-color-1" value="#ff2442">
                             <input type="color" id="bg-color-2" value="#2575fc">
@@ -120,6 +123,15 @@
                     <div id="bg-image-controls" class="control-group" style="display:none;">
                         <label>上传本地图片</label>
                         <input type="file" id="bg-image-file" accept="image/*">
+                    </div>
+
+                    <!-- 背景收藏夹模块 -->
+                    <div class="control-group" style="margin-top: 15px; border-top: 1px solid #30363d; padding-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label style="margin: 0;"><i class="fa-solid fa-star" style="color: #f1e05a;"></i> 背景收藏夹</label>
+                            <button id="btn-fav-bg" class="btn" style="padding: 2px 6px; font-size: 10px;"><i class="fa-solid fa-plus"></i> 收藏当前背景</button>
+                        </div>
+                        <div id="fav-bg-list" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; max-height: 100px; overflow-y: auto;"></div>
                     </div>
                 </div>
 

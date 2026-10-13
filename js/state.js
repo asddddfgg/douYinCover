@@ -1,21 +1,23 @@
-// Global State Management (Supports Multi-pages & Consistent Style)
+// Global State Management (Supports Uniform Background & Consistent Style)
 class AppState {
     constructor() {
+        // 统一背景：无论主页还是分页，所有页面共用此背景
+        this.background = {
+            type: 'gradient',
+            color1: '#ff2442',
+            color2: '#2575fc',
+            imageUrl: ''
+        };
+
         this.pages = [
             {
                 id: 'page-1',
                 title: '第 1 页',
-                background: {
-                    type: 'gradient',
-                    color1: '#ff2442',
-                    color2: '#2575fc',
-                    imageUrl: ''
-                },
                 layers: [
                     {
                         id: 'layer-1',
                         type: 'text',
-                        content: '🔥 抖音爆款连浇长文封面',
+                        content: '🔥 抖音爆款连泼长文封面',
                         fontSize: '32px',
                         fontFamily: 'sans-serif',
                         color: '#ffffff',
@@ -72,19 +74,11 @@ class AppState {
         return this.pages.find(p => p.id === this.currentPageId) || this.pages[0];
     }
 
-    // 兼容原版代码的 getter/setter
     get layers() {
         return this.getCurrentPage().layers;
     }
     set layers(newLayers) {
         this.getCurrentPage().layers = newLayers;
-    }
-
-    get background() {
-        return this.getCurrentPage().background;
-    }
-    set background(newBg) {
-        this.getCurrentPage().background = newBg;
     }
 
     getSelectedLayer() {
@@ -116,28 +110,18 @@ class AppState {
         }
     }
 
-    // 新增分页：完美继承第一页背景风格
     addPage() {
         const newPageId = 'page-' + Date.now();
         const newPageNum = this.pages.length + 1;
         
-        const firstPageBg = this.pages[0].background;
-        const inheritedBg = {
-            type: firstPageBg.type,
-            color1: firstPageBg.color1,
-            color2: firstPageBg.color2,
-            imageUrl: firstPageBg.imageUrl
-        };
-
         const newPage = {
             id: newPageId,
             title: `第 ${newPageNum} 页`,
-            background: inheritedBg,
             layers: [
                 {
                     id: 'text-' + Date.now(),
                     type: 'text',
-                    content: `🔥 长文连浇第 ${newPageNum} 页内容`,
+                    content: `🔥 长文连泼第 ${newPageNum} 页内容`,
                     fontSize: '28px',
                     fontFamily: 'sans-serif',
                     color: '#ffffff',
