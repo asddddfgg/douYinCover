@@ -426,24 +426,37 @@ body {
 .resize-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
 .resize-handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
 
-/* 左右边框中点调整线 */
+
+/* 左右上下边框中点调整线 */
 .edge-handle {
     position: absolute;
-    width: 6px;
-    height: 28px;
     background: #ff2442;
     border: 2px solid #fff;
     border-radius: 4px;
     display: none;
     z-index: 20;
     box-shadow: 0 0 4px rgba(0,0,0,0.5);
+}
+
+.edge-handle.left, .edge-handle.right {
+    width: 6px;
+    height: 28px;
     top: 50%;
     transform: translateY(-50%);
     cursor: ew-resize;
 }
-
 .edge-handle.left  { left: -3px; }
 .edge-handle.right { right: -3px; }
+
+.edge-handle.top, .edge-handle.bottom {
+    width: 28px;
+    height: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
+}
+.edge-handle.top    { top: -3px; }
+.edge-handle.bottom { bottom: -3px; }
 
 .canvas-layer.selected:not(.editing) .resize-handle,
 .canvas-layer.selected:not(.editing) .edge-handle {

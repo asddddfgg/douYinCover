@@ -1,9 +1,6 @@
-// Professional Canva-style Drag + Corner Scale + Edge Width Resize
-// 恢复你原汁原味的完美拖拽与缩放逻辑！
+// Professional Canva-style Drag + Corner Scale + Edge Width & Height Resize
 function initDragModule() {
-    const wrapper = document.getElementById('layers-wrapper');
-    // 如果页面是多页纵向排列，图层容器由 canvas-container 或动态 wrapper 承载，我们直接监听整个工作区容器或 document
-    const container = document.querySelector('.canvas-container') || wrapper;
+    const container = document.querySelector('.canvas-container');
     if (!container) return;
 
     let isDragging = false;
@@ -18,7 +15,6 @@ function initDragModule() {
     let pendingDrag = false; 
 
     container.addEventListener('mousedown', (e) => {
-        // 正在编辑文字时，完全不拦截（可点选、输入）
         if (e.target.isContentEditable || e.target.closest('.editing')) {
             return;
         }
@@ -45,7 +41,7 @@ function initDragModule() {
             return;
         }
 
-        // ========== 左右边框中点手柄 ==========
+        // ========== 四边中点调整手柄（支持左右、上下自由推拉） ==========
         const edgeHandle = e.target.closest('.edge-handle');
         if (edgeHandle) {
             e.stopPropagation();
@@ -69,7 +65,6 @@ function initDragModule() {
         // ========== 点击空白处 ==========
         const targetLayer = e.target.closest('.canvas-layer');
         if (!targetLayer) {
-            // 如果点的是画板背景页，检查是否需要切换页面
             const pageWrapper = e.target.closest('.canvas-page-wrapper');
             if (pageWrapper) {
                 const pageId = pageWrapper.dataset.pageId;
@@ -86,10 +81,8 @@ function initDragModule() {
             return;
         }
 
-        // ========== 点击某个图层 ==========
         const layerId = targetLayer.dataset.id;
         
-        // 自动激活该图层所在的页面
         const pageWrapper = targetLayer.closest('.canvas-page-wrapper');
         if (pageWrapper) {
             const pageId = pageWrapper.dataset.pageId;
@@ -113,7 +106,6 @@ function initDragModule() {
         dragLayer = state.getSelectedLayer();
         if (!dragLayer) return;
 
-        // 右键菜单
         if (e.button === 2) {
             e.preventDefault();
             const menu = document.getElementById('context-menu');
@@ -183,6 +175,12 @@ function initDragModule() {
                     const newW = Math.max(60, initWidth - dx);
                     dragLayer.x = initX + (initWidth - newW);
                     dragLayer.width = newW;
+                } else if (resizeDirection === 'bottom') {
+                    dragLayer.height = Math.max(30, initHeight + dy);
+                } else if (resizeDirection === 'top') {
+                    const newH = Math.max(30, initHeight - dy);
+                    dragLayer.y = initY + (initHeight - newH);
+                    dragLayer.height = newH;
                 }
             }
 

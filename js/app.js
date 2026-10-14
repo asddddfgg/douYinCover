@@ -549,12 +549,19 @@ function renderCanvas() {
                 el.appendChild(handle);
             });
 
-            ['left', 'right'].forEach(dir => {
-                const handle = document.createElement('div');
-                handle.className = `edge-handle ${dir}`;
-                handle.dataset.direction = dir;
-                el.appendChild(handle);
-            });
+['nw', 'ne', 'sw', 'se'].forEach(dir => {
+    const handle = document.createElement('div');
+    handle.className = `resize-handle ${dir}`;
+    handle.dataset.direction = dir;
+    el.appendChild(handle);
+});
+
+['left', 'right', 'top', 'bottom'].forEach(dir => {
+    const handle = document.createElement('div');
+    handle.className = `edge-handle ${dir}`;
+    handle.dataset.direction = dir;
+    el.appendChild(handle);
+});
 
             layersWrapper.appendChild(el);
         });
