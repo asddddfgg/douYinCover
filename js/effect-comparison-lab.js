@@ -11,6 +11,8 @@
         LAB.effects = typeof ART_EFFECTS !== 'undefined' && Array.isArray(ART_EFFECTS) ? ART_EFFECTS.slice() : [];
         LAB.effectB = LAB.effects.length ? LAB.effects[0].id : 'effect-gradient';
         buildLabShell();
+        const jumpButton = document.getElementById('btn-open-ecl-lab');
+        if (jumpButton) jumpButton.addEventListener('click', () => LAB.root.scrollIntoView({ behavior:'smooth', block:'start' }));
         createCopiesFromMain();
     }
 
@@ -391,7 +393,10 @@
         const item = sorted[index];
         sorted.splice(index, 1);
         sorted.splice(nextIndex, 0, item);
-        sorted.forEach((card, order) => { card.manualOrder = order; });
+        sorted.forEach((card, order) => {
+            card.manualOrder = order;
+            if (card.pinned) card.pinnedAt = order;
+        });
         renderCards();
     }
 
