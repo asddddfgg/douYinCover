@@ -361,9 +361,12 @@
         const direction = resize ? resize.dataset.direction : '';
         let moved = false;
         const move = moveEvent => {
+            const rawDx = moveEvent.clientX - startX;
+            const rawDy = moveEvent.clientY - startY;
+            if (!moved && Math.abs(rawDx) < 2 && Math.abs(rawDy) < 2) return;
             moved = true;
-            const dx = (moveEvent.clientX - startX) / scale;
-            const dy = (moveEvent.clientY - startY) / scale;
+            const dx = rawDx / scale;
+            const dy = rawDy / scale;
             if (resize) {
                 let width=initial.width, height=initial.height, x=initial.x, y=initial.y;
                 if (direction.includes('e')) width=Math.max(30, initial.width+dx);
