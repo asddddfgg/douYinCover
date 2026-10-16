@@ -143,7 +143,13 @@
         fontLabel.appendChild(fontInput); tools.appendChild(fontLabel);
         const colorLabel = document.createElement('label'); colorLabel.textContent = '文字颜色';
         const colorInput = document.createElement('input'); colorInput.type = 'color'; colorInput.value = /^#[0-9a-f]{6}$/i.test(selected && selected.color || '') ? selected.color : '#ffffff';
-        colorInput.addEventListener('input', () => { const target = card.layers.find(l => l.id === card.selectedLayerId); if (!target) return; target.color = colorInput.value; renderCards(); });
+        colorInput.addEventListener('input', () => {
+            const target = card.layers.find(l => l.id === card.selectedLayerId);
+            if (!target) return;
+            target.color = colorInput.value;
+            const targetEl = wrapper.querySelector('[data-layer-id="' + target.id + '"] .text-content-editable');
+            if (targetEl) targetEl.style.color = colorInput.value;
+        });
         colorLabel.appendChild(colorInput); tools.appendChild(colorLabel);
         const boldBtn = document.createElement('button'); boldBtn.type = 'button'; boldBtn.textContent = '粗体切换'; boldBtn.addEventListener('click', () => { const target = card.layers.find(l => l.id === card.selectedLayerId); if (!target) return; target.bold = !target.bold; renderCards(); }); tools.appendChild(boldBtn);
         const alignBtn = document.createElement('button'); alignBtn.type = 'button'; alignBtn.textContent = '切换对齐'; alignBtn.addEventListener('click', () => { const target = card.layers.find(l => l.id === card.selectedLayerId); if (!target) return; target.align = target.align === 'left' ? 'center' : target.align === 'center' ? 'right' : 'left'; renderCards(); }); tools.appendChild(alignBtn);
