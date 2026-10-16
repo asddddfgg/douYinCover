@@ -139,14 +139,14 @@
         const selected = card.layers.find(l => l.id === card.selectedLayerId) || card.layers.find(l => l.__role === 'A') || card.layers[0];
         const fontLabel = document.createElement('label'); fontLabel.textContent = '字号';
         const fontInput = document.createElement('input'); fontInput.type = 'number'; fontInput.min = '8'; fontInput.max = '160'; fontInput.value = parseFloat(selected && selected.fontSize) || 28;
-        fontInput.addEventListener('change', () => { if (!selected) return; selected.fontSize = Math.max(8, Math.min(160, Number(fontInput.value) || 28)) + 'px'; renderCards(); });
+        fontInput.addEventListener('change', () => { const target = card.layers.find(l => l.id === card.selectedLayerId); if (!target) return; target.fontSize = Math.max(8, Math.min(160, Number(fontInput.value) || 28)) + 'px'; renderCards(); });
         fontLabel.appendChild(fontInput); tools.appendChild(fontLabel);
         const colorLabel = document.createElement('label'); colorLabel.textContent = '文字颜色';
         const colorInput = document.createElement('input'); colorInput.type = 'color'; colorInput.value = /^#[0-9a-f]{6}$/i.test(selected && selected.color || '') ? selected.color : '#ffffff';
-        colorInput.addEventListener('input', () => { if (!selected) return; selected.color = colorInput.value; renderCards(); });
+        colorInput.addEventListener('input', () => { const target = card.layers.find(l => l.id === card.selectedLayerId); if (!target) return; target.color = colorInput.value; renderCards(); });
         colorLabel.appendChild(colorInput); tools.appendChild(colorLabel);
-        const boldBtn = document.createElement('button'); boldBtn.type = 'button'; boldBtn.textContent = '粗体切换'; boldBtn.addEventListener('click', () => { if (!selected) return; selected.bold = !selected.bold; renderCards(); }); tools.appendChild(boldBtn);
-        const alignBtn = document.createElement('button'); alignBtn.type = 'button'; alignBtn.textContent = '切换对齐'; alignBtn.addEventListener('click', () => { if (!selected) return; selected.align = selected.align === 'left' ? 'center' : selected.align === 'center' ? 'right' : 'left'; renderCards(); }); tools.appendChild(alignBtn);
+        const boldBtn = document.createElement('button'); boldBtn.type = 'button'; boldBtn.textContent = '粗体切换'; boldBtn.addEventListener('click', () => { const target = card.layers.find(l => l.id === card.selectedLayerId); if (!target) return; target.bold = !target.bold; renderCards(); }); tools.appendChild(boldBtn);
+        const alignBtn = document.createElement('button'); alignBtn.type = 'button'; alignBtn.textContent = '切换对齐'; alignBtn.addEventListener('click', () => { const target = card.layers.find(l => l.id === card.selectedLayerId); if (!target) return; target.align = target.align === 'left' ? 'center' : target.align === 'center' ? 'right' : 'left'; renderCards(); }); tools.appendChild(alignBtn);
         wrapper.appendChild(tools);
         const frame = document.createElement('div'); frame.className = 'ecl-canvas-frame'; frame.style.width = (360 * lab.scale) + 'px'; frame.style.height = (640 * lab.scale) + 'px';
         const canvas = document.createElement('div'); canvas.className = 'ecl-cover-canvas'; canvas.style.transform = 'scale(' + lab.scale + ')';
@@ -195,6 +195,8 @@
                 if (cardRoot) cardRoot.querySelectorAll('.canvas-layer').forEach(node => node.classList.toggle('ecl-selected', node === el));
                 const title = el.closest('.ecl-card')?.querySelector('.ecl-card-head strong');
                 if (title) title.title = '当前选中图层：' + (layer.__role || layer.type || '图层');
+                fontInput.value = parseFloat(layer.fontSize) || 28;
+                colorInput.value = /^#[0-9a-f]{6}$/i.test(layer.color || '') ? layer.color : '#ffffff';
             });
             el.addEventListener('dblclick', (e) => {
                 e.preventDefault(); e.stopPropagation();
