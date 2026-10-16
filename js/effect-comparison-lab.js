@@ -75,8 +75,8 @@
             // Match roles by source-layer index rather than object identity after cloning.
             const aIndex = sourceLayers.findIndex(l => l.id === aSource.id);
             const bIndex = sourceLayers.findIndex(l => l.id === bSource.id);
-            if (layers[aIndex]) { layers[aIndex].__role = 'A'; layers[aIndex].content = escapeHtml(lab.textA); layers[aIndex].effectClass = EFFECTS[index] ? EFFECTS[index].id : layers[aIndex].effectClass; }
-            if (layers[bIndex]) { layers[bIndex].__role = 'B'; layers[bIndex].content = escapeHtml(lab.textB); layers[bIndex].effectClass = lab.effectB; }
+            if (layers[aIndex]) { layers[aIndex].__role = 'A'; layers[aIndex].content = sourceLayers[aIndex].content || escapeHtml(lab.textA); layers[aIndex].effectClass = EFFECTS[index] ? EFFECTS[index].id : layers[aIndex].effectClass; }
+            if (layers[bIndex]) { layers[bIndex].__role = 'B'; layers[bIndex].content = sourceLayers[bIndex].content || escapeHtml(lab.textB); layers[bIndex].effectClass = lab.effectB; }
             // Extra text layers remain independently editable; non-text layers are cloned too.
             layers.forEach(layer => { if (!layer.__role) delete layer.__role; });
             return { index, effectA: EFFECTS[index] ? EFFECTS[index].id : '', layers, background: clone(state.background), pageId: page.id, selectedLayerId: layers[aIndex] ? layers[aIndex].id : null };
