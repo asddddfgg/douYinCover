@@ -62,7 +62,14 @@
         const textLayers = sourceLayers.filter(layer => layer.type === 'text');
         if (!textLayers.length) { status('主画布当前分页没有文本图层，请先添加文本。'); return; }
         const aSource = textLayers[0];
-        const bSource = textLayers[1] || clone(aSource);
+        let bSource = textLayers[1] || clone(aSource);
+        if (textLayers.length < 2) {
+            bSource.id = 'ecl-generated-b-' + Date.now();
+            bSource.x = (Number(aSource.x) || 30) + 8;
+            bSource.y = (Number(aSource.y) || 160) + 130;
+            bSource.effectClass = EFFECTS[0] ? EFFECTS[0].id : aSource.effectClass;
+            sourceLayers.push(bSource);
+        }
         lab.textA = stripHtml(aSource.content || '');
         lab.textB = stripHtml(bSource.content || '');
         lab.effectB = EFFECTS[0] ? EFFECTS[0].id : (bSource.effectClass || '');
@@ -158,7 +165,7 @@
         wrapper.appendChild(tools);
         const frame = document.createElement('div'); frame.className = 'ecl-canvas-frame'; frame.style.width = (360 * lab.scale) + 'px'; frame.style.height = (640 * lab.scale) + 'px';
         const canvas = document.createElement('div'); canvas.className = 'ecl-cover-canvas'; canvas.style.transform = 'scale(' + lab.scale + ')';
-        const bg = document.createElement('div'); bg.className = 'canvas-bg'; bg.style.background = backgroundCss(card.background); canvas.appendChild(bg);
+        const bg = document.createElement('div'); bg.className = 'canvas-bg'; bg.style.background = backgroundCss(state.background || card.background); canvas.appendChild(bg);
         const layers = document.createElement('div'); layers.className = 'layers-wrapper';
         card.layers.forEach(layer => {
             const el = document.createElement('div');
