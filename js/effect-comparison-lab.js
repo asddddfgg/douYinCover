@@ -25,9 +25,9 @@ function eclBuildUI(){
  const shell=eclCreate('div','ecl-shell'),panel=eclCreate('section','ecl-panel'),header=eclCreate('div','ecl-panel-head'),titleWrap=eclCreate('div');
  const title=eclCreate('h2','','特效对比实验室');title.prepend(eclCreate('i','fa-solid fa-flask'));
  titleWrap.append(title,eclCreate('p','','同页编辑 · 9:16 画布比例 · A/B 文本分别同步 · 两组特效互不影响'));
- const actions=eclCreate('div','ecl-head-actions');
- [['恢复 A 默认文字',()=>eclSetText('A',ECL_DEFAULT.A)],['恢复 B 默认文字',()=>eclSetText('B',ECL_DEFAULT.B)]].forEach(([label,fn])=>{const b=eclCreate('button','ecl-btn',label);b.type='button';b.addEventListener('click',fn);actions.appendChild(b);});
- header.append(titleWrap,actions);panel.appendChild(header);
+ const headActions=eclCreate('div','ecl-head-actions');
+ [['恢复 A 默认文字',()=>eclSetText('A',ECL_DEFAULT.A)],['恢复 B 默认文字',()=>eclSetText('B',ECL_DEFAULT.B)]].forEach(([label,fn])=>{const b=eclCreate('button','ecl-btn',label);b.type='button';b.addEventListener('click',fn);headActions.appendChild(b);});
+ header.append(titleWrap,headActions);panel.appendChild(header);
  panel.append(eclBuildGroup('A','文本 A · 20 种特效副本','编辑 A 文本，只同步 A 组的 20 个副本。'));
  panel.append(eclBuildGroup('B','文本 B · 20 种特效副本','编辑 B 文本，只同步 B 组的 20 个副本。'));
  panel.appendChild(eclCreate('div','ecl-note','A、B 两组分别选中特效。修改文字只同步同组文字，不会改动另一组文字或特效选中状态。本阶段不会将实验室内容写入主画布。'));
