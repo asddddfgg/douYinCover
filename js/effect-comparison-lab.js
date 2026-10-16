@@ -170,13 +170,14 @@ function eclApplyPlan(){
  if(typeof renderAll==='function')renderAll();else{if(typeof renderCanvas==='function')renderCanvas();if(typeof renderLayerList==='function')renderLayerList();}
  const status=document.getElementById('ecl-plan-status');if(status)status.textContent='已应用到主画布。其他图层与当前文字图层原有样式已保留；如需撤销，请使用主项目现有操作或重新调整。';
 }
-\nfunction eclSetText(group,value,source){
- ECL_STATE.text[group]=value;const input=document.getElementById('ecl-input-'+group);
+
+function eclSetText(group,value,source){
+ ECL_STATE.text[group]=value;eclInvalidateConfirmation('文字已修改，请重新确认方案');const input=document.getElementById('ecl-input-'+group);
  if(input&&input!==source&&input.value!==value)input.value=value;
  document.querySelectorAll('#ecl-grid-'+group+' .ecl-preview-text').forEach(el=>{if(el!==source&&el.innerText!==value)el.innerText=value;});
 }
 function eclSelect(group,effectId){
- ECL_STATE.selected[group]=effectId;
+ ECL_STATE.selected[group]=effectId;eclInvalidateConfirmation('特效已修改，请重新确认方案');
  document.querySelectorAll('#ecl-grid-'+group+' .ecl-card').forEach(card=>{
   const selected=card.dataset.effectId===effectId;card.classList.toggle('ecl-selected',selected);
   const indicator=card.querySelector('[data-ecl-indicator]');if(indicator)indicator.textContent=selected?'✓ 已选中':'点击选择';
