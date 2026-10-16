@@ -48,17 +48,11 @@
         effectSelect.value = LAB.effectB;
         globals.querySelector('#ecl-global-text-a').addEventListener('input', e => {
             LAB.textA = e.target.value;
-            LAB.cards.forEach(card => {
-                const layer = card.layers[LAB.layerAIndex];
-                if (layer && layer.type === 'text') { layer.content = escapeHTML(LAB.textA); card.dirty = true; refreshCardLayer(card, layer.id); }
-            });
+            syncGroupText('A', LAB.textA, null);
         });
         globals.querySelector('#ecl-global-text-b').addEventListener('input', e => {
             LAB.textB = e.target.value;
-            LAB.cards.forEach(card => {
-                const layer = card.layers[LAB.layerBIndex];
-                if (layer && layer.type === 'text') { layer.content = escapeHTML(LAB.textB); card.dirty = true; refreshCardLayer(card, layer.id); }
-            });
+            syncGroupText('B', LAB.textB, null);
         });
         effectSelect.addEventListener('change', e => {
             LAB.effectB = e.target.value;
@@ -345,7 +339,12 @@
             if (card.id === sourceCardId) return;
             const index = group === 'A' ? LAB.layerAIndex : LAB.layerBIndex;
             const layer = card.layers[index];
-            if (layer && layer.type === 'text') { layer.content = escapeHTML(value); refreshCardLayer(card, layer.id); }
+            if (!layer || layer.type !== 'text') return;
+            layer.content = escapeHTML(value);
+            card.dirty = true;
+            const shell = LAB.root.querySelector('[data-card-id="' + card.id + '"]');
+            const text = shell && shell.querySelector('[data-layer-id="' + layer.id + '"] .ecl-real-text');
+            if (text && document.activeElement !== text) text.innerHTML = layer.content;
         });
     }
 
@@ -358,7 +357,9 @@
         const startX = event.clientX, startY = event.clientY;
         const initial = { x:Number(layer.x)||0, y:Number(layer.y)||0, width:Number(layer.width)||80, height:Number(layer.height)||60 };
         const direction = resize ? resize.dataset.direction : '';
+        let moved = false;
         const move = moveEvent => {
+            moved = true;
             const dx = (moveEvent.clientX - startX) / scale;
             const dy = (moveEvent.clientY - startY) / scale;
             if (resize) {
@@ -375,7 +376,7 @@
         const up = () => {
             document.removeEventListener('pointermove', move);
             document.removeEventListener('pointerup', up);
-            refreshCardLayer(card, layer.id);
+            if (moved) refreshCardLayer(card, layer.id);
         };
         document.addEventListener('pointermove', move);
         document.addEventListener('pointerup', up, { once:true });
