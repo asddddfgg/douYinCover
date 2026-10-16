@@ -8,7 +8,7 @@
     function initEffectComparisonLab() {
         LAB.root = document.getElementById('effect-comparison-lab');
         if (!LAB.root || typeof state === 'undefined') return;
-        LAB.effects = Array.isArray(window.ART_EFFECTS) ? window.ART_EFFECTS.slice() : [];
+        LAB.effects = typeof ART_EFFECTS !== 'undefined' && Array.isArray(ART_EFFECTS) ? ART_EFFECTS.slice() : [];
         LAB.effectB = LAB.effects.length ? LAB.effects[0].id : 'effect-gradient';
         buildLabShell();
         createCopiesFromMain();
