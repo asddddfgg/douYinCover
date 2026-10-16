@@ -99,6 +99,8 @@
     function syncText(role, value) {
         const key = role === 'A' ? 'textA' : 'textB';
         lab[key] = value;
+        const globalField = $('ecl-text-' + role.toLowerCase());
+        if (globalField && globalField.value !== value) globalField.value = value;
         lab.cards.forEach(card => {
             const layer = card.layers.find(l => l.__role === role);
             if (layer) layer.content = escapeHtml(value);
