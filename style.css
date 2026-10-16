@@ -563,3 +563,77 @@ body {
 .effect-lightning { color: #fff; text-shadow: 0 0 5px #fff, 0 0 10px #ffeb3b, 0 0 20px #ff9800; }
 .effect-red-stroke { color: #ffeb3b; text-shadow: -2px -2px 0 #ff2442, 2px -2px 0 #ff2442, -2px 2px 0 #ff2442, 2px 2px 0 #ff2442; }
 .effect-viral { color: #ffff00; text-shadow: 0 0 10px #ff2442, 0 0 20px #ff2442, 0 0 30px #ff2442; font-weight: 900; }
+
+
+/* 全量特效卡片隐藏、删除、置顶悬停按钮交互 */
+.effect-card {
+    position: relative;
+}
+.effect-card .effect-action-btn {
+    position: absolute;
+    top: 2px;
+    width: 14px;
+    height: 14px;
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.2s;
+    cursor: pointer;
+    z-index: 5;
+}
+.effect-card:hover .effect-action-btn {
+    opacity: 1;
+}
+.effect-card .btn-del { right: 2px; background: #f85149; }
+.effect-card .btn-toggle { right: 18px; background: #6e7681; }
+.effect-card .btn-pin { right: 34px; background: #238636; }
+
+.effect-card.hidden-effect {
+    opacity: 0.3;
+    text-decoration: line-through;
+}
+
+/* 隐藏面板与置顶栏控制区样式 */
+.effects-control-panel {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed #30363d;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.effects-control-panel textarea {
+    background: #161b22;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    padding: 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    resize: vertical;
+    font-family: monospace;
+}
+.sub-panel-box {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 6px;
+    margin-top: 6px;
+    font-size: 11px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+.sub-item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    border-bottom: 1px solid #30363d;
+}
+.sub-item-row:last-child {
+    border-bottom: none;
+}
