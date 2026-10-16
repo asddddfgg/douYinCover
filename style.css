@@ -563,3 +563,70 @@ body {
 .effect-lightning { color: #fff; text-shadow: 0 0 5px #fff, 0 0 10px #ffeb3b, 0 0 20px #ff9800; }
 .effect-red-stroke { color: #ffeb3b; text-shadow: -2px -2px 0 #ff2442, 2px -2px 0 #ff2442, -2px 2px 0 #ff2442, 2px 2px 0 #ff2442; }
 .effect-viral { color: #ffff00; text-shadow: 0 0 10px #ff2442, 0 0 20px #ff2442, 0 0 30px #ff2442; font-weight: 900; }
+
+
+/* ===== 新增：特效对比实验室（与主编辑器同页、同色系） ===== */
+body { height:auto; min-height:100vh; overflow-x:hidden; overflow-y:auto; }
+.app-container { height:auto; min-height:100vh; }
+.workspace { height:calc(100vh - 60px); min-height:480px; flex:0 0 auto; }
+#ecl-lab-root { width:100%; padding:22px; background:#0d1117; color:#e1e4e8; border-top:1px solid #30363d; }
+.ecl-shell { max-width:1800px; margin:0 auto; }
+.ecl-panel { background:#161b22; border:1px solid #30363d; border-radius:8px; margin-bottom:20px; overflow:hidden; }
+.ecl-panel-head { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding:14px 16px; border-bottom:1px solid #30363d; }
+.ecl-panel-head h2 { font-size:14px; color:#e1e4e8; margin:0; display:flex; align-items:center; gap:8px; }
+.ecl-panel-head p { color:#8b949e; font-size:11px; margin-top:5px; }
+.ecl-head-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.ecl-btn { background:#21262d; color:#c9d1d9; border:1px solid #30363d; padding:6px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+.ecl-btn:hover { background:#30363d; color:#fff; }
+.ecl-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 16px; border-bottom:1px solid #30363d; }
+.ecl-toolbar label { color:#8b949e; font-size:11px; white-space:nowrap; }
+.ecl-text-input { flex:1; min-width:220px; max-width:680px; background:#0d1117; border:1px solid #30363d; border-radius:5px; color:#e1e4e8; padding:8px 10px; font-size:13px; }
+.ecl-text-input:focus { outline:1px solid #ff2442; border-color:#ff2442; }
+.ecl-count { color:#8b949e; font-size:11px; }
+.ecl-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; padding:14px 16px 18px; }
+.ecl-card { min-width:0; background:#0d1117; border:1px solid #30363d; border-radius:6px; padding:8px; cursor:pointer; transition:border-color .12s,background .12s; }
+.ecl-card:hover { border-color:#8b949e; }
+.ecl-card.ecl-selected { border:2px solid #ff2442; padding:7px; background:rgba(255,36,66,.07); box-shadow:0 0 0 1px rgba(255,36,66,.12); }
+.ecl-card-head { display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:7px; font-size:11px; color:#8b949e; }
+.ecl-card-head strong { font-size:12px; color:#c9d1d9; }
+.ecl-card-head small { font-size:9px; color:#6e7681; }
+.ecl-preview { width:100%; aspect-ratio:9 / 16; display:flex; align-items:center; justify-content:center; padding:8%; border-radius:4px; overflow:hidden; background:linear-gradient(135deg,#ff2442 0%,#2575fc 100%); border:1px solid #30363d; }
+.ecl-preview-text { width:100%; max-height:100%; overflow:auto; text-align:center; font-size:clamp(15px,1.3vw,25px); line-height:1.3; font-weight:900; overflow-wrap:anywhere; white-space:pre-wrap; outline:none; user-select:text; cursor:text; }
+.ecl-preview-text:focus { outline:1px dashed #ff2442; outline-offset:3px; border-radius:2px; }
+.ecl-card-foot { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:7px; font-size:10px; color:#8b949e; }
+.ecl-select-indicator { color:#8b949e; }
+.ecl-card.ecl-selected .ecl-select-indicator { color:#ff6b7e; font-weight:bold; }
+.ecl-note { padding:0 16px 14px; color:#8b949e; font-size:11px; line-height:1.6; }
+.ecl-section-label { font-size:12px; color:#8b949e; padding:12px 16px 0; }
+.ecl-section-label div { color:#8b949e; font-size:11px; margin-top:4px; }
+@media (max-width:1300px) { .ecl-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (max-width:900px) { #ecl-lab-root { padding:12px; } .ecl-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; padding:10px; } }
+@media (max-width:600px) { .ecl-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .ecl-panel-head { align-items:flex-start; } }
+@media (max-width:380px) { .ecl-grid { grid-template-columns:1fr; } }
+
+/* ===== 阶段06-07：背景选择、方案确认/保存与显式应用 ===== */
+.ecl-final-area { margin:0 16px 18px; padding:14px; background:#0d1117; border:1px solid #30363d; border-radius:7px; }
+.ecl-final-title { color:#e1e4e8; font-size:13px; margin:0 0 6px; }
+.ecl-final-help { color:#8b949e; font-size:11px; line-height:1.6; margin-bottom:12px; }
+.ecl-bg-controls,.ecl-plan-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:14px; }
+.ecl-bg-controls label,.ecl-plan-controls label { color:#8b949e; font-size:11px; }
+.ecl-bg-type,.ecl-final-group { background:#161b22; border:1px solid #30363d; color:#e1e4e8; border-radius:5px; padding:7px 9px; font-size:12px; }
+.ecl-bg-color { width:34px; height:30px; padding:2px; background:#161b22; border:1px solid #30363d; border-radius:5px; cursor:pointer; }
+.ecl-bg-file { max-width:220px; color:#8b949e; font-size:11px; }
+.ecl-bg-hint { color:#8b949e; font-size:11px; line-height:1.5; }
+.ecl-btn-primary { color:#fff; background:#ff2442; border-color:#ff2442; }
+.ecl-btn-primary:hover { background:#e01e3b; }
+.ecl-btn-danger { color:#fff; border-color:#b62338; background:#5d1824; }
+.ecl-btn-danger:hover { background:#7f1d2d; }
+.ecl-plan-status { color:#c9d1d9; background:#161b22; border:1px solid #30363d; border-radius:5px; padding:9px 11px; font-size:11px; line-height:1.6; margin-bottom:14px; }
+.ecl-saved-title { color:#8b949e; font-size:12px; margin-bottom:8px; }
+.ecl-saved-plans { display:flex; flex-direction:column; gap:7px; }
+.ecl-saved-plan { display:flex; align-items:center; flex-wrap:wrap; gap:8px; background:#161b22; border:1px solid #30363d; border-radius:5px; padding:8px; }
+.ecl-saved-plan-info { color:#c9d1d9; font-size:11px; min-width:180px; }
+.ecl-saved-plan-text { flex:1; min-width:120px; color:#8b949e; font-size:11px; overflow-wrap:anywhere; }
+.ecl-saved-plan .ecl-btn { padding:5px 9px; }
+@media (max-width:600px) {
+ .ecl-final-area { margin:0 10px 12px; padding:10px; }
+ .ecl-bg-controls,.ecl-plan-controls { align-items:flex-start; }
+ .ecl-bg-file { max-width:100%; }
+}
