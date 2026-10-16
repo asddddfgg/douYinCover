@@ -184,7 +184,7 @@
                     layer.content = inner.innerHTML;
                     if (layer.__role) syncText(layer.__role, stripHtml(inner.innerHTML));
                 });
-                inner.addEventListener('blur', () => { el.classList.remove('ecl-editing'); });
+                inner.addEventListener('blur', () => { inner.contentEditable = 'false'; el.classList.remove('ecl-editing'); });
                 el.appendChild(inner);
             } else if (layer.type === 'sticker' || layer.type === 'image') {
                 const item = document.createElement('div'); item.textContent = layer.content || layer.emoji || '⭐'; item.style.fontSize = layer.fontSize || '36px'; el.appendChild(item);
