@@ -1,0 +1,45 @@
+name: Effect Comparison Lab Checks
+
+on:
+  push:
+    branches:
+      - feature/effect-comparison-lab-step-02-03
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  javascript-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check JavaScript syntax
+        run: |
+          node --check js/effect-comparison-lab.js
+          node --check js/app.js
+          node --check js/state.js
+          node --check js/effects.js
+          node --check js/stickers.js
+          node --check js/drag.js
+      - name: Guard explicit apply and saved-plan behavior
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const lab = fs.readFileSync('js/effect-comparison-lab.js', 'utf8');
+          const html = fs.readFileSync('index.html', 'utf8');
+          const app = fs.readFileSync('js/app.js', 'utf8');
+          assert.ok(html.indexOf('js/effect-comparison-lab.js') < html.indexOf('js/app.js'), 'lab must load before app init');
+          assert.ok(lab.includes("const ECL_PLAN_KEY='ecl_saved_plans_v1'"), 'saved plans need a stable localStorage key');
+          assert.ok(lab.includes('function eclConfirmPlan()'), 'confirmation handler must exist');
+          assert.ok(lab.includes('function eclSavePlan()'), 'save handler must exist');
+          assert.ok(lab.includes('function eclApplyPlan()'), 'explicit apply handler must exist');
+          assert.ok(lab.includes("if(!plan){alert('请先点击“确认方案”"), 'apply must require a confirmed snapshot');
+          assert.ok(lab.includes('target.content=eclEscapeHTML(plan.text);target.effectClass'), 'apply to selected text should change only content/effect');
+          assert.ok(!lab.includes('state.layers=[]') && !lab.includes('state.pages=[]'), 'lab must not clear main layers/pages');
+          assert.ok(app.includes('function renderAll()'), 'main render entry point must remain');
+          console.log('Effect Comparison Lab guard checks passed.');
+          NODE
