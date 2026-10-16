@@ -1,0 +1,51 @@
+name: Editable Comparison Canvas Checks
+
+on:
+  push:
+    branches:
+      - feature/effect-comparison-real-canvas
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  syntax-and-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check JavaScript syntax
+        run: |
+          node --check js/effect-comparison-lab.js
+          node --check js/app.js
+          node --check js/db.js
+          node --check js/drag.js
+          node --check js/effects.js
+          node --check js/state.js
+          node --check js/stickers.js
+          node --check js/text-layers.js
+      - name: Check integration contract
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const html = fs.readFileSync('index.html', 'utf8');
+          const lab = fs.readFileSync('js/effect-comparison-lab.js', 'utf8');
+          const originalApp = fs.readFileSync('js/app.js', 'utf8');
+          const css = fs.readFileSync('style.css', 'utf8');
+          assert.ok(html.includes('id="effect-comparison-lab"'), 'lab must be embedded in the page');
+          assert.ok(html.indexOf('js/effect-comparison-lab.js') > html.indexOf('js/app.js'), 'lab initializes after main editor');
+          assert.ok(lab.includes("typeof ART_EFFECTS !== 'undefined'"), 'lab must use existing effect library');
+          assert.ok(lab.includes('state.getCurrentPage()'), 'lab clones the current main page');
+          assert.ok(lab.includes('clone(state.background)'), 'lab clones main background');
+          assert.ok(lab.includes('LAB.layerAIndex') && lab.includes('LAB.layerBIndex'), 'A/B text layers must be mapped');
+          assert.ok(lab.includes('syncGroupText'), 'inline A/B edits sync to other canvases');
+          assert.ok(lab.includes('function handlePointerDown'), 'canvas layers support drag/resize');
+          assert.ok(lab.includes('function renderCardToolbar'), 'canvas includes layer style controls');
+          assert.ok(lab.includes("LAB.effectB = LAB.effects.length ? LAB.effects[0].id"), 'B effect defaults to E1');
+          assert.ok(css.includes('.ecl-real-canvas {') && css.includes('transform: scale(.5)'), 'canvas preview must preserve 9:16 proportions');
+          assert.ok(originalApp.includes('function renderCanvas()') && originalApp.includes('function renderAll()'), 'original main editor entry points remain');
+          console.log('Editable comparison canvas integration checks passed.');
+          NODE
