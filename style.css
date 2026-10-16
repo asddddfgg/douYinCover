@@ -598,3 +598,8 @@ body {
 .ecl-context-menu button[data-action="delete"]{color:#ff7b72}
 @media(max-width:900px){.ecl-global-controls{grid-template-columns:repeat(2,minmax(130px,1fr))}.ecl-panel{margin:16px 8px;padding:12px}}
 @media(max-width:520px){.ecl-global-controls{grid-template-columns:1fr}.ecl-heading{align-items:flex-start}}
+
+/* The original editor remains viewport-sized; the embedded lab follows it in page flow. */
+body { height: auto; min-height: 100vh; overflow-x: hidden; overflow-y: auto; }
+.app-container { height: auto; min-height: 100vh; }
+.workspace { flex: none; height: calc(100vh - 60px); min-height: 480px; }
