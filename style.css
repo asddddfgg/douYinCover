@@ -563,3 +563,38 @@ body {
 .effect-lightning { color: #fff; text-shadow: 0 0 5px #fff, 0 0 10px #ffeb3b, 0 0 20px #ff9800; }
 .effect-red-stroke { color: #ffeb3b; text-shadow: -2px -2px 0 #ff2442, 2px -2px 0 #ff2442, -2px 2px 0 #ff2442, 2px 2px 0 #ff2442; }
 .effect-viral { color: #ffff00; text-shadow: 0 0 10px #ff2442, 0 0 20px #ff2442, 0 0 30px #ff2442; font-weight: 900; }
+
+/* ===== Embedded Effect Comparison Lab (isolated add-on) ===== */
+.ecl-panel{margin:24px 22px 36px;padding:20px;background:#161b22;border:1px solid #30363d;border-radius:12px;color:#c9d1d9;position:relative}
+.ecl-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.ecl-heading h2{font-size:20px;color:#f0f6fc;margin-bottom:5px}
+.ecl-heading p,.ecl-hint{font-size:12px;color:#8b949e;line-height:1.6}
+.ecl-global-controls{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px;margin:16px 0}
+.ecl-global-controls label,.ecl-card-tools label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:#8b949e}
+.ecl-global-controls input,.ecl-global-controls select,.ecl-card-tools input,.ecl-card-tools select{width:100%;min-width:0;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#f0f6fc;padding:8px}
+.ecl-hint{padding:10px 12px;background:#0d1117;border-radius:6px;margin-bottom:16px}
+.ecl-canvas-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;align-items:start}
+.ecl-card{min-width:0;background:#0d1117;border:1px solid #30363d;border-radius:9px;padding:10px;overflow:hidden}
+.ecl-card-head{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px}
+.ecl-card-head strong{font-size:13px;color:#f0f6fc}
+.ecl-chip{font-size:10px;padding:3px 6px;border-radius:99px;background:#30363d;color:#c9d1d9;white-space:nowrap}
+.ecl-card-tools{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:8px 0}
+.ecl-card-tools .ecl-wide{grid-column:1/-1}
+.ecl-canvas-frame{position:relative;width:180px;height:320px;margin:8px auto;background:#000;overflow:visible}
+.ecl-cover-canvas{width:360px;height:640px;position:absolute;top:0;left:0;transform:scale(.5);transform-origin:top left;overflow:hidden;border:2px solid #49515c;border-radius:5px;box-shadow:0 6px 20px #0007;user-select:none}
+.ecl-cover-canvas .canvas-bg{position:absolute;inset:0;width:100%;height:100%;z-index:1;background-size:cover;background-position:center}
+.ecl-cover-canvas .layers-wrapper{position:absolute;inset:0;width:100%;height:100%;z-index:2}
+.ecl-cover-canvas .canvas-layer{position:absolute;cursor:move;padding:6px;border:1px solid transparent;box-sizing:border-box;user-select:none}
+.ecl-cover-canvas .canvas-layer.ecl-selected{border:1px solid #00e5ff;background:#00e5ff12}
+.ecl-cover-canvas .canvas-layer.ecl-editing{cursor:text;user-select:text;border-color:#00e5ff}
+.ecl-cover-canvas .text-content-editable{outline:none;width:100%;height:100%;min-height:1.2em;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;box-sizing:border-box}
+.ecl-cover-canvas .canvas-layer img{max-width:100%;max-height:100%;object-fit:contain}
+.ecl-card-tools button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:5px;padding:7px;cursor:pointer}
+.ecl-card-tools button:hover,.ecl-context-menu button:hover{background:#30363d}
+.ecl-live-status{margin-top:14px;font-size:12px;color:#8b949e}
+.ecl-context-menu{position:fixed;z-index:99999;min-width:150px;padding:5px;background:#161b22;border:1px solid #49515c;border-radius:7px;box-shadow:0 8px 28px #0009}
+.ecl-context-menu[hidden]{display:none}
+.ecl-context-menu button{display:block;width:100%;text-align:left;padding:8px 10px;color:#c9d1d9;background:transparent;border:0;border-radius:4px;cursor:pointer;font-size:12px}
+.ecl-context-menu button[data-action="delete"]{color:#ff7b72}
+@media(max-width:900px){.ecl-global-controls{grid-template-columns:repeat(2,minmax(130px,1fr))}.ecl-panel{margin:16px 8px;padding:12px}}
+@media(max-width:520px){.ecl-global-controls{grid-template-columns:1fr}.ecl-heading{align-items:flex-start}}
