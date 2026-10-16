@@ -79,6 +79,7 @@
             </div>
 
             <div class="actions">
+                <button id="btn-open-effect-comparison-lab" class="btn" type="button"><i class="fa-solid fa-grip"></i> 特效对比实验室 ↓</button>
                 <button id="btn-add-text" class="btn"><i class="fa-solid fa-heading"></i> 添加文本</button>
                 <button id="btn-add-sticker" class="btn"><i class="fa-solid fa-face-smile"></i> 添加贴纸</button>
                 <button id="btn-export" class="btn btn-primary"><i class="fa-solid fa-download"></i> 导出 9:16 封面</button>
@@ -154,6 +155,33 @@
         </div>
     </div>
 
+
+    <!-- Embedded editable effect comparison lab; isolated from the original editor state -->
+    <section id="effect-comparison-lab" class="ecl-panel" aria-label="特效对比实验室">
+        <div class="ecl-heading">
+            <div><h2><i class="fa-solid fa-grip"></i> 特效对比实验室</h2>
+                <p>主画布当前页的独立副本 · A 特效逐张不同 · B 特效全局统一 · 不会自动修改主画布</p></div>
+            <button id="ecl-regenerate" type="button" class="btn">从主画布重新生成 20 张副本</button>
+        </div>
+        <div class="ecl-global-controls">
+            <label>A 文字（全局唯一）<input id="ecl-text-a" type="text" value=""></label>
+            <label>B 文字（全局唯一）<input id="ecl-text-b" type="text" value=""></label>
+            <label>B 统一特效<select id="ecl-effect-b"></select></label>
+            <label>副本缩放<select id="ecl-scale"><option value="0.5">50%</option><option value="0.6">60%</option><option value="0.75">75%</option></select></label>
+        </div>
+        <div class="ecl-hint">编辑说明：双击文字直接编辑；单击选择图层；拖动图层可改位置；右键图层打开菜单。每张副本的文字位置与样式独立，A/B 文本内容同步到全部副本。主编辑区原有按钮和功能保持不变。</div>
+        <div id="ecl-canvas-grid" class="ecl-canvas-grid"></div>
+        <div id="ecl-context-menu" class="ecl-context-menu" hidden>
+            <button type="button" data-action="copy">复制图层</button>
+            <button type="button" data-action="copy-style">复制样式</button>
+            <button type="button" data-action="paste-style">粘贴样式</button>
+            <button type="button" data-action="up">图层上移</button>
+            <button type="button" data-action="down">图层下移</button>
+            <button type="button" data-action="delete">删除图层</button>
+        </div>
+        <div id="ecl-live-status" class="ecl-live-status" aria-live="polite">尚未生成副本</div>
+    </section>
+
     <!-- Right Click Context Menu -->
     <div id="context-menu" class="context-menu" style="display: none;">
         <ul>
@@ -176,5 +204,6 @@
     <script src="js/stickers.js"></script>
     <script src="js/drag.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/effect-comparison-lab.js"></script>
 </body>
 </html>
