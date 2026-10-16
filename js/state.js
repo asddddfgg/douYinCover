@@ -9,7 +9,6 @@ class HistoryManager {
     }
 
     record() {
-        // 深拷贝当前整个画布的 state 状态
         const snapshot = JSON.parse(JSON.stringify({
             background: this.state.background,
             pages: this.state.pages,
@@ -17,7 +16,6 @@ class HistoryManager {
             selectedLayerId: this.state.selectedLayerId
         }));
 
-        // 如果指针不在末尾，截断后面的历史
         if (this.pointer < this.stack.length - 1) {
             this.stack = this.stack.slice(0, this.pointer + 1);
         }
@@ -117,10 +115,8 @@ class AppState {
         this.editingLayerId = null;
         this.copiedStyle = null;
 
-        // 初始化历史记录管理器
         this.history = new HistoryManager(this);
         
-        // 延迟半秒记录初始状态
         setTimeout(() => {
             if (this.history.stack.length === 0) {
                 this.history.record();
@@ -164,11 +160,14 @@ class AppState {
         this.saveState();
     }
 
+    // 通用图层上移/下移（支持任意类型图层：text / sticker / emoji / image / svg ...）
     moveLayer(id, direction) {
-        const curLayers = this.layers;
+        const curLayers = this.getCurrentPage().layers;
         const index = curLayers.findIndex(l => l.id === id);
         if (index === -1) return;
-        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        // DOM 中后 append 的图层显示在更上层（无 z-index 时）
+        // 数组末尾 = 视觉最上层；"up"（上移一层）应让索引增大
+        const targetIndex = direction === 'up' ? index + 1 : index - 1;
         if (targetIndex >= 0 && targetIndex < curLayers.length) {
             const temp = curLayers[index];
             curLayers[index] = curLayers[targetIndex];
@@ -225,10 +224,8 @@ class AppState {
 
 const state = new AppState();
 
-// 全局监听 Ctrl + Z 快捷键实现一键撤销
 document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        // 如果当前正在编辑富文本输入框内部，让浏览器原生处理内部文本撤销
         if (e.target.isContentEditable || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
             return; 
         }

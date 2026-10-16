@@ -16,11 +16,7 @@ function setupTopToolbarEvents() {
                 applyFormattingToSelection('fontName', e.target.value);
             } else {
                 const layer = state.getSelectedLayer();
-                if (layer) { 
-                    layer.fontFamily = e.target.value; 
-                    state.saveState(); // 记录历史
-                    renderCanvas(); 
-                }
+                if (layer) { layer.fontFamily = e.target.value; state.saveState(); renderCanvas(); }
             }
         });
     }
@@ -29,26 +25,17 @@ function setupTopToolbarEvents() {
     if (fontSizeSelect) {
         fontSizeSelect.addEventListener('change', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { 
-                layer.fontSize = e.target.value; 
-                state.saveState(); // 记录历史
-                renderCanvas(); 
-            }
+            if (layer) { layer.fontSize = e.target.value; state.saveState(); renderCanvas(); }
         });
     }
 
     const colorPicker = document.getElementById('tb-color');
     if (colorPicker) {
         colorPicker.addEventListener('input', (e) => {
-            if (state.editingLayerId) {
-                applyFormattingToSelection('foreColor', e.target.value);
-            } else {
+            if (state.editingLayerId) applyFormattingToSelection('foreColor', e.target.value);
+            else {
                 const layer = state.getSelectedLayer();
-                if (layer) { 
-                    layer.color = e.target.value; 
-                    state.saveState(); // 记录历史
-                    renderCanvas(); 
-                }
+                if (layer) { layer.color = e.target.value; state.saveState(); renderCanvas(); }
             }
         });
     }
@@ -56,15 +43,10 @@ function setupTopToolbarEvents() {
     const bgColorPicker = document.getElementById('tb-bgcolor');
     if (bgColorPicker) {
         bgColorPicker.addEventListener('input', (e) => {
-            if (state.editingLayerId) {
-                applyFormattingToSelection('hiliteColor', e.target.value);
-            } else {
+            if (state.editingLayerId) applyFormattingToSelection('hiliteColor', e.target.value);
+            else {
                 const layer = state.getSelectedLayer();
-                if (layer) { 
-                    layer.bgColor = e.target.value; 
-                    state.saveState(); // 记录历史
-                    renderCanvas(); 
-                }
+                if (layer) { layer.bgColor = e.target.value; state.saveState(); renderCanvas(); }
             }
         });
     }
@@ -73,16 +55,14 @@ function setupTopToolbarEvents() {
         const btn = document.getElementById(id);
         if (btn) {
             btn.addEventListener('click', () => {
-                if (state.editingLayerId) {
-                    applyFormattingToSelection(cmd);
-                } else {
+                if (state.editingLayerId) applyFormattingToSelection(cmd);
+                else {
                     const layer = state.getSelectedLayer();
                     if (layer) {
                         const propMap = { bold: 'bold', italic: 'italic', underline: 'underline', strikeThrough: 'strike' };
                         const prop = propMap[cmd];
                         if (prop) layer[prop] = !layer[prop];
-                        state.saveState(); // 记录历史
-                        renderCanvas();
+                        state.saveState(); renderCanvas();
                     }
                 }
             });
@@ -100,11 +80,7 @@ function setupTopToolbarEvents() {
         if (btn) {
             btn.addEventListener('click', () => {
                 const layer = state.getSelectedLayer();
-                if (layer) {
-                    layer.align = align;
-                    state.saveState(); // 记录历史
-                    renderCanvas();
-                }
+                if (layer) { layer.align = align; state.saveState(); renderCanvas(); }
             });
         }
     });
@@ -113,11 +89,7 @@ function setupTopToolbarEvents() {
     if (verticalBtn) {
         verticalBtn.addEventListener('click', () => {
             const layer = state.getSelectedLayer();
-            if (layer) {
-                layer.vertical = !layer.vertical;
-                state.saveState(); // 记录历史
-                renderCanvas();
-            }
+            if (layer) { layer.vertical = !layer.vertical; state.saveState(); renderCanvas(); }
         });
     }
 
@@ -125,11 +97,7 @@ function setupTopToolbarEvents() {
     if (letterSpacing) {
         letterSpacing.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { 
-                layer.letterSpacing = e.target.value + 'px'; 
-                state.saveState(); // 记录历史
-                renderCanvas(); 
-            }
+            if (layer) { layer.letterSpacing = e.target.value + 'px'; state.saveState(); renderCanvas(); }
         });
     }
 
@@ -137,11 +105,7 @@ function setupTopToolbarEvents() {
     if (lineHeight) {
         lineHeight.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { 
-                layer.lineHeight = e.target.value; 
-                state.saveState(); // 记录历史
-                renderCanvas(); 
-            }
+            if (layer) { layer.lineHeight = e.target.value; state.saveState(); renderCanvas(); }
         });
     }
 
@@ -149,11 +113,7 @@ function setupTopToolbarEvents() {
     if (opacity) {
         opacity.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { 
-                layer.opacity = parseFloat(e.target.value); 
-                state.saveState(); // 记录历史
-                renderCanvas(); 
-            }
+            if (layer) { layer.opacity = parseFloat(e.target.value); state.saveState(); renderCanvas(); }
         });
     }
 }
@@ -185,19 +145,15 @@ function updateTopToolbarUI(layer) {
 
 function setupContextMenuEvents() {
     const menu = document.getElementById('context-menu');
-    
-    document.addEventListener('click', () => {
-        menu.style.display = 'none';
-    });
+    document.addEventListener('click', () => { menu.style.display = 'none'; });
 
     document.getElementById('ctx-copy').addEventListener('click', () => {
         const layer = state.getSelectedLayer();
         if (layer) {
             const clone = JSON.parse(JSON.stringify(layer));
             clone.id = 'layer-' + Date.now();
-            clone.x += 20;
-            clone.y += 20;
-            state.addLayer(clone); // 内部已包含 saveState()
+            clone.x += 20; clone.y += 20;
+            state.addLayer(clone);
             renderCanvas();
             renderLayerList();
         }
@@ -219,34 +175,54 @@ function setupContextMenuEvents() {
         const layer = state.getSelectedLayer();
         if (layer && state.copiedStyle) {
             Object.assign(layer, state.copiedStyle);
-            state.saveState(); // 记录历史
+            state.saveState();
             renderCanvas();
             updateTopToolbarUI(layer);
         }
     });
 
+    // ===== 通用图层上移/下移（不区分类型）=====
     document.getElementById('ctx-move-up').addEventListener('click', () => {
         if (state.selectedLayerId) {
-            state.moveLayer(state.selectedLayerId, 'up'); // 内部已包含 saveState()
+            state.moveLayer(state.selectedLayerId, 'up');
             renderCanvas();
             renderLayerList();
+            updateTopToolbarUI(state.getSelectedLayer());
         }
     });
 
     document.getElementById('ctx-move-down').addEventListener('click', () => {
         if (state.selectedLayerId) {
-            state.moveLayer(state.selectedLayerId, 'down'); // 内部已包含 saveState()
+            state.moveLayer(state.selectedLayerId, 'down');
             renderCanvas();
             renderLayerList();
+            updateTopToolbarUI(state.getSelectedLayer());
+        }
+    });
+
+    document.getElementById('ctx-flip-h').addEventListener('click', () => {
+        const layer = state.getSelectedLayer();
+        if (layer) { layer.flipH = !layer.flipH; state.saveState(); renderCanvas(); }
+    });
+    document.getElementById('ctx-flip-v').addEventListener('click', () => {
+        const layer = state.getSelectedLayer();
+        if (layer) { layer.flipV = !layer.flipV; state.saveState(); renderCanvas(); }
+    });
+    document.getElementById('ctx-rotate-90').addEventListener('click', () => {
+        const layer = state.getSelectedLayer();
+        if (layer) {
+            layer.rotation = ((layer.rotation || 0) + 90) % 360;
+            state.saveState(); renderCanvas();
         }
     });
 
     document.getElementById('ctx-delete').addEventListener('click', () => {
         if (state.selectedLayerId) {
-            state.removeLayer(state.selectedLayerId); // 内部已包含 saveState()
+            state.removeLayer(state.selectedLayerId);
             renderCanvas();
             renderLayerList();
             updateTopToolbarUI(null);
+            if (typeof showStickerColorBar === 'function') showStickerColorBar(false);
         }
     });
 }
