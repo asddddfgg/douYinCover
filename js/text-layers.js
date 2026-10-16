@@ -16,7 +16,11 @@ function setupTopToolbarEvents() {
                 applyFormattingToSelection('fontName', e.target.value);
             } else {
                 const layer = state.getSelectedLayer();
-                if (layer) { layer.fontFamily = e.target.value; renderCanvas(); }
+                if (layer) { 
+                    layer.fontFamily = e.target.value; 
+                    state.saveState(); // 记录历史
+                    renderCanvas(); 
+                }
             }
         });
     }
@@ -25,7 +29,11 @@ function setupTopToolbarEvents() {
     if (fontSizeSelect) {
         fontSizeSelect.addEventListener('change', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { layer.fontSize = e.target.value; renderCanvas(); }
+            if (layer) { 
+                layer.fontSize = e.target.value; 
+                state.saveState(); // 记录历史
+                renderCanvas(); 
+            }
         });
     }
 
@@ -36,7 +44,11 @@ function setupTopToolbarEvents() {
                 applyFormattingToSelection('foreColor', e.target.value);
             } else {
                 const layer = state.getSelectedLayer();
-                if (layer) { layer.color = e.target.value; renderCanvas(); }
+                if (layer) { 
+                    layer.color = e.target.value; 
+                    state.saveState(); // 记录历史
+                    renderCanvas(); 
+                }
             }
         });
     }
@@ -48,7 +60,11 @@ function setupTopToolbarEvents() {
                 applyFormattingToSelection('hiliteColor', e.target.value);
             } else {
                 const layer = state.getSelectedLayer();
-                if (layer) { layer.bgColor = e.target.value; renderCanvas(); }
+                if (layer) { 
+                    layer.bgColor = e.target.value; 
+                    state.saveState(); // 记录历史
+                    renderCanvas(); 
+                }
             }
         });
     }
@@ -65,6 +81,7 @@ function setupTopToolbarEvents() {
                         const propMap = { bold: 'bold', italic: 'italic', underline: 'underline', strikeThrough: 'strike' };
                         const prop = propMap[cmd];
                         if (prop) layer[prop] = !layer[prop];
+                        state.saveState(); // 记录历史
                         renderCanvas();
                     }
                 }
@@ -85,6 +102,7 @@ function setupTopToolbarEvents() {
                 const layer = state.getSelectedLayer();
                 if (layer) {
                     layer.align = align;
+                    state.saveState(); // 记录历史
                     renderCanvas();
                 }
             });
@@ -97,6 +115,7 @@ function setupTopToolbarEvents() {
             const layer = state.getSelectedLayer();
             if (layer) {
                 layer.vertical = !layer.vertical;
+                state.saveState(); // 记录历史
                 renderCanvas();
             }
         });
@@ -106,7 +125,11 @@ function setupTopToolbarEvents() {
     if (letterSpacing) {
         letterSpacing.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { layer.letterSpacing = e.target.value + 'px'; renderCanvas(); }
+            if (layer) { 
+                layer.letterSpacing = e.target.value + 'px'; 
+                state.saveState(); // 记录历史
+                renderCanvas(); 
+            }
         });
     }
 
@@ -114,7 +137,11 @@ function setupTopToolbarEvents() {
     if (lineHeight) {
         lineHeight.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { layer.lineHeight = e.target.value; renderCanvas(); }
+            if (layer) { 
+                layer.lineHeight = e.target.value; 
+                state.saveState(); // 记录历史
+                renderCanvas(); 
+            }
         });
     }
 
@@ -122,7 +149,11 @@ function setupTopToolbarEvents() {
     if (opacity) {
         opacity.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { layer.opacity = parseFloat(e.target.value); renderCanvas(); }
+            if (layer) { 
+                layer.opacity = parseFloat(e.target.value); 
+                state.saveState(); // 记录历史
+                renderCanvas(); 
+            }
         });
     }
 }
@@ -166,7 +197,7 @@ function setupContextMenuEvents() {
             clone.id = 'layer-' + Date.now();
             clone.x += 20;
             clone.y += 20;
-            state.addLayer(clone);
+            state.addLayer(clone); // 内部已包含 saveState()
             renderCanvas();
             renderLayerList();
         }
@@ -188,6 +219,7 @@ function setupContextMenuEvents() {
         const layer = state.getSelectedLayer();
         if (layer && state.copiedStyle) {
             Object.assign(layer, state.copiedStyle);
+            state.saveState(); // 记录历史
             renderCanvas();
             updateTopToolbarUI(layer);
         }
@@ -195,7 +227,7 @@ function setupContextMenuEvents() {
 
     document.getElementById('ctx-move-up').addEventListener('click', () => {
         if (state.selectedLayerId) {
-            state.moveLayer(state.selectedLayerId, 'up');
+            state.moveLayer(state.selectedLayerId, 'up'); // 内部已包含 saveState()
             renderCanvas();
             renderLayerList();
         }
@@ -203,7 +235,7 @@ function setupContextMenuEvents() {
 
     document.getElementById('ctx-move-down').addEventListener('click', () => {
         if (state.selectedLayerId) {
-            state.moveLayer(state.selectedLayerId, 'down');
+            state.moveLayer(state.selectedLayerId, 'down'); // 内部已包含 saveState()
             renderCanvas();
             renderLayerList();
         }
@@ -211,7 +243,7 @@ function setupContextMenuEvents() {
 
     document.getElementById('ctx-delete').addEventListener('click', () => {
         if (state.selectedLayerId) {
-            state.removeLayer(state.selectedLayerId);
+            state.removeLayer(state.selectedLayerId); // 内部已包含 saveState()
             renderCanvas();
             renderLayerList();
             updateTopToolbarUI(null);

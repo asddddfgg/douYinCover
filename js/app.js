@@ -216,8 +216,29 @@ function renderFavBackgrounds() {
 
 function exportElementToPNG(canvasDOMNode, filename) {
     return new Promise((resolve) => {
+        // 获取所有带有选中状态的图层，并临时移除它们身上的 .selected 样式以消除发亮红线
         const selectedLayers = canvasDOMNode.querySelectorAll('.canvas-layer.selected');
         selectedLayers.forEach(el => el.classList.remove('selected'));
+
+        // 修复：临时移除所属页面包裹层的 active-page 类，消除红色边框
+        const pageWrapper = canvasDOMNode.closest('.canvas-page-wrapper');
+        let hadActivePage = false;
+        if (pageWrapper) {
+            hadActivePage = pageWrapper.classList.contains('active-page');
+            pageWrapper.classList.remove('active-page');
+        }
+
+        // 修复：强制移除画布自身的边框、阴影、圆角，确保导出无任何亮边框
+        const originalStyles = {
+            border: canvasDOMNode.style.border,
+            borderColor: canvasDOMNode.style.borderColor,
+            boxShadow: canvasDOMNode.style.boxShadow,
+            borderRadius: canvasDOMNode.style.borderRadius
+        };
+        canvasDOMNode.style.border = 'none';
+        canvasDOMNode.style.borderColor = 'transparent';
+        canvasDOMNode.style.boxShadow = 'none';
+        canvasDOMNode.style.borderRadius = '0';
 
         html2canvas(canvasDOMNode, {
             scale: 2,
@@ -225,7 +246,15 @@ function exportElementToPNG(canvasDOMNode, filename) {
             allowTaint: true,
             backgroundColor: null
         }).then(canvas => {
+            // 导出完成后，恢复所有临时移除的样式
             selectedLayers.forEach(el => el.classList.add('selected'));
+            if (pageWrapper && hadActivePage) {
+                pageWrapper.classList.add('active-page');
+            }
+            canvasDOMNode.style.border = originalStyles.border;
+            canvasDOMNode.style.borderColor = originalStyles.borderColor;
+            canvasDOMNode.style.boxShadow = originalStyles.boxShadow;
+            canvasDOMNode.style.borderRadius = originalStyles.borderRadius;
 
             const pngURL = canvas.toDataURL('image/png');
             const downloadLink = document.createElement('a');
@@ -236,6 +265,16 @@ function exportElementToPNG(canvasDOMNode, filename) {
             document.body.removeChild(downloadLink);
             resolve();
         }).catch(err => {
+            // 出错时也要恢复样式
+            selectedLayers.forEach(el => el.classList.add('selected'));
+            if (pageWrapper && hadActivePage) {
+                pageWrapper.classList.add('active-page');
+            }
+            canvasDOMNode.style.border = originalStyles.border;
+            canvasDOMNode.style.borderColor = originalStyles.borderColor;
+            canvasDOMNode.style.boxShadow = originalStyles.boxShadow;
+            canvasDOMNode.style.borderRadius = originalStyles.borderRadius;
+
             console.error('导出失败:', err);
             resolve();
         });

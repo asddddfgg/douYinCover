@@ -13,6 +13,7 @@ function initDragModule() {
     let initWidth = 0, initHeight = 0;
     let initFontSize = 28;
     let pendingDrag = false; 
+    let hasMovedOrResized = false;
 
     container.addEventListener('mousedown', (e) => {
         if (e.target.isContentEditable || e.target.closest('.editing')) {
@@ -38,6 +39,7 @@ function initDragModule() {
             initX = dragLayer.x;
             initY = dragLayer.y;
             initFontSize = parseFloat(dragLayer.fontSize) || 28;
+            hasMovedOrResized = false;
             return;
         }
 
@@ -59,6 +61,7 @@ function initDragModule() {
             initHeight = dragLayer.height || 100;
             initX = dragLayer.x;
             initY = dragLayer.y;
+            hasMovedOrResized = false;
             return;
         }
 
@@ -119,6 +122,7 @@ function initDragModule() {
 
         pendingDrag = true;
         isDragging = false;
+        hasMovedOrResized = false;
         startX = e.clientX;
         startY = e.clientY;
         initX = dragLayer.x;
@@ -136,6 +140,7 @@ function initDragModule() {
         }
 
         if (isResizing && dragLayer) {
+            hasMovedOrResized = true;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
 
@@ -199,6 +204,7 @@ function initDragModule() {
         }
 
         if (isDragging && dragLayer) {
+            hasMovedOrResized = true;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
             dragLayer.x = initX + dx;
@@ -214,9 +220,13 @@ function initDragModule() {
 
     document.addEventListener('mouseup', () => {
         if (isDragging || isResizing || pendingDrag) {
+            if ((isDragging || isResizing) && hasMovedOrResized) {
+                state.saveState(); // 拖拽或缩放结束后保存历史记录栈
+            }
             isDragging = false;
             isResizing = false;
             pendingDrag = false;
+            hasMovedOrResized = false;
             resizeMode = null;
             dragLayer = null;
             updateTopToolbarUI(state.getSelectedLayer());
@@ -236,5 +246,6 @@ function exitAllEditingMode() {
             }
         }
         state.editingLayerId = null;
+        state.saveState();
     }
 }
