@@ -186,7 +186,16 @@
                 const item = document.createElement('div'); item.textContent = layer.content || ''; el.appendChild(item);
             }
             el.addEventListener('pointerdown', (e) => beginDrag(e, card, layer, el, canvas));
-            el.addEventListener('click', (e) => { e.stopPropagation(); card.selectedLayerId = layer.id; lab.selected = { card, layer }; renderCards(); });
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                card.selectedLayerId = layer.id;
+                lab.selected = { card, layer };
+                // Do not rerender on click: replacing the node here would break the browser's dblclick sequence.
+                const cardRoot = el.closest('.ecl-card');
+                if (cardRoot) cardRoot.querySelectorAll('.canvas-layer').forEach(node => node.classList.toggle('ecl-selected', node === el));
+                const title = el.closest('.ecl-card')?.querySelector('.ecl-card-head strong');
+                if (title) title.title = '当前选中图层：' + (layer.__role || layer.type || '图层');
+            });
             el.addEventListener('dblclick', (e) => {
                 e.preventDefault(); e.stopPropagation();
                 if (layer.type !== 'text') return;
