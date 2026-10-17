@@ -19,7 +19,7 @@ body {
     height: 100vh;
 }
 
-/* Header & Canva Top Fixed Text Formatting Toolbar */
+/* Header */
 .app-header {
     height: 60px;
     background: #161b22;
@@ -170,7 +170,7 @@ body {
     background: #e01e3b;
 }
 
-/* Workspace Layout */
+/* Workspace */
 .workspace {
     display: flex;
     flex: 1;
@@ -241,7 +241,7 @@ body {
     font-weight: bold;
 }
 
-/* Canva 多页左右横向排列 + 自动换行容器 */
+/* Canvas container */
 .canvas-container {
     flex: 1;
     background: #0d1117;
@@ -256,7 +256,6 @@ body {
     gap: 40px;
 }
 
-/* 单个分页外壳 */
 .canvas-page-wrapper {
     position: relative;
     display: flex;
@@ -265,7 +264,6 @@ body {
     flex-shrink: 0;
 }
 
-/* 页面顶部的页码指示标签 */
 .page-badge {
     position: absolute;
     top: -26px;
@@ -317,7 +315,7 @@ body {
     z-index: 2;
 }
 
-/* Layer & Controls */
+/* Controls */
 .control-group {
     margin-bottom: 12px;
 }
@@ -376,7 +374,7 @@ body {
     background: rgba(255, 36, 66, 0.1);
 }
 
-/* 文本图层 */
+/* Canvas layer */
 .canvas-layer {
     position: absolute;
     cursor: move;
@@ -408,7 +406,7 @@ body {
     border-color: #00ffff !important;
 }
 
-/* 四角缩放圆点 */
+/* Resize handles */
 .resize-handle {
     position: absolute;
     width: 10px;
@@ -426,8 +424,6 @@ body {
 .resize-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
 .resize-handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
 
-
-/* 左右上下边框中点调整线 */
 .edge-handle {
     position: absolute;
     background: #ff2442;
@@ -463,7 +459,7 @@ body {
     display: block;
 }
 
-/* 右键菜单 */
+/* Context menu */
 .context-menu {
     position: absolute;
     background: #161b22;
@@ -508,7 +504,7 @@ body {
     margin: 4px 0;
 }
 
-/* Canva Pagination List Styling */
+/* Page list */
 .page-list {
     display: flex;
     flex-direction: column;
@@ -542,7 +538,7 @@ body {
     font-weight: bold;
 }
 
-/* 20款艺术特效 */
+/* 20 艺术特效 */
 .effect-gradient { background: linear-gradient(135deg, #ff7e5f, #feb47b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .effect-neon { color: #fff; text-shadow: 0 0 5px #ff00de, 0 0 10px #ff00de, 0 0 20px #ff00de, 0 0 40px #ff00de; }
 .effect-3d { color: #f0f0f0; text-shadow: 1px 1px 0 #ccc, 2px 2px 0 #c9c9c9, 3px 3px 0 #bbb, 4px 4px 0 #b9b9b9, 5px 5px 0 #aaa, 6px 6px 7px rgba(0,0,0,0.6); }
@@ -564,8 +560,7 @@ body {
 .effect-red-stroke { color: #ffeb3b; text-shadow: -2px -2px 0 #ff2442, 2px -2px 0 #ff2442, -2px 2px 0 #ff2442, 2px 2px 0 #ff2442; }
 .effect-viral { color: #ffff00; text-shadow: 0 0 10px #ff2442, 0 0 20px #ff2442, 0 0 30px #ff2442; font-weight: 900; }
 
-
-/* 全量特效卡片隐藏、删除、置顶悬停按钮交互 */
+/* Effects card hover controls */
 .effect-card {
     position: relative;
 }
@@ -598,7 +593,6 @@ body {
     text-decoration: line-through;
 }
 
-/* 隐藏面板与置顶栏控制区样式 */
 .effects-control-panel {
     margin-top: 10px;
     padding-top: 8px;
@@ -636,6 +630,225 @@ body {
 }
 .sub-item-row:last-child {
     border-bottom: none;
+}
+
+/* ===================== 文字底衬面板 UI ===================== */
+.backdrop-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.backdrop-tab {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #8b949e;
+    background: #21262d;
+    border: 1px solid #30363d;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+}
+.backdrop-tab:hover { background: #30363d; color: #fff; }
+.backdrop-tab.active { background: #ff2442; color: #fff; border-color: #ff2442; }
+
+.backdrop-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 2px;
+}
+
+.backdrop-card {
+    position: relative;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.15s;
+    padding: 0;
+}
+.backdrop-card:hover {
+    border-color: #ff2442;
+    transform: translateY(-1px);
+}
+.backdrop-card.active {
+    border-color: #ff2442;
+    box-shadow: 0 0 0 2px rgba(255,36,66,0.4);
+}
+.backdrop-card .bd-preview {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    background: #0d1117;
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    overflow: hidden;
+}
+.backdrop-card .bd-name {
+    font-size: 10px;
+    text-align: center;
+    padding: 3px 2px;
+    color: #c9d1d9;
+    background: #161b22;
+    border-top: 1px solid #30363d;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.backdrop-card .bd-del {
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 16px; height: 16px;
+    background: #f85149;
+    color: #fff;
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    cursor: pointer;
+    z-index: 5;
+}
+.backdrop-card:hover .bd-del { display: flex; }
+
+.backdrop-actions-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+/* ===================== CSS 底衬样式 ===================== */
+.layer-backdrop {
+    position: absolute;
+    z-index: 0;
+    pointer-events: none;
+    border-radius: 4px;
+    overflow: hidden;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+.text-content-editable {
+    position: relative;
+    z-index: 1;
+}
+
+/* 基础纸质 */
+.backdrop-paper {
+    background: #fff8dc;
+    background-image: repeating-linear-gradient(
+        transparent, transparent 23px, #d4c9a8 23px, #d4c9a8 24px
+    );
+    box-shadow: 2px 3px 8px rgba(0,0,0,0.25);
+}
+.backdrop-grid {
+    background: #ffffff;
+    background-image:
+        linear-gradient(#e0e0e0 1px, transparent 1px),
+        linear-gradient(90deg, #e0e0e0 1px, transparent 1px);
+    background-size: 16px 16px;
+    box-shadow: 2px 3px 8px rgba(0,0,0,0.2);
+}
+.backdrop-tape {
+    background: #fff8dc;
+    box-shadow: 2px 3px 8px rgba(0,0,0,0.2);
+}
+.backdrop-tape::before {
+    content: '';
+    position: absolute;
+    top: -8px; left: 50%;
+    transform: translateX(-50%) rotate(-3deg);
+    width: 60%; height: 20px;
+    background: rgba(255,255,200,0.75);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    border-radius: 2px;
+}
+.backdrop-torn {
+    background: #fff8dc;
+    clip-path: polygon(0 4%, 3% 0, 97% 2%, 100% 6%, 99% 95%, 96% 100%, 4% 98%, 0 92%);
+    box-shadow: 2px 3px 8px rgba(0,0,0,0.2);
+}
+.backdrop-glass {
+    background: rgba(255,255,255,0.2);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,255,255,0.4);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.backdrop-brush {
+    background: rgba(255,235,59,0.55);
+    border-radius: 40% 60% 55% 45% / 50% 40% 60% 50%;
+}
+.backdrop-sticky {
+    background: #fff740;
+    box-shadow: 2px 3px 8px rgba(0,0,0,0.3);
+    transform-origin: top left;
+}
+.backdrop-sticky::after {
+    content: '';
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 0; height: 0;
+    border-style: solid;
+    border-width: 0 0 18px 18px;
+    border-color: transparent transparent rgba(0,0,0,0.1) transparent;
+}
+.backdrop-notebook {
+    background: #fefefe;
+    background-image:
+        linear-gradient(90deg, transparent 30px, #ff7b7b 30px, #ff7b7b 31px, transparent 31px),
+        repeating-linear-gradient(transparent, transparent 23px, #b0c4de 23px, #b0c4de 24px);
+    box-shadow: 2px 3px 10px rgba(0,0,0,0.25);
+}
+
+/* 装饰 */
+.backdrop-polaroid {
+    background: #fff;
+    box-shadow: 3px 4px 10px rgba(0,0,0,0.3);
+    padding-bottom: 14px;
+}
+.backdrop-polaroid::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 14px;
+    background: #fafafa;
+}
+.backdrop-ticket {
+    background: #fff5e6;
+    box-shadow: 2px 3px 8px rgba(0,0,0,0.25);
+    border-left: 3px dashed rgba(0,0,0,0.2);
+    border-right: 3px dashed rgba(0,0,0,0.2);
+}
+.backdrop-ticket::before,
+.backdrop-ticket::after {
+    content: '';
+    position: absolute;
+    width: 12px; height: 12px;
+    background: #0f1117;
+    border-radius: 50%;
+    top: 50%;
+    transform: translateY(-50%);
+}
+.backdrop-ticket::before { left: -7px; }
+.backdrop-ticket::after { right: -7px; }
+.backdrop-washi {
+    background: #fdf2f8;
+    background-image: repeating-linear-gradient(
+        45deg, transparent, transparent 6px,
+        rgba(244, 114, 182, 0.15) 6px, rgba(244, 114, 182, 0.15) 8px
+    );
+    box-shadow: 2px 3px 6px rgba(0,0,0,0.15);
 }
 
 /* ===================== 贴纸面板 ===================== */
@@ -764,7 +977,6 @@ body {
 }
 .sticker-item:hover .del-uploaded { display: flex; }
 
-/* 贴纸颜色条 */
 .sticker-color-bar {
     display: flex;
     align-items: center;
@@ -780,25 +992,7 @@ body {
 }
 .sticker-color-swatch:hover { transform: scale(1.15); border-color: #ff2442; }
 
-/* 贴纸预览放大提示（悬浮预览） */
-.sticker-preview-pop {
-    position: fixed;
-    width: 140px;
-    height: 140px;
-    background: #161b22;
-    border: 1px solid #ff2442;
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.8);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 3100;
-    pointer-events: none;
-    padding: 10px;
-}
-.sticker-preview-pop img, .sticker-preview-pop svg { width: 100%; height: 100%; }
-
-/* ===================== 对齐辅助线 ===================== */
+/* Align guides */
 .align-guides {
     position: fixed;
     top: 0; left: 0; width: 100vw; height: 100vh;
@@ -815,7 +1009,7 @@ body {
 .align-guide-line.v { width: 1px; height: 100%; }
 .align-guide-line.h { height: 1px; width: 100%; }
 
-/* ===================== 旋转手柄 ===================== */
+/* Rotate handle */
 .rotate-handle {
     position: absolute;
     width: 16px;
@@ -838,17 +1032,10 @@ body {
 }
 .canvas-layer.selected:not(.editing) .rotate-handle { display: block; }
 
-/* ===================== 拖拽入画布悬停高亮 ===================== */
 .cover-canvas.drop-target {
     box-shadow: 0 0 0 3px #00e5ff, 0 20px 40px rgba(0,0,0,0.7);
 }
 
-
-
-
-
-
-/* ===================== 贴纸面板拖拽支持 ===================== */
 .sticker-panel-header {
     cursor: move;
     user-select: none;

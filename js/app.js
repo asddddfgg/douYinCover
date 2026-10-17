@@ -373,6 +373,106 @@ function enterTextEditMode(layerId) {
     }, 30);
 }
 
+/* ============================================================
+   渲染文字图层底衬（修复版）
+   ============================================================ */
+function createBackdropElement(layer) {
+    if (!layer.backdrop || !layer.backdrop.type || layer.backdrop.type === 'none') return null;
+    const bd = layer.backdrop;
+    const el = document.createElement('div');
+    el.className = 'layer-backdrop';
+    const pad = (bd.padding !== undefined ? bd.padding : 12);
+    el.style.left = (-pad) + 'px';
+    el.style.top = (-pad) + 'px';
+    el.style.right = (-pad) + 'px';
+    el.style.bottom = (-pad) + 'px';
+    el.style.opacity = (bd.opacity !== undefined ? bd.opacity : 1);
+    el.style.transform = `rotate(${bd.rotate || 0}deg)`;
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+    el.style.backgroundRepeat = 'no-repeat';
+
+    if (bd.type === 'custom') {
+        // 自定义上传
+        const cid = bd.customId;
+        if (cid !== undefined && cid !== null) {
+            let dataUrl = (typeof backdropCache !== 'undefined' && backdropCache[cid]) || null;
+            if (dataUrl) {
+                el.style.backgroundImage = `url(${dataUrl})`;
+                applyCustomBackdropStyle(el, dataUrl, bd);
+            } else {
+                // 占位底色，异步补图
+                el.style.background = bd.color || '#ffffff';
+                BackdropDB.getBackdropById(cid).then(item => {
+                    if (!item) return;
+                    if (typeof backdropCache !== 'undefined') backdropCache[cid] = item.dataUrl;
+                    const target = document.querySelector(`.canvas-layer[data-id="${layer.id}"] .layer-backdrop`);
+                    if (target) {
+                        target.style.backgroundImage = `url(${item.dataUrl})`;
+                        applyCustomBackdropStyle(target, item.dataUrl, bd);
+                    }
+                }).catch(() => {});
+            }
+        }
+    } else if (window.BackdropTextures && BackdropTextures.isCanvasTexture(bd.type)) {
+        // Canvas 纹理：显式清掉纯色 background，只保留 backgroundImage
+        const dataUrl = BackdropTextures.get(bd.type, bd.color);
+        if (dataUrl) {
+            el.style.background = 'transparent';
+            el.style.backgroundImage = `url(${dataUrl})`;
+            el.style.backgroundSize = 'cover';
+            el.style.backgroundPosition = 'center';
+            el.style.backgroundRepeat = 'no-repeat';
+        } else {
+            el.style.background = bd.color || '#d2b48c';
+        }
+        el.classList.add(`backdrop-${bd.type}`);
+    } else {
+        // CSS 底衬
+        el.style.background = '';
+        el.style.backgroundImage = '';
+        el.classList.add(`backdrop-${bd.type}`);
+        if (bd.type === 'brush') {
+            el.style.background = bd.color || 'rgba(255,235,59,0.55)';
+        } else if (bd.type === 'sticky') {
+            el.style.background = bd.color || '#fff740';
+        } else if (bd.type === 'polaroid') {
+            el.style.background = bd.color || '#ffffff';
+        } else if (bd.type === 'ticket') {
+            el.style.background = bd.color || '#fff5e6';
+        } else if (bd.type === 'washi') {
+            el.style.background = bd.color || '#fdf2f8';
+        } else if (bd.type === 'torn' || bd.type === 'tape') {
+            if (bd.color) el.style.background = bd.color;
+        }
+    }
+
+    return el;
+}
+
+function applyCustomBackdropStyle(el, dataUrl, bd) {
+    el.style.backgroundImage = `url(${dataUrl})`;
+    const mode = bd.sizeMode || 'cover';
+    if (mode === 'cover') {
+        el.style.backgroundSize = 'cover';
+        el.style.backgroundRepeat = 'no-repeat';
+        el.style.backgroundPosition = 'center';
+    } else if (mode === 'contain') {
+        el.style.backgroundSize = 'contain';
+        el.style.backgroundRepeat = 'no-repeat';
+        el.style.backgroundPosition = 'center';
+    } else if (mode === 'repeat') {
+        el.style.backgroundSize = 'auto';
+        el.style.backgroundRepeat = 'repeat';
+        el.style.backgroundPosition = 'top left';
+    }
+    if (bd.overlayColor) {
+        // 用多重背景实现颜色叠加（比 box-shadow 更稳，不会遮住纹理）
+        el.style.backgroundImage = `linear-gradient(${bd.overlayColor}, ${bd.overlayColor}), url(${dataUrl})`;
+        el.style.backgroundBlendMode = 'multiply';
+    }
+}
+
 function renderCanvas() {
     const container = document.querySelector('.canvas-container');
     if (!container) return;
@@ -416,7 +516,6 @@ function renderCanvas() {
             el.style.height = layer.height + 'px';
             el.style.opacity = layer.opacity !== undefined ? layer.opacity : 1;
 
-            // 旋转 + 翻转
             const rot = layer.rotation || 0;
             const flipH = layer.flipH ? -1 : 1;
             const flipV = layer.flipV ? -1 : 1;
@@ -426,6 +525,11 @@ function renderCanvas() {
             if (transforms.length > 0) el.style.transform = transforms.join(' ');
 
             if (layer.type === 'text') {
+                // ===== 底衬 =====
+                const backdropEl = createBackdropElement(layer);
+                if (backdropEl) el.appendChild(backdropEl);
+
+                // ===== 文字 =====
                 const textInner = document.createElement('div');
                 textInner.className = 'text-content-editable';
                 textInner.contentEditable = isEditing ? 'true' : 'false';
@@ -475,16 +579,14 @@ function renderCanvas() {
                 el.style.pointerEvents = 'none';
 
                 if (layer.stickerType === 'svg' || layer.stickerType === 'image' || layer.stickerType === 'uploaded') {
-                    // SVG 改色处理：若改色，动态生成新 Data URI
                     let src = layer.content;
                     if (layer.stickerType === 'svg' && layer.stickerColor) {
-                        // 替换 fill 颜色
                         try {
                             const decoded = decodeURIComponent(src.split('utf8,')[1] || '');
                             const recolored = decoded.replace(/fill="currentColor"/g, `fill="${layer.stickerColor}"`)
                                                     .replace(/fill="[^"]*"/g, (m, off, str) => str.substring(0, off).includes('fill="currentColor"') ? m : `fill="${layer.stickerColor}"`);
                             src = 'data:image/svg+xml;utf8,' + encodeURIComponent(decoded.replace(/fill="currentColor"/g, `fill="${layer.stickerColor}"`));
-                        } catch (err) { /* 保持原色 */ }
+                        } catch (err) { }
                     }
                     const img = document.createElement('img');
                     img.src = src;
@@ -495,7 +597,6 @@ function renderCanvas() {
                     img.style.pointerEvents = 'none';
                     el.appendChild(img);
                 } else {
-                    // emoji
                     el.style.fontSize = layer.fontSize;
                     el.style.pointerEvents = 'auto';
                     el.innerText = layer.content;
@@ -516,7 +617,6 @@ function renderCanvas() {
                 el.appendChild(handle);
             });
 
-            // 旋转手柄
             const rotateHandle = document.createElement('div');
             rotateHandle.className = 'rotate-handle';
             rotateHandle.title = '拖拽旋转（按住 Shift 15° 步进）';
