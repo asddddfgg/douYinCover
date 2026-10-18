@@ -24,6 +24,10 @@ function initDragModule() {
 
     // 多选支持
     let dragLayers = [];
+// 多选整体缩放状态
+let multiResizeBBox = null;    // { minX, minY, maxX, maxY, width, height }
+let multiResizeLayers = null;  // 参与缩放的图层数组
+let multiResizeInit = null;    // 每个图层的初始几何快照
     let initPositionsMap = new Map();
 
     container.addEventListener('mousedown', (e) => {
@@ -48,25 +52,54 @@ function initDragModule() {
         }
 
         // ========== 四角缩放 ==========
-        const cornerHandle = e.target.closest('.resize-handle');
-        if (cornerHandle) {
-            e.stopPropagation();
-            e.preventDefault();
-            isResizing = true;
-            resizeMode = 'corner';
-            resizeDirection = cornerHandle.dataset.direction;
-            const targetEl = cornerHandle.closest('.canvas-layer');
-            if (!targetEl) return;
-            dragLayer = state.layers.find(l => l.id === targetEl.dataset.id);
-            if (!dragLayer) return;
-            startX = e.clientX; startY = e.clientY;
-            initWidth = dragLayer.width || 280;
-            initHeight = dragLayer.height || 100;
-            initX = dragLayer.x; initY = dragLayer.y;
-            initFontSize = parseFloat(dragLayer.fontSize) || 28;
-            hasMovedOrResized = false;
-            return;
-        }
+const cornerHandle = e.target.closest('.resize-handle');
+if (cornerHandle) {
+    e.stopPropagation();
+    e.preventDefault();
+    isResizing = true;
+    resizeMode = 'corner';
+    resizeDirection = cornerHandle.dataset.direction;
+    const targetEl = cornerHandle.closest('.canvas-layer');
+    if (!targetEl) return;
+    dragLayer = state.layers.find(l => l.id === targetEl.dataset.id);
+    if (!dragLayer) return;
+
+    startX = e.clientX; startY = e.clientY;
+    initWidth = dragLayer.width || 280;
+    initHeight = dragLayer.height || 100;
+    initX = dragLayer.x; initY = dragLayer.y;
+    initFontSize = parseFloat(dragLayer.fontSize) || 28;
+    hasMovedOrResized = false;
+
+    // ===== 多选整体缩放：记录所有选中图层的初始几何 =====
+    // 只有当被拖角的图层在选中集合里、且选中集合 > 1 时才启用
+    const selectedIds = (window.MultiSelect && state.selectedLayerIds) || [];
+    const isMultiResize = selectedIds.length > 1 && selectedIds.includes(dragLayer.id);
+    if (isMultiResize) {
+        // 计算所有选中图层的包围盒（相对画布坐标）
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const layersToScale = state.layers.filter(l => selectedIds.includes(l.id));
+        layersToScale.forEach(l => {
+            minX = Math.min(minX, l.x);
+            minY = Math.min(minY, l.y);
+            maxX = Math.max(maxX, l.x + l.width);
+            maxY = Math.max(maxY, l.y + l.height);
+        });
+        multiResizeBBox = { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+        multiResizeLayers = layersToScale;
+        multiResizeInit = layersToScale.map(l => ({
+            id: l.id,
+            x: l.x, y: l.y,
+            width: l.width, height: l.height,
+            fontSize: parseFloat(l.fontSize) || 28
+        }));
+    } else {
+        multiResizeBBox = null;
+        multiResizeLayers = null;
+        multiResizeInit = null;
+    }
+    return;
+}
 
         // ========== 四边中点缩放 ==========
         const edgeHandle = e.target.closest('.edge-handle');
@@ -233,24 +266,78 @@ function initDragModule() {
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
 
-            if (resizeMode === 'corner') {
-                let scale = 1;
-                if (resizeDirection === 'se') scale = Math.max(0.3, (initWidth + dx) / initWidth);
-                else if (resizeDirection === 'sw') scale = Math.max(0.3, (initWidth - dx) / initWidth);
-                else if (resizeDirection === 'ne') scale = Math.max(0.3, (initWidth + dx) / initWidth);
-                else if (resizeDirection === 'nw') scale = Math.max(0.3, (initWidth - dx) / initWidth);
+          if (resizeMode === 'corner') {
+    // ===== 多选整体缩放分支 =====
+    if (multiResizeBBox && multiResizeLayers && multiResizeInit) {
+        // 以包围盒为基准计算比例：拖哪个角就用对应边
+        const bbox = multiResizeBBox;
+        // 计算基准边：角点方向决定用 bbox 哪一边作为分母
+        // 参照原始单图层逻辑：用 initWidth 作分母，相当于「水平方向变化比例」
+        // 这里用包围盒宽度作分母，整体同步缩放
+        let scale = 1;
+        if (resizeDirection === 'se') scale = (bbox.width + dx) / bbox.width;
+        else if (resizeDirection === 'sw') scale = (bbox.width - dx) / bbox.width;
+        else if (resizeDirection === 'ne') scale = (bbox.width + dx) / bbox.width;
+        else if (resizeDirection === 'nw') scale = (bbox.width - dx) / bbox.width;
 
-                const newW = Math.max(60, initWidth * scale);
-                const newH = Math.max(30, initHeight * scale);
-                const newFont = Math.max(10, Math.round(initFontSize * scale));
+        scale = Math.max(0.15, Math.min(6, scale)); // 防止过小/过大
 
-                if (resizeDirection.includes('w')) dragLayer.x = initX + (initWidth - newW);
-                if (resizeDirection.includes('n')) dragLayer.y = initY + (initHeight - newH);
+        // 缩放锚点：拖哪个角，对角的那个顶点保持不动
+        // se → 锚点 (minX, minY)；sw → 锚点 (maxX, minY)；
+        // ne → 锚点 (minX, maxY)；nw → 锚点 (maxX, maxY)
+        let anchorX, anchorY;
+        if (resizeDirection === 'se') { anchorX = bbox.minX; anchorY = bbox.minY; }
+        else if (resizeDirection === 'sw') { anchorX = bbox.maxX; anchorY = bbox.minY; }
+        else if (resizeDirection === 'ne') { anchorX = bbox.minX; anchorY = bbox.maxY; }
+        else { anchorX = bbox.maxX; anchorY = bbox.maxY; }
 
-                dragLayer.width = newW;
-                dragLayer.height = newH;
-                if (dragLayer.type === 'text') dragLayer.fontSize = newFont + 'px';
-            } else if (resizeMode === 'edge') {
+        const activeSelector = `.canvas-page-wrapper[data-page-id="${state.currentPageId}"]`;
+        multiResizeLayers.forEach((layer, i) => {
+            const init = multiResizeInit[i];
+            const nx = anchorX + (init.x - anchorX) * scale;
+            const ny = anchorY + (init.y - anchorY) * scale;
+            const nw = Math.max(20, init.width * scale);
+            const nh = Math.max(20, init.height * scale);
+            layer.x = nx;
+            layer.y = ny;
+            layer.width = nw;
+            layer.height = nh;
+            if (layer.type === 'text') {
+                layer.fontSize = Math.max(8, Math.round(init.fontSize * scale)) + 'px';
+            }
+            const el = document.querySelector(`${activeSelector} .canvas-layer[data-id="${layer.id}"]`);
+            if (el) {
+                el.style.left = layer.x + 'px';
+                el.style.top = layer.y + 'px';
+                el.style.width = layer.width + 'px';
+                el.style.height = layer.height + 'px';
+                if (layer.type === 'text') {
+                    const textEl = el.querySelector('.text-content-editable');
+                    if (textEl) textEl.style.fontSize = layer.fontSize;
+                }
+            }
+        });
+        return; // 多选缩放完成，跳过原单图层逻辑
+    }
+
+    // ===== 原有单图层缩放逻辑（保持不变） =====
+    let scale = 1;
+    if (resizeDirection === 'se') scale = Math.max(0.3, (initWidth + dx) / initWidth);
+    else if (resizeDirection === 'sw') scale = Math.max(0.3, (initWidth - dx) / initWidth);
+    else if (resizeDirection === 'ne') scale = Math.max(0.3, (initWidth + dx) / initWidth);
+    else if (resizeDirection === 'nw') scale = Math.max(0.3, (initWidth - dx) / initWidth);
+
+    const newW = Math.max(60, initWidth * scale);
+    const newH = Math.max(30, initHeight * scale);
+    const newFont = Math.max(10, Math.round(initFontSize * scale));
+
+    if (resizeDirection.includes('w')) dragLayer.x = initX + (initWidth - newW);
+    if (resizeDirection.includes('n')) dragLayer.y = initY + (initHeight - newH);
+
+    dragLayer.width = newW;
+    dragLayer.height = newH;
+    if (dragLayer.type === 'text') dragLayer.fontSize = newFont + 'px';
+} else if (resizeMode === 'edge') {
                 if (resizeDirection === 'right') dragLayer.width = Math.max(60, initWidth + dx);
                 else if (resizeDirection === 'left') {
                     const newW = Math.max(60, initWidth - dx);
@@ -412,6 +499,13 @@ function initDragModule() {
             dragLayer = null;
             dragLayers = [];
             initPositionsMap = new Map();
+
+multiResizeBBox = null;    // ← 新增
+multiResizeLayers = null;  // ← 新增
+multiResizeInit = null;    // ← 新增
+
+
+
             updateTopToolbarUI(state.getSelectedLayer());
         }
     });

@@ -14,68 +14,72 @@
     <div class="app-container">
         <header class="app-header">
             <div class="logo">
-                <i class="fa-solid fa-palette"></i> <span>抖音爆款封面 <small>Canva 极速版</small></span>
+                <i class="fa-solid fa-palette"></i> <span>龙蛇变 <small>字图精修</small></span>
             </div>
 
-            <div id="text-toolbar" class="top-text-toolbar" style="display: none;">
-                <select id="tb-font" title="字体">
-                    <option value="sans-serif">系统黑体</option>
-                    <option value="serif">宋体/衬线体</option>
-                    <option value="monospace">等宽体</option>
-                    <option value="cursive">手写艺术体</option>
-                </select>
-                <button id="btn-upload-font" class="tool-btn" title="上传本地手写字体 (.ttf/.otf)" style="width: auto; padding: 0 6px; font-size: 10px;">
-                    <i class="fa-solid fa-upload"></i> 自定义字体
-                </button>
-                <input type="file" id="local-font-file" accept=".ttf,.otf" style="display: none;">
+            <div id="text-toolbar" class="top-text-toolbar is-inactive">
+    <!-- 组 1：字体 -->
+    <div class="toolbar-group">
+        <select id="tb-font" title="字体">
+            <option value="sans-serif">系统黑体</option>
+            <option value="serif">宋体/衬线体</option>
+            <option value="monospace">等宽体</option>
+            <option value="cursive">手写艺术体</option>
+        </select>
+        <button id="btn-upload-font" class="tool-btn" title="上传本地手写字体 (.ttf/.otf)" style="width: auto; padding: 0 6px; font-size: 10px;">
+            <i class="fa-solid fa-upload"></i> 自定义字体
+        </button>
+        <input type="file" id="local-font-file" accept=".ttf,.otf" style="display: none;">
 
-                <div class="toolbar-separator"></div>
-                <select id="tb-fontsize" title="字号">
-                    <option value="16px">16px</option>
-                    <option value="20px">20px</option>
-                    <option value="24px">24px</option>
-                    <option value="28px" selected>28px</option>
-                    <option value="36px">36px</option>
-                    <option value="48px">48px</option>
-                    <option value="64px">64px</option>
-                    <option value="80px">80px</option>
-                </select>
-                <div class="toolbar-separator"></div>
-                <div class="color-picker-wrapper" title="文字颜色">
-                    <input type="color" id="tb-color" value="#ffffff">
-                </div>
-                <div class="color-picker-wrapper" title="背景底色">
-                    <input type="color" id="tb-bgcolor" value="#000000">
-                </div>
-                <div class="toolbar-separator"></div>
-                <button id="tb-bold" class="tool-btn" title="粗体"><i class="fa-solid fa-bold"></i></button>
-                <button id="tb-italic" class="tool-btn" title="斜体"><i class="fa-solid fa-italic"></i></button>
-                <button id="tb-underline" class="tool-btn" title="下划线"><i class="fa-solid fa-underline"></i></button>
-                <button id="tb-strike" class="tool-btn" title="删除线"><i class="fa-solid fa-strikethrough"></i></button>
-                <div class="toolbar-separator"></div>
-                <button id="tb-align-left" class="tool-btn" title="左对齐"><i class="fa-solid fa-align-left"></i></button>
-                <button id="tb-align-center" class="tool-btn" title="居中"><i class="fa-solid fa-align-center"></i></button>
-                <button id="tb-align-right" class="tool-btn" title="右对齐"><i class="fa-solid fa-align-right"></i></button>
-                <button id="tb-bullet" class="tool-btn" title="项目符号"><i class="fa-solid fa-list-ul"></i></button>
-                <div class="toolbar-separator"></div>
-                <button id="tb-vertical" class="tool-btn" title="竖排文字"><i class="fa-solid fa-grip-lines-vertical"></i></button>
-                <div class="toolbar-separator"></div>
-                <div class="slider-group" title="字间距">
-                    <span>字距</span>
-                    <input type="range" id="tb-letter-spacing" min="-5" max="30" value="0" step="1">
-                </div>
-                <div class="slider-group" title="行间距">
-                    <span>行距</span>
-                    <input type="range" id="tb-line-height" min="1" max="3" value="1.2" step="0.1">
-                </div>
-                <div class="slider-group" title="透明度">
-                    <span>透明</span>
-                    <input type="range" id="tb-opacity" min="0.1" max="1" value="1" step="0.05">
-                </div>
-                <div class="toolbar-separator"></div>
-                <button id="btn-toggle-snap" class="tool-btn active" title="吸附开启"><i class="fa-solid fa-magnet"></i></button>
-                <button id="btn-clear-guides" class="tool-btn" title="清除所有参考线"><i class="fa-solid fa-eraser"></i></button>
-            </div>
+        <select id="tb-fontsize" title="字号">
+            <option value="16px">16px</option>
+            <option value="20px">20px</option>
+            <option value="24px">24px</option>
+            <option value="28px" selected>28px</option>
+            <option value="36px">36px</option>
+            <option value="48px">48px</option>
+            <option value="64px">64px</option>
+            <option value="80px">80px</option>
+        </select>
+        <div class="color-picker-wrapper" title="文字颜色">
+            <input type="color" id="tb-color" value="#ffffff">
+        </div>
+        <div class="color-picker-wrapper" title="背景底色">
+            <input type="color" id="tb-bgcolor" value="#000000">
+        </div>
+    </div>
+
+    <!-- 组 2：样式 -->
+    <div class="toolbar-group">
+        <button id="tb-bold" class="tool-btn" title="粗体"><i class="fa-solid fa-bold"></i></button>
+        <button id="tb-italic" class="tool-btn" title="斜体"><i class="fa-solid fa-italic"></i></button>
+        <button id="tb-underline" class="tool-btn" title="下划线"><i class="fa-solid fa-underline"></i></button>
+        <button id="tb-strike" class="tool-btn" title="删除线"><i class="fa-solid fa-strikethrough"></i></button>
+
+        <button id="tb-align-left" class="tool-btn" title="左对齐"><i class="fa-solid fa-align-left"></i></button>
+        <button id="tb-align-center" class="tool-btn" title="居中"><i class="fa-solid fa-align-center"></i></button>
+        <button id="tb-align-right" class="tool-btn" title="右对齐"><i class="fa-solid fa-align-right"></i></button>
+        <button id="tb-bullet" class="tool-btn" title="项目符号"><i class="fa-solid fa-list-ul"></i></button>
+
+        <button id="tb-vertical" class="tool-btn" title="竖排文字"><i class="fa-solid fa-grip-lines-vertical"></i></button>
+
+        <div class="slider-group" title="字间距">
+            <span>字距</span>
+            <input type="range" id="tb-letter-spacing" min="-5" max="30" value="0" step="1">
+        </div>
+        <div class="slider-group" title="行间距">
+            <span>行距</span>
+            <input type="range" id="tb-line-height" min="1" max="3" value="1.2" step="0.1">
+        </div>
+        <div class="slider-group" title="透明度">
+            <span>透明</span>
+            <input type="range" id="tb-opacity" min="0.1" max="1" value="1" step="0.05">
+        </div>
+
+        <button id="btn-toggle-snap" class="tool-btn active" title="吸附开启"><i class="fa-solid fa-magnet"></i></button>
+        <button id="btn-clear-guides" class="tool-btn" title="清除所有参考线"><i class="fa-solid fa-eraser"></i></button>
+    </div>
+</div>
 
             <div class="actions">
                 <button id="btn-projects" class="btn"><i class="fa-solid fa-folder"></i> 我的项目</button>

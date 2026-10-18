@@ -121,11 +121,14 @@ function setupTopToolbarEvents() {
 
 function updateTopToolbarUI(layer) {
     const toolbar = document.getElementById('text-toolbar');
+    if (!toolbar) return;
+
+    // 工具栏永远显示，只切换"点亮/变灰"状态，绝不 display:none
     if (!layer || layer.type !== 'text') {
-        toolbar.style.display = 'none';
+        toolbar.classList.add('is-inactive');
         return;
     }
-    toolbar.style.display = 'flex';
+    toolbar.classList.remove('is-inactive');
 
     document.getElementById('tb-font').value = layer.fontFamily || 'sans-serif';
     document.getElementById('tb-fontsize').value = layer.fontSize || '28px';
