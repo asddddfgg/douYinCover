@@ -378,7 +378,8 @@ body {
 .canvas-layer {
     position: absolute;
     cursor: move;
-    padding: 6px;
+    /* ✅ 修改：上下 padding 6px → 2px，减少末行下方多余空白 */
+    padding: 2px 6px;
     border: 1px solid transparent;
     box-sizing: border-box;
     user-select: none;
@@ -1564,4 +1565,27 @@ body {
     font-size: 10px;
     color: #6e7681;
     text-align: right;
+}
+
+/* ============================================================ */
+/* 文本图层自适应高度（Auto-fit）                                 */
+/* ============================================================ */
+.canvas-layer.layer-type-text {
+    padding: 2px 6px;
+}
+
+.canvas-layer.layer-type-text .text-content-editable {
+    height: auto !important;
+    min-height: 1.2em;
+    display: block;
+    margin: 0;
+}
+
+.canvas-layer.layer-type-text.auto-height {
+    height: auto !important;
+}
+
+.canvas-layer.layer-type-text.fixed-height .text-content-editable {
+    height: 100% !important;
+    overflow: hidden;
 }

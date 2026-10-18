@@ -24,7 +24,8 @@ document.addEventListener('DOMContentLoaded', () => {
             letterSpacing: 0, lineHeight: 1.2, opacity: 1,
             effectClass: 'effect-black-stroke',
             rotation: 0, flipH: false, flipV: false,
-            x: 35, y: 250, width: 290, height: 100
+            x: 35, y: 250, width: 290, height: 48,
+            heightMode: 'auto'
         };
         state.addLayer(newLayer);
         renderAll();
@@ -370,12 +371,26 @@ function renderCanvas() {
             const isEditing = isCurrentPage && (layer.id === state.editingLayerId);
 
             const el = document.createElement('div');
-            el.className = `canvas-layer ${isSelected ? 'selected' : ''} ${isEditing ? 'editing' : ''}`;
+            // ✅ 新增 layer-type-* 类名，供 CSS 做文本自适应
+            el.className = `canvas-layer layer-type-${layer.type} ${isSelected ? 'selected' : ''} ${isEditing ? 'editing' : ''}`;
             el.dataset.id = layer.id;
             el.style.left = layer.x + 'px';
             el.style.top = layer.y + 'px';
             el.style.width = layer.width + 'px';
-            el.style.height = layer.height + 'px';
+
+            // ✅ 文本图层高度模式：auto 则交给 CSS 自适应，fixed 则用固定 px
+            if (layer.type === 'text') {
+                const isFixed = layer.heightMode === 'fixed';
+                el.classList.add(isFixed ? 'fixed-height' : 'auto-height');
+                if (!isFixed) {
+                    el.style.height = 'auto';
+                } else {
+                    el.style.height = layer.height + 'px';
+                }
+            } else {
+                el.style.height = layer.height + 'px';
+            }
+
             el.style.opacity = layer.opacity !== undefined ? layer.opacity : 1;
 
             const rot = layer.rotation || 0;
@@ -409,6 +424,26 @@ function renderCanvas() {
                 textInner.style.letterSpacing = layer.letterSpacing || '0px';
                 textInner.style.lineHeight = layer.lineHeight || 1.2;
                 if (layer.effectClass) textInner.classList.add(layer.effectClass);
+
+                // ✅ Auto 模式：内容变化时同步图层 height（避免末行下方留白）
+                if (layer.heightMode !== 'fixed') {
+                    const syncAutoHeight = () => {
+                        if (layer.heightMode === 'fixed') return;
+                        const h = textInner.offsetHeight + 4; // padding 2*2
+                        if (Math.abs((layer.height || 0) - h) > 1) {
+                            layer.height = h;
+                        }
+                    };
+                    requestAnimationFrame(syncAutoHeight);
+                    let syncTimer = null;
+                    textInner.addEventListener('input', () => {
+                        if (syncTimer) clearTimeout(syncTimer);
+                        syncTimer = setTimeout(syncAutoHeight, 80);
+                    });
+                    if (document.fonts && document.fonts.ready) {
+                        document.fonts.ready.then(syncAutoHeight);
+                    }
+                }
 
                 el.addEventListener('dblclick', (e) => {
                     e.stopPropagation(); e.preventDefault();
