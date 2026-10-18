@@ -115,14 +115,19 @@ class AppState {
                 ]
             }
         ];
-        
+
         this.currentPageId = 'page-1';
         this.selectedLayerId = 'layer-1';
         this.editingLayerId = null;
         this.copiedStyle = null;
 
+        // ===== 顶级升级：多选 / 参考线 / 吸附 =====
+        this.selectedLayerIds = ['layer-1'];
+        this.guides = [];
+        this.snapEnabled = true;
+
         this.history = new HistoryManager(this);
-        
+
         setTimeout(() => {
             if (this.history.stack.length === 0) {
                 this.history.record();
@@ -154,6 +159,7 @@ class AppState {
     addLayer(layer) {
         this.layers.push(layer);
         this.selectedLayerId = layer.id;
+        if (this.selectedLayerIds) this.selectedLayerIds = [layer.id];
         this.saveState();
     }
 
@@ -163,16 +169,16 @@ class AppState {
         if (this.selectedLayerId === id) {
             this.selectedLayerId = this.layers.length > 0 ? this.layers[0].id : null;
         }
+        if (this.selectedLayerIds) {
+            this.selectedLayerIds = this.selectedLayerIds.filter(x => x !== id);
+        }
         this.saveState();
     }
 
-    // 通用图层上移/下移（支持任意类型图层：text / sticker / emoji / image / svg ...）
     moveLayer(id, direction) {
         const curLayers = this.getCurrentPage().layers;
         const index = curLayers.findIndex(l => l.id === id);
         if (index === -1) return;
-        // DOM 中后 append 的图层显示在更上层（无 z-index 时）
-        // 数组末尾 = 视觉最上层；"up"（上移一层）应让索引增大
         const targetIndex = direction === 'up' ? index + 1 : index - 1;
         if (targetIndex >= 0 && targetIndex < curLayers.length) {
             const temp = curLayers[index];
@@ -185,7 +191,7 @@ class AppState {
     addPage() {
         const newPageId = 'page-' + Date.now();
         const newPageNum = this.pages.length + 1;
-        
+
         const newPage = {
             id: newPageId,
             title: `第 ${newPageNum} 页`,
@@ -225,6 +231,9 @@ class AppState {
         this.editingLayerId = null;
         const curLayers = this.layers;
         this.selectedLayerId = curLayers.length > 0 ? curLayers[0].id : null;
+        if (this.selectedLayerIds) {
+            this.selectedLayerIds = this.selectedLayerId ? [this.selectedLayerId] : [];
+        }
     }
 }
 
@@ -233,7 +242,7 @@ const state = new AppState();
 document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         if (e.target.isContentEditable || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
-            return; 
+            return;
         }
         e.preventDefault();
         if (state.history && state.history.undo()) {

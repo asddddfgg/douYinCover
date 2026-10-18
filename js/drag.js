@@ -1,4 +1,6 @@
 // Professional Canva-style Drag + Rotate + Corner Scale + Edge Resize + Align Guides + Cross-page Drag
+// + 多选整体拖拽 + 吸附对齐 + 右键菜单智能定位（最小侵入升级）
+
 function initDragModule() {
     const container = document.querySelector('.canvas-container');
     if (!container) return;
@@ -18,7 +20,11 @@ function initDragModule() {
     let rotateStartAngle = 0;
     let pendingDrag = false;
     let hasMovedOrResized = false;
-    let didCrossPage = false;   // 本次拖拽是否发生过跨页
+    let didCrossPage = false;
+
+    // 多选支持
+    let dragLayers = [];
+    let initPositionsMap = new Map();
 
     container.addEventListener('mousedown', (e) => {
         if (e.target.isContentEditable || e.target.closest('.editing')) return;
@@ -95,9 +101,11 @@ function initDragModule() {
             }
             exitAllEditingMode();
             state.selectedLayerId = null;
+            if (window.MultiSelect) {
+                state.selectedLayerIds = [];
+            }
             renderCanvas();
             renderLayerList();
-            // 【修复】点击空白后也要保证背景完整渲染（图片控制样式不丢）
             if (typeof applyBackgroundToCanvases === 'function') {
                 applyBackgroundToCanvases(state.background);
             }
@@ -113,32 +121,68 @@ function initDragModule() {
             if (pageId && state.currentPageId !== pageId) state.switchPage(pageId);
         }
 
+        // ============ 多选：Ctrl/Cmd + 点击切换选中 ============
+        const isCtrl = e.ctrlKey || e.metaKey;
+        if (isCtrl && window.MultiSelect) {
+            e.preventDefault();
+            e.stopPropagation();
+            MultiSelect.toggleSelect(layerId);
+            renderCanvas();
+            renderLayerList();
+            updateTopToolbarUI(state.getSelectedLayer());
+            return;
+        }
+
         const alreadySelected = (state.selectedLayerId === layerId);
-        if (!alreadySelected) {
+        const isMulti = window.MultiSelect && (state.selectedLayerIds || []).length > 1;
+
+        if (isMulti && MultiSelect.isSelected(layerId)) {
+            // 已在多选集合中：保持多选，只更新 primary
+            state.selectedLayerId = layerId;
+        } else if (!alreadySelected) {
             exitAllEditingMode();
             state.selectedLayerId = layerId;
+            if (window.MultiSelect) {
+                state.selectedLayerIds = [layerId];
+            }
             renderCanvas();
             renderLayerList();
             updateTopToolbarUI(state.getSelectedLayer());
         } else {
             state.selectedLayerId = layerId;
+            if (window.MultiSelect && !(state.selectedLayerIds || []).includes(layerId)) {
+                state.selectedLayerIds = [layerId];
+            }
         }
 
         dragLayer = state.getSelectedLayer();
         if (!dragLayer) return;
 
-        // 贴纸改色面板显隐
         if (typeof showStickerColorBar === 'function') {
             showStickerColorBar(dragLayer.type === 'sticker' && dragLayer.stickerType === 'svg');
         }
 
+        // ============ 右键菜单：智能定位，永不溢出屏幕 ============
         if (e.button === 2) {
             e.preventDefault();
             const menu = document.getElementById('context-menu');
             if (menu) {
                 menu.style.display = 'block';
-                menu.style.left = e.pageX + 'px';
-                menu.style.top = e.pageY + 'px';
+                menu.style.visibility = 'hidden';
+                menu.style.left = '0px';
+                menu.style.top = '0px';
+                const rect = menu.getBoundingClientRect();
+                const vw = window.innerWidth;
+                const vh = window.innerHeight;
+                let x = e.clientX;
+                let y = e.clientY;
+                if (x + rect.width > vw - 8) x = vw - rect.width - 8;
+                if (y + rect.height > vh - 8) y = vh - rect.height - 8;
+                if (x < 8) x = 8;
+                if (y < 8) y = 8;
+                menu.style.left = x + 'px';
+                menu.style.top = y + 'px';
+                menu.style.visibility = 'visible';
             }
             return;
         }
@@ -149,6 +193,15 @@ function initDragModule() {
         didCrossPage = false;
         startX = e.clientX; startY = e.clientY;
         initX = dragLayer.x; initY = dragLayer.y;
+
+        // 记录多选整体拖拽初始位置
+        if (window.MultiSelect) {
+            dragLayers = MultiSelect.getDragLayers(dragLayer);
+            initPositionsMap = MultiSelect.captureInitialPositions(dragLayers);
+        } else {
+            dragLayers = [dragLayer];
+            initPositionsMap = new Map([[dragLayer.id, { x: dragLayer.x, y: dragLayer.y }]]);
+        }
     });
 
     document.addEventListener('mousemove', (e) => {
@@ -170,7 +223,6 @@ function initDragModule() {
             if (Math.abs(dx0) > 4 || Math.abs(dy0) > 4) {
                 pendingDrag = false;
                 isDragging = true;
-                // 让被拖元素不阻挡 elementFromPoint，便于检测跨页
                 const curEl = document.querySelector(`.canvas-page-wrapper[data-page-id="${state.currentPageId}"] .canvas-layer[data-id="${dragLayer.id}"]`);
                 if (curEl) curEl.style.pointerEvents = 'none';
             }
@@ -229,7 +281,40 @@ function initDragModule() {
         if (isDragging && dragLayer) {
             hasMovedOrResized = true;
 
-            // ===== 跨分页拖拽检测 =====
+            // ============ 多选整体拖拽（跳过跨页，简化逻辑） ============
+            const isMultiDrag = dragLayers.length > 1;
+            if (isMultiDrag) {
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                const activeSelector = `.canvas-page-wrapper[data-page-id="${state.currentPageId}"]`;
+                MultiSelect.applyMove(dragLayers, initPositionsMap, dx, dy, activeSelector);
+
+                const primaryEl = document.querySelector(`${activeSelector} .canvas-layer[data-id="${dragLayer.id}"]`);
+                const canvasEl = primaryEl ? primaryEl.closest('.cover-canvas') : null;
+                if (primaryEl && canvasEl && !e.altKey && window.Guides) {
+                    const beforeX = dragLayer.x, beforeY = dragLayer.y;
+                    Guides.applySnap(dragLayer, primaryEl, canvasEl);
+                    const snapDx = dragLayer.x - beforeX;
+                    const snapDy = dragLayer.y - beforeY;
+                    if (snapDx !== 0 || snapDy !== 0) {
+                        dragLayers.forEach(l => {
+                            if (l.id === dragLayer.id) return;
+                            l.x += snapDx;
+                            l.y += snapDy;
+                            const el = document.querySelector(`${activeSelector} .canvas-layer[data-id="${l.id}"]`);
+                            if (el) {
+                                el.style.left = l.x + 'px';
+                                el.style.top = l.y + 'px';
+                            }
+                        });
+                    }
+                } else if (window.Guides) {
+                    Guides.hideSnapLines();
+                }
+                return;
+            }
+
+            // ===== 跨分页拖拽检测（保持原有逻辑） =====
             const hoveredEl = document.elementFromPoint(e.clientX, e.clientY);
             const hoveredCanvas = hoveredEl ? hoveredEl.closest('.cover-canvas') : null;
             if (hoveredCanvas) {
@@ -239,11 +324,10 @@ function initDragModule() {
                     if (moveLayerToPage(dragLayer, state.currentPageId, targetPageId)) {
                         didCrossPage = true;
 
-                        // 更新全局状态
                         state.currentPageId = targetPageId;
                         state.selectedLayerId = dragLayer.id;
+                        if (window.MultiSelect) state.selectedLayerIds = [dragLayer.id];
 
-                        // 把 DOM 节点挂到目标页
                         const newWrapper = hoveredCanvas.querySelector('.layers-wrapper');
                         const oldEl = document.querySelector(`.canvas-layer[data-id="${dragLayer.id}"]`);
                         if (oldEl && newWrapper) {
@@ -251,7 +335,6 @@ function initDragModule() {
                             newWrapper.appendChild(oldEl);
                         }
 
-                        // 以鼠标当前位置为基准重新定位，避免跳变
                         const canvasRect = hoveredCanvas.getBoundingClientRect();
                         dragLayer.x = e.clientX - canvasRect.left - dragLayer.width / 2;
                         dragLayer.y = e.clientY - canvasRect.top - dragLayer.height / 2;
@@ -259,8 +342,9 @@ function initDragModule() {
                         startY = e.clientY;
                         initX = dragLayer.x;
                         initY = dragLayer.y;
+                        initPositionsMap = new Map([[dragLayer.id, { x: dragLayer.x, y: dragLayer.y }]]);
+                        dragLayers = [dragLayer];
 
-                        // 高亮切换 + 刷新列表
                         document.querySelectorAll('.canvas-page-wrapper').forEach(w => {
                             w.classList.toggle('active-page', w.dataset.pageId === targetPageId);
                         });
@@ -272,11 +356,10 @@ function initDragModule() {
                             newEl.style.left = dragLayer.x + 'px';
                             newEl.style.top = dragLayer.y + 'px';
                         }
-                        return; // 本帧不再执行下面的普通拖拽更新
+                        return;
                     }
                 }
             }
-            // ===== 跨页检测结束 =====
 
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
@@ -287,22 +370,29 @@ function initDragModule() {
             if (el) {
                 el.style.left = dragLayer.x + 'px';
                 el.style.top = dragLayer.y + 'px';
+
+                // ===== 吸附对齐（Alt 临时禁用） =====
+                if (!e.altKey && window.Guides) {
+                    const canvasEl = el.closest('.cover-canvas');
+                    if (canvasEl) Guides.applySnap(dragLayer, el, canvasEl);
+                } else if (window.Guides) {
+                    Guides.hideSnapLines();
+                }
             }
 
-            // 对齐辅助线
             updateAlignGuides(dragLayer, el);
         }
     });
 
     document.addEventListener('mouseup', () => {
+        if (window.Guides) Guides.hideSnapLines();
+
         if (isDragging || isResizing || isRotating || pendingDrag) {
             if ((isDragging || isResizing || isRotating) && hasMovedOrResized) {
                 state.saveState();
             }
-            // 清除对齐辅助线
             clearAlignGuides();
 
-            // 跨页拖拽后，彻底重绘所有画布，保证 DOM 与数据一致
             if (didCrossPage) {
                 document.querySelectorAll('.canvas-layer').forEach(el => {
                     el.style.pointerEvents = '';
@@ -320,6 +410,8 @@ function initDragModule() {
             didCrossPage = false;
             resizeMode = null;
             dragLayer = null;
+            dragLayers = [];
+            initPositionsMap = new Map();
             updateTopToolbarUI(state.getSelectedLayer());
         }
     });
@@ -339,7 +431,6 @@ function exitAllEditingMode() {
     }
 }
 
-// ===================== 跨分页移动图层数据 =====================
 function moveLayerToPage(layer, fromPageId, toPageId) {
     const fromPage = state.pages.find(p => p.id === fromPageId);
     const toPage = state.pages.find(p => p.id === toPageId);
@@ -351,7 +442,6 @@ function moveLayerToPage(layer, fromPageId, toPageId) {
     return true;
 }
 
-// ===================== 智能对齐辅助线 =====================
 function updateAlignGuides(layer, el) {
     const guides = document.getElementById('align-guides');
     if (!guides || !el) return;
@@ -364,27 +454,22 @@ function updateAlignGuides(layer, el) {
 
     const layerCenterX = layer.x + layer.width / 2;
     const layerCenterY = layer.y + layer.height / 2;
-    const canvasCenterX = 180; // 360/2
-    const canvasCenterY = 320; // 640/2
+    const canvasCenterX = 180;
+    const canvasCenterY = 320;
 
     const SNAP = 6;
     const lines = [];
 
-    // 垂直中线
     if (Math.abs(layerCenterX - canvasCenterX) < SNAP) {
         layer.x = canvasCenterX - layer.width / 2;
         el.style.left = layer.x + 'px';
-        lines.push({ type: 'v', pos: cRect.left + canvasCenterX - 0 });
+        lines.push({ type: 'v', pos: cRect.left + canvasCenterX });
     }
-
-    // 水平中线
     if (Math.abs(layerCenterY - canvasCenterY) < SNAP) {
         layer.y = canvasCenterY - layer.height / 2;
         el.style.top = layer.y + 'px';
-        lines.push({ type: 'h', pos: cRect.top + canvasCenterY - 0 });
+        lines.push({ type: 'h', pos: cRect.top + canvasCenterY });
     }
-
-    // 画布左右边距
     if (Math.abs(layer.x) < SNAP) {
         layer.x = 0; el.style.left = '0px';
         lines.push({ type: 'v', pos: cRect.left });
@@ -402,7 +487,6 @@ function updateAlignGuides(layer, el) {
         lines.push({ type: 'h', pos: cRect.bottom });
     }
 
-    // 其它图层的中心/边缘（同页）
     const otherLayers = state.layers.filter(l => l.id !== layer.id);
     otherLayers.forEach(o => {
         const oCenterX = o.x + o.width / 2;
@@ -421,7 +505,7 @@ function updateAlignGuides(layer, el) {
 
     if (lines.length > 0) {
         guides.classList.add('active');
-        guides.innerHTML = lines.map(l => 
+        guides.innerHTML = lines.map(l =>
             `<div class="align-guide-line ${l.type}" style="${l.type === 'v' ? `left:${l.pos}px;top:0;height:100vh;` : `top:${l.pos}px;left:0;width:100vw;`}"></div>`
         ).join('');
     } else {

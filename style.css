@@ -1383,3 +1383,185 @@ body {
     overflow: hidden;
     z-index: 0;
 }
+
+/* ============================================================ */
+/* 顶级升级：多选框 / 参考线 / 吸附线 / 项目面板                   */
+/* ============================================================ */
+
+/* 多选框 */
+.selection-box {
+    position: absolute;
+    border: 1.5px dashed #00e5ff;
+    background: rgba(0, 229, 255, 0.12);
+    pointer-events: none;
+    z-index: 100;
+}
+
+/* 自定义参考线 */
+.custom-guides-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 50;
+}
+.custom-guide-line {
+    position: absolute;
+    background: #00e5ff;
+    opacity: 0.75;
+    pointer-events: auto;
+    cursor: ew-resize;
+    transition: opacity 0.15s;
+}
+.custom-guide-line.v {
+    top: 0;
+    height: 100%;
+    width: 1.5px;
+}
+.custom-guide-line.h {
+    left: 0;
+    width: 100%;
+    height: 1.5px;
+    cursor: ns-resize;
+}
+.custom-guide-line:hover {
+    opacity: 1;
+    box-shadow: 0 0 6px #00e5ff;
+}
+
+/* 吸附高亮线 */
+.snap-lines-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1600;
+    display: none;
+}
+.snap-line {
+    position: absolute;
+    background: #ff2442;
+    box-shadow: 0 0 4px #ff2442;
+}
+.snap-line.v { width: 1.5px; }
+.snap-line.h { height: 1.5px; }
+
+/* 项目面板 */
+.project-panel {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(3px);
+}
+.project-panel-inner {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    width: 780px;
+    max-width: 94vw;
+    max-height: 84vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    overflow: hidden;
+}
+.project-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid #30363d;
+    background: #1c2128;
+}
+.project-panel-header h3 {
+    font-size: 14px;
+    color: #e1e4e8;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.project-list {
+    padding: 16px;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+}
+.project-card {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+}
+.project-card:hover {
+    border-color: #ff2442;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+.project-card.current {
+    border-color: #ff2442;
+    box-shadow: 0 0 0 2px rgba(255, 36, 66, 0.4);
+}
+.pc-thumb {
+    width: 100%;
+    aspect-ratio: 9 / 16;
+    background: #0d1117 center/cover no-repeat;
+    border-bottom: 1px solid #30363d;
+}
+.pc-info {
+    padding: 8px 10px;
+}
+.pc-name {
+    font-size: 12px;
+    color: #e1e4e8;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pc-time {
+    font-size: 10px;
+    color: #8b949e;
+    margin-top: 2px;
+}
+.pc-actions {
+    display: flex;
+    gap: 4px;
+    padding: 6px 10px 10px;
+    border-top: 1px solid #30363d;
+    background: #1c2128;
+}
+.pc-btn {
+    background: #30363d;
+    border: none;
+    color: #c9d1d9;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.pc-btn:hover { background: #ff2442; color: #fff; }
+.pc-btn.danger:hover { background: #f85149; }
+.project-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: #8b949e;
+    font-size: 13px;
+    padding: 40px 0;
+    line-height: 1.6;
+}
+.autosave-hint-wrap {
+    padding: 8px 18px;
+    border-top: 1px solid #30363d;
+    background: #1c2128;
+    font-size: 10px;
+    color: #6e7681;
+    text-align: right;
+}

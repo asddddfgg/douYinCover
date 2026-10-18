@@ -37,6 +37,11 @@ document.addEventListener('DOMContentLoaded', () => {
     renderCanvas();
     renderLayerList();
     updateTopToolbarUI(state.getSelectedLayer());
+
+    // ===== 顶级升级模块初始化 =====
+    try { MultiSelect.init(); } catch (err) { console.warn('MultiSelect init failed:', err); }
+    try { Guides.init(); } catch (err) { console.warn('Guides init failed:', err); }
+    try { ProjectManager.init(); } catch (err) { console.warn('ProjectManager init failed:', err); }
 });
 
 function initCustomFontUpload() {
@@ -238,9 +243,6 @@ function enterTextEditMode(layerId) {
     }, 30);
 }
 
-/* ============================================================
-   渲染文字图层底衬（修复版）
-   ============================================================ */
 function createBackdropElement(layer) {
     if (!layer.backdrop || !layer.backdrop.type || layer.backdrop.type === 'none') return null;
     const bd = layer.backdrop;
@@ -361,7 +363,10 @@ function renderCanvas() {
         layersWrapper.className = 'layers-wrapper';
 
         page.layers.forEach(layer => {
-            const isSelected = isCurrentPage && (layer.id === state.selectedLayerId);
+            const isSelected = isCurrentPage && (
+                (window.MultiSelect && MultiSelect.isSelected(layer.id)) ||
+                (!window.MultiSelect && layer.id === state.selectedLayerId)
+            );
             const isEditing = isCurrentPage && (layer.id === state.editingLayerId);
 
             const el = document.createElement('div');
@@ -438,8 +443,6 @@ function renderCanvas() {
                     if (layer.stickerType === 'svg' && layer.stickerColor) {
                         try {
                             const decoded = decodeURIComponent(src.split('utf8,')[1] || '');
-                            const recolored = decoded.replace(/fill="currentColor"/g, `fill="${layer.stickerColor}"`)
-                                                    .replace(/fill="[^"]*"/g, (m, off, str) => str.substring(0, off).includes('fill="currentColor"') ? m : `fill="${layer.stickerColor}"`);
                             src = 'data:image/svg+xml;utf8,' + encodeURIComponent(decoded.replace(/fill="currentColor"/g, `fill="${layer.stickerColor}"`));
                         } catch (err) { }
                     }
@@ -483,14 +486,17 @@ function renderCanvas() {
         canvasEl.appendChild(layersWrapper);
         pageWrapper.appendChild(canvasEl);
         container.appendChild(pageWrapper);
-    if (typeof applyBackgroundToCanvases === 'function') {
-        applyBackgroundToCanvases(state.background);
-    }
+        if (typeof applyBackgroundToCanvases === 'function') {
+            applyBackgroundToCanvases(state.background);
+        }
     });
 
     if (typeof applyBackgroundToCanvases === 'function') {
         applyBackgroundToCanvases(state.background);
     }
+
+    // 重绘参考线
+    if (window.Guides) Guides.renderGuides();
 }
 
 function renderLayerList() {
@@ -500,7 +506,10 @@ function renderLayerList() {
 
     state.layers.forEach(layer => {
         const item = document.createElement('div');
-        item.className = `layer-item ${layer.id === state.selectedLayerId ? 'active' : ''}`;
+        const isSel = window.MultiSelect
+            ? MultiSelect.isSelected(layer.id)
+            : (layer.id === state.selectedLayerId);
+        item.className = `layer-item ${isSel ? 'active' : ''}`;
         const cleanContent = (layer.content || '').replace(/<[^>]*>/g, '').substring(0, 10);
         const iconName = layer.type === 'text' ? 'fa-font' : 'fa-face-smile';
         const typeLabel = layer.type === 'sticker' ? `[${layer.stickerType || 'emoji'}]` : '';
@@ -510,6 +519,9 @@ function renderLayerList() {
         `;
         item.addEventListener('click', () => {
             state.selectedLayerId = layer.id;
+            if (window.MultiSelect) {
+                state.selectedLayerIds = [layer.id];
+            }
             renderCanvas();
             renderLayerList();
             updateTopToolbarUI(state.getSelectedLayer());
@@ -523,6 +535,9 @@ function renderLayerList() {
 
 function selectLayerFromList(id) {
     state.selectedLayerId = id;
+    if (window.MultiSelect) {
+        state.selectedLayerIds = [id];
+    }
     renderCanvas();
     renderLayerList();
     updateTopToolbarUI(state.getSelectedLayer());
@@ -983,9 +998,6 @@ function showBgToast(html, duration) {
     }, duration || 2200);
 }
 
-/* ============================================================
-   重写：renderBgPresetGrid（支持图片收藏）
-   ============================================================ */
 function renderBgPresetGrid() {
     const grid = document.getElementById('bg-preset-grid');
     if (!grid) return;
@@ -995,12 +1007,8 @@ function renderBgPresetGrid() {
     const currentPresetId = (state.background && state.background.presetId) || null;
     const store = getFavImageStore();
 
-    // ========== 我的收藏 特殊处理 ==========
     if (currentBgCategory === 'fav') {
-        const presetList = favIds
-            .map(id => findPresetById(id))
-            .filter(Boolean);
-
+        const presetList = favIds.map(id => findPresetById(id)).filter(Boolean);
         const imgKeys = favIds.filter(id => store[id] && (id.startsWith('img-') || id.startsWith('url-')));
 
         if (presetList.length === 0 && imgKeys.length === 0) {
@@ -1098,7 +1106,6 @@ function renderBgPresetGrid() {
         return;
     }
 
-    // ========== 其它分类（原逻辑） ==========
     const list = getPresetsByCategory(currentBgCategory);
 
     if (list.length === 0) {
@@ -1145,9 +1152,6 @@ function renderBgPresetGrid() {
     });
 }
 
-/* ============================================================
-   重写：renderFavBackgrounds + buildFavQuickItem（支持图片）
-   ============================================================ */
 function renderFavBackgrounds() {
     const listEl = document.getElementById('fav-bg-list');
     if (!listEl) return;
@@ -1172,9 +1176,6 @@ function renderFavBackgrounds() {
     });
 }
 
-/* ============================================================
-   ★★★ 已修改：快捷收藏方块右上角增加红色 × 删除按钮 ★★★
-   ============================================================ */
 function buildFavQuickItem(preset, showDelete) {
     const item = document.createElement('div');
     item.style.cssText = 'height: 32px; border-radius: 4px; border: 1px solid #30363d; cursor: pointer; position: relative; overflow: hidden;';
@@ -1185,7 +1186,6 @@ function buildFavQuickItem(preset, showDelete) {
 
     item.addEventListener('click', () => applyPresetToState(preset));
 
-    // ★ 右上角 × 删除按钮（仅当 showDelete 为 true 时显示）
     if (showDelete) {
         const del = document.createElement('div');
         del.innerHTML = '×';
@@ -1216,7 +1216,6 @@ function buildFavQuickImageItem(key, entry, showDelete) {
 
     item.addEventListener('click', () => applyFavImageEntry(key));
 
-    // ★ 右上角 × 删除按钮（仅当 showDelete 为 true 时显示）
     if (showDelete) {
         const del = document.createElement('div');
         del.innerHTML = '×';
@@ -1233,7 +1232,6 @@ function buildFavQuickImageItem(key, entry, showDelete) {
 
     return item;
 }
-/* ============================================================ */
 
 function initBackgroundPanelV2() {
     state.background = normalizeBackground(state.background);

@@ -16,7 +16,7 @@
             <div class="logo">
                 <i class="fa-solid fa-palette"></i> <span>抖音爆款封面 <small>Canva 极速版</small></span>
             </div>
-            
+
             <div id="text-toolbar" class="top-text-toolbar" style="display: none;">
                 <select id="tb-font" title="字体">
                     <option value="sans-serif">系统黑体</option>
@@ -72,9 +72,16 @@
                     <span>透明</span>
                     <input type="range" id="tb-opacity" min="0.1" max="1" value="1" step="0.05">
                 </div>
+                <div class="toolbar-separator"></div>
+                <button id="btn-toggle-snap" class="tool-btn active" title="吸附开启"><i class="fa-solid fa-magnet"></i></button>
+                <button id="btn-clear-guides" class="tool-btn" title="清除所有参考线"><i class="fa-solid fa-eraser"></i></button>
             </div>
 
             <div class="actions">
+                <button id="btn-projects" class="btn"><i class="fa-solid fa-folder"></i> 我的项目</button>
+                <button id="btn-save-project" class="btn"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                <button id="btn-saveas-project" class="btn" title="另存为"><i class="fa-solid fa-file-export"></i></button>
+                <span id="project-title" style="font-size:12px;color:#8b949e;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
                 <button id="btn-add-text" class="btn"><i class="fa-solid fa-heading"></i> 添加文本</button>
                 <button id="btn-add-sticker" class="btn"><i class="fa-solid fa-face-smile"></i> 添加贴纸</button>
                 <button id="btn-export" class="btn btn-primary"><i class="fa-solid fa-download"></i> 导出 9:16 封面</button>
@@ -181,7 +188,6 @@
                                 </button>
                             </div>
 
-                            <!-- 上传后的图片控制面板 -->
                             <div id="bg-image-controls-panel" class="bg-image-controls-panel" style="display:none;">
                                 <div class="control-group">
                                     <label>适配模式</label>
@@ -260,7 +266,6 @@
                 </div>
                 <input type="file" id="bg-extract-file" accept="image/*" style="display:none;">
 
-                <!-- ============ 文字底衬特效（升级版） ============ -->
                 <div class="panel-section">
                     <h3><i class="fa-solid fa-note-sticky"></i> 文字底衬特效</h3>
                     <p class="hint">选中文字图层后，点击底衬卡片即可叠加到文字背后</p>
@@ -351,7 +356,6 @@
         </ul>
     </div>
 
-    <!-- 贴纸面板 -->
     <div id="sticker-panel" class="sticker-panel" style="display: none;">
         <div class="sticker-panel-header" id="sticker-panel-drag-handle">
             <h3><i class="fa-solid fa-grip-vertical" style="color:#8b949e;cursor:move;"></i> <i class="fa-solid fa-face-smile"></i> 贴纸库</h3>
@@ -378,7 +382,23 @@
     </div>
 
     <div id="align-guides" class="align-guides"></div>
- <script src="js/background-presets.js"></script>
+
+    <!-- 项目管理面板 -->
+    <div id="project-panel" class="project-panel" style="display:none;">
+        <div class="project-panel-inner">
+            <div class="project-panel-header">
+                <h3><i class="fa-solid fa-folder-open"></i> 我的项目</h3>
+                <div style="display:flex;gap:6px;">
+                    <button id="btn-new-project" class="btn btn-primary" style="font-size:11px;"><i class="fa-solid fa-plus"></i> 新建</button>
+                    <button id="project-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            </div>
+            <div id="project-list" class="project-list"></div>
+            <div class="autosave-hint-wrap"><span id="autosave-hint"></span></div>
+        </div>
+    </div>
+
+    <script src="js/background-presets.js"></script>
     <script src="js/db.js"></script>
     <script src="js/backdrop-textures.js"></script>
     <script src="js/state.js"></script>
@@ -387,6 +407,9 @@
     <script src="js/stickers.js"></script>
     <script src="js/drag.js"></script>
     <script src="js/background-image.js"></script>
+    <script src="js/multiselect.js"></script>
+    <script src="js/guides.js"></script>
+    <script src="js/projects.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
