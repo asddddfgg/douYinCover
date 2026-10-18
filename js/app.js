@@ -130,33 +130,61 @@ function exportElementToPNG(canvasDOMNode, filename) {
         canvasDOMNode.style.boxShadow = 'none';
         canvasDOMNode.style.borderRadius = '0';
 
-        html2canvas(canvasDOMNode, {
-            scale: 2, useCORS: true, allowTaint: true, backgroundColor: null
-        }).then(canvas => {
+        const cleanup = () => {
             selectedLayers.forEach(el => el.classList.add('selected'));
             if (pageWrapper && hadActivePage) pageWrapper.classList.add('active-page');
             canvasDOMNode.style.border = originalStyles.border;
             canvasDOMNode.style.borderColor = originalStyles.borderColor;
             canvasDOMNode.style.boxShadow = originalStyles.boxShadow;
             canvasDOMNode.style.borderRadius = originalStyles.borderRadius;
+        };
 
-            const pngURL = canvas.toDataURL('image/png');
-            const downloadLink = document.createElement('a');
-            downloadLink.href = pngURL;
-            downloadLink.download = filename;
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
-            resolve();
+        html2canvas(canvasDOMNode, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: null,
+            logging: false,
+            imageTimeout: 15000
+        }).then(canvas => {
+            // ⭐ 关键校验 1：canvas 是否有效
+            if (!canvas || canvas.width === 0 || canvas.height === 0) {
+                cleanup();
+                console.error('导出失败：canvas 尺寸为 0（html2canvas 渲染失败）');
+                alert('导出失败：画布渲染异常（可能含无法处理的 SVG / 跨域图片）。\n请尝试：\n1. 换用 Chrome / Edge 最新版\n2. 移除部分 SVG 矢量贴纸后再试\n3. 或将跨域 PNG 贴纸删除后重试');
+                resolve(false);
+                return;
+            }
+
+            // ⭐ 关键校验 2：用 toBlob 替代 toDataURL，并检查 blob 大小
+            canvas.toBlob((blob) => {
+                cleanup();
+                if (!blob || blob.size === 0) {
+                    console.error('导出失败：toBlob 返回空 blob');
+                    alert('导出失败：生成的图片为空。\n请检查画布上是否有跨域图片（如 cdn.jsdelivr.net 的 PNG 贴纸），\n可尝试删除这些贴纸后重新导出。');
+                    resolve(false);
+                    return;
+                }
+
+                // 用 blob URL 下载，比 dataURL 更稳，且不受长度限制
+                const blobUrl = URL.createObjectURL(blob);
+                const downloadLink = document.createElement('a');
+                downloadLink.href = blobUrl;
+                downloadLink.download = filename;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                // 延迟释放，确保下载已启动
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+                console.log('导出成功：', filename, '大小：', (blob.size / 1024).toFixed(1) + ' KB');
+                resolve(true);
+            }, 'image/png');
         }).catch(err => {
-            selectedLayers.forEach(el => el.classList.add('selected'));
-            if (pageWrapper && hadActivePage) pageWrapper.classList.add('active-page');
-            canvasDOMNode.style.border = originalStyles.border;
-            canvasDOMNode.style.borderColor = originalStyles.borderColor;
-            canvasDOMNode.style.boxShadow = originalStyles.boxShadow;
-            canvasDOMNode.style.borderRadius = originalStyles.borderRadius;
-            console.error('导出失败:', err);
-            resolve();
+            cleanup();
+            console.error('导出失败（html2canvas 异常）:', err);
+            alert('导出失败：' + (err && err.message ? err.message : '未知错误') + '\n\n常见原因：\n1. 画布含跨域图片（CDN 贴纸）\n2. 画布含 SVG 矢量贴纸（部分浏览器处理异常）\n3. 画布尺寸过大内存不足');
+            resolve(false);
         });
     });
 }
@@ -167,19 +195,26 @@ async function exportAllPagesAsPNG() {
     if (wrappers.length === 1) {
         const canvasNode = wrappers[0].querySelector('.cover-canvas');
         if (canvasNode) {
-            await exportElementToPNG(canvasNode, `抖音封面_第1页_${Date.now()}.png`);
-            alert('第 1 页高清 PNG 导出成功！');
+            const ok = await exportElementToPNG(canvasNode, `龙蛇变_第1页_${Date.now()}.png`);
+            if (ok) alert('第 1 页高清 PNG 导出成功！');
         }
         return;
     }
+    let successCount = 0;
+    let failCount = 0;
     for (let i = 0; i < wrappers.length; i++) {
         const canvasNode = wrappers[i].querySelector('.cover-canvas');
         if (canvasNode) {
-            await exportElementToPNG(canvasNode, `抖音长文封面_第${i + 1}页_${Date.now()}.png`);
+            const ok = await exportElementToPNG(canvasNode, `龙蛇变_第${i + 1}页_${Date.now()}.png`);
+            if (ok) successCount++; else failCount++;
             await new Promise(r => setTimeout(r, 500));
         }
     }
-    alert(`所有 ${wrappers.length} 个分页面已按顺序全部独立导出完毕！`);
+    if (failCount === 0) {
+        alert(`所有 ${successCount} 个分页面已全部导出成功！`);
+    } else {
+        alert(`导出完成：成功 ${successCount} 页，失败 ${failCount} 页。\n失败页面通常是含 SVG 矢量贴纸或跨域 PNG 贴纸的页面，请针对性清理后重试。`);
+    }
 }
 
 function renderAll() {
@@ -482,6 +517,8 @@ function renderCanvas() {
                         } catch (err) { }
                     }
                     const img = document.createElement('img');
+                    // ⭐ 关键修复：给跨域图片加 crossOrigin，避免 canvas 污染导致导出空文件
+                    img.crossOrigin = 'anonymous';
                     img.src = src;
                     img.style.width = '100%';
                     img.style.height = '100%';
