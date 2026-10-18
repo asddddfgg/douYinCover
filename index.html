@@ -93,36 +93,172 @@
             <main class="canvas-container"></main>
 
             <aside class="sidebar-right">
-                <div class="panel-section">
-                    <h3><i class="fa-solid fa-image"></i> 背景画布</h3>
-                    <div class="control-group">
-                        <label>背景类型</label>
-                        <select id="bg-type">
-                            <option value="gradient">时尚双色渐变</option>
-                            <option value="solid">纯色背景</option>
-                            <option value="image">自定义背景图片</option>
-                        </select>
+                <div class="panel-section" id="bg-panel-section">
+                    <h3><i class="fa-solid fa-image"></i> 背景画布 · 智能预设</h3>
+
+                    <div class="bg-super-actions">
+                        <button id="bg-smart-recommend" class="bg-super-btn bg-super-ai" title="根据当前文字内容与特效智能匹配背景">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>智能推荐</span>
+                        </button>
+                        <button id="bg-random-advanced" class="bg-super-btn bg-super-rand" title="从高质量预设库随机抽取一款">
+                            <i class="fa-solid fa-shuffle"></i>
+                            <span>随机高级背景</span>
+                        </button>
+                        <button id="bg-extract-color" class="bg-super-btn bg-super-extract" title="从图片或已有贴纸中提取主色生成渐变">
+                            <i class="fa-solid fa-eye-dropper"></i>
+                            <span>从图片提取</span>
+                        </button>
                     </div>
-                    <div id="bg-color-controls" class="control-group">
-                        <label>渐变调色板 / 纯色预设</label>
-                        <div class="color-pickers">
-                            <input type="color" id="bg-color-1" value="#ff2442">
-                            <input type="color" id="bg-color-2" value="#2575fc">
+
+
+                    <div class="bg-upload-tip">
+                        <i class="fa-solid fa-circle-info"></i>
+                        支持拖拽图片到画布 → 自动提取主色 / 或用作图片背景
+                    </div>
+
+
+                    <div class="bg-category-tabs" id="bg-category-tabs">
+                        <div class="bg-cat-tab active" data-cat="hot">热门爆款</div>
+                        <div class="bg-cat-tab" data-cat="fresh">清新文艺</div>
+                        <div class="bg-cat-tab" data-cat="dark">暗黑高级</div>
+                        <div class="bg-cat-tab" data-cat="neon">渐变炫彩</div>
+                        <div class="bg-cat-tab" data-cat="solid">纯色极简</div>
+                        <div class="bg-cat-tab" data-cat="festival">节日/季节</div>
+                        <div class="bg-cat-tab" data-cat="knowledge">知识干货</div>
+                        <div class="bg-cat-tab" data-cat="fav">我的收藏</div>
+                        <div class="bg-cat-tab" data-cat="recent">最近使用</div>
+                    </div>
+
+                    <div id="bg-preset-grid" class="bg-preset-grid"></div>
+
+                    <div class="bg-advanced-toggle" id="bg-advanced-toggle">
+                        <i class="fa-solid fa-sliders"></i> 高级自定义 <i class="fa-solid fa-chevron-down bg-adv-arrow"></i>
+                    </div>
+                    <div class="bg-advanced-body" id="bg-advanced-body" style="display:none;">
+                        <div class="control-group">
+                            <label>背景类型</label>
+                            <select id="bg-type">
+                                <option value="gradient">时尚双色渐变</option>
+                                <option value="solid">纯色背景</option>
+                                <option value="image">自定义背景图片</option>
+                            </select>
                         </div>
-                    </div>
-                    <div id="bg-image-controls" class="control-group" style="display:none;">
-                        <label>上传本地图片</label>
-                        <input type="file" id="bg-image-file" accept="image/*">
+                        <div id="bg-color-controls" class="control-group">
+                            <label>渐变调色板 / 纯色预设</label>
+                            <div class="color-pickers">
+                                <input type="color" id="bg-color-1" value="#ff2442">
+                                <input type="color" id="bg-color-2" value="#2575fc">
+                            </div>
+                            <div class="control-group" style="margin-top:8px;">
+                                <label>渐变角度 <span id="bg-angle-val">135</span>°</label>
+                                <input type="range" id="bg-angle" min="0" max="360" value="135" style="width:100%;accent-color:#ff2442;">
+                            </div>
+                            <div class="control-group" style="margin-top:8px;">
+                                <label>纹理叠加（可选）</label>
+                                <select id="bg-texture">
+                                    <option value="none">无纹理</option>
+                                    <option value="noise">细颗粒噪点</option>
+                                    <option value="grid">网格线</option>
+                                    <option value="dots">波点</option>
+                                    <option value="vignette">暗角</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="bg-image-controls" class="control-group" style="display:none;">
+                            <label>上传本地图片</label>
+                            <input type="file" id="bg-image-file" accept="image/*" style="display:none;">
+
+                            <div id="bg-image-dropzone" class="bg-image-dropzone">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <div class="bg-dropzone-title">点击或拖拽图片到此处上传</div>
+                                <div class="bg-dropzone-hint">支持 JPG / PNG / WEBP / GIF，自动永久保存</div>
+                            </div>
+
+                            <div class="bg-image-toolbar">
+                                <button id="bg-image-clear" class="btn" style="flex:1; justify-content:center; font-size:11px;">
+                                    <i class="fa-solid fa-rotate-left"></i> 恢复默认背景
+                                </button>
+                            </div>
+
+                            <!-- 上传后的图片控制面板 -->
+                            <div id="bg-image-controls-panel" class="bg-image-controls-panel" style="display:none;">
+                                <div class="control-group">
+                                    <label>适配模式</label>
+                                    <select id="bg-img-fit">
+                                        <option value="cover">覆盖 (cover)</option>
+                                        <option value="contain">包含 (contain)</option>
+                                        <option value="fill">拉伸 (fill)</option>
+                                        <option value="repeat">平铺 (repeat)</option>
+                                    </select>
+                                </div>
+
+                                <div class="control-group">
+                                    <label>缩放 <span id="bg-img-scale-val">100</span>%</label>
+                                    <input type="range" id="bg-img-scale" min="50" max="200" step="1" value="100" style="width:100%;accent-color:#ff2442;">
+                                </div>
+
+                                <div class="control-group">
+                                    <label>位置锚点（9 宫格）</label>
+                                    <div class="bg-img-anchor-grid" id="bg-img-anchor-grid">
+                                        <div data-pos="left top"></div>
+                                        <div data-pos="center top"></div>
+                                        <div data-pos="right top"></div>
+                                        <div data-pos="left center"></div>
+                                        <div data-pos="center center" class="active"></div>
+                                        <div data-pos="right center"></div>
+                                        <div data-pos="left bottom"></div>
+                                        <div data-pos="center bottom"></div>
+                                        <div data-pos="right bottom"></div>
+                                    </div>
+                                </div>
+
+                                <div class="control-group">
+                                    <label>水平偏移 <span id="bg-img-x-val">0</span>%</label>
+                                    <input type="range" id="bg-img-x" min="-50" max="50" step="1" value="0" style="width:100%;accent-color:#ff2442;">
+                                </div>
+
+                                <div class="control-group">
+                                    <label>垂直偏移 <span id="bg-img-y-val">0</span>%</label>
+                                    <input type="range" id="bg-img-y" min="-50" max="50" step="1" value="0" style="width:100%;accent-color:#ff2442;">
+                                </div>
+
+                                <div class="control-group">
+                                    <label>模糊 <span id="bg-img-blur-val">0</span>px</label>
+                                    <input type="range" id="bg-img-blur" min="0" max="20" step="1" value="0" style="width:100%;accent-color:#ff2442;">
+                                </div>
+
+                                <div class="control-group">
+                                    <label>遮罩颜色（提升文字可读性）</label>
+                                    <div class="color-pickers">
+                                        <input type="color" id="bg-img-overlay-color" value="#000000">
+                                        <button id="bg-img-clear-overlay" class="btn" style="font-size:11px;">无遮罩</button>
+                                    </div>
+                                </div>
+
+                                <div class="control-group">
+                                    <label>遮罩透明度 <span id="bg-img-overlay-opacity-val">0</span>%</label>
+                                    <input type="range" id="bg-img-overlay-opacity" min="0" max="100" step="1" value="0" style="width:100%;accent-color:#ff2442;">
+                                </div>
+
+                                <div class="control-group">
+                                    <button id="bg-img-smart-optimize" class="btn btn-primary" style="width:100%; justify-content:center; font-size:11px;">
+                                        <i class="fa-solid fa-wand-magic-sparkles"></i> 一键优化文字可读性
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="control-group" style="margin-top: 15px; border-top: 1px solid #30363d; padding-top: 10px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <label style="margin: 0;"><i class="fa-solid fa-star" style="color: #f1e05a;"></i> 背景收藏夹</label>
+                            <label style="margin: 0;"><i class="fa-solid fa-star" style="color: #f1e05a;"></i> 快捷收藏</label>
                             <button id="btn-fav-bg" class="btn" style="padding: 2px 6px; font-size: 10px;"><i class="fa-solid fa-plus"></i> 收藏当前背景</button>
                         </div>
                         <div id="fav-bg-list" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; max-height: 100px; overflow-y: auto;"></div>
                     </div>
                 </div>
+                <input type="file" id="bg-extract-file" accept="image/*" style="display:none;">
 
                 <!-- ============ 文字底衬特效（升级版） ============ -->
                 <div class="panel-section">
@@ -242,7 +378,7 @@
     </div>
 
     <div id="align-guides" class="align-guides"></div>
-
+ <script src="js/background-presets.js"></script>
     <script src="js/db.js"></script>
     <script src="js/backdrop-textures.js"></script>
     <script src="js/state.js"></script>
@@ -250,6 +386,7 @@
     <script src="js/text-layers.js"></script>
     <script src="js/stickers.js"></script>
     <script src="js/drag.js"></script>
+    <script src="js/background-image.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

@@ -48,12 +48,18 @@ class HistoryManager {
 
 class AppState {
     constructor() {
-        this.background = {
-            type: 'gradient',
-            color1: '#ff2442',
-            color2: '#2575fc',
-            imageUrl: ''
-        };
+        this.background = (window.DEFAULT_BACKGROUND
+            ? JSON.parse(JSON.stringify(window.DEFAULT_BACKGROUND))
+            : {
+                type: 'gradient',
+                color1: '#ff2442',
+                color2: '#2575fc',
+                imageUrl: '',
+                angle: 135,
+                texture: 'none',
+                presetId: null
+            }
+        );
 
         this.pages = [
             {

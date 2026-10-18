@@ -1049,3 +1049,337 @@ body {
 .sticker-panel.dragging .sticker-panel-header {
     background: #2a313c;
 }
+
+
+/* ============================================================
+   背景系统 v2 - 智能预设
+   ============================================================ */
+
+.bg-super-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.bg-super-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+    letter-spacing: 0.5px;
+    position: relative;
+    overflow: hidden;
+    text-align: left;
+}
+.bg-super-btn i { font-size: 16px; }
+.bg-super-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
+.bg-super-btn:active { transform: translateY(0); }
+
+.bg-super-ai {
+    background: linear-gradient(135deg, #ff2442 0%, #ff8a00 100%);
+    box-shadow: 0 6px 18px rgba(255, 36, 66, 0.35);
+}
+.bg-super-rand {
+    background: linear-gradient(135deg, #2575fc 0%, #6a11cb 100%);
+    box-shadow: 0 6px 18px rgba(37, 117, 252, 0.35);
+}
+.bg-super-extract {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    box-shadow: 0 6px 18px rgba(17, 153, 142, 0.35);
+}
+
+.bg-super-btn::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -60%;
+    width: 40%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.6s;
+}
+.bg-super-btn:hover::after { left: 120%; }
+
+.bg-category-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+.bg-cat-tab {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #8b949e;
+    background: #21262d;
+    border: 1px solid #30363d;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.bg-cat-tab:hover { background: #30363d; color: #fff; }
+.bg-cat-tab.active {
+    background: #ff2442;
+    color: #fff;
+    border-color: #ff2442;
+    font-weight: bold;
+}
+
+.bg-preset-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 2px;
+    margin-bottom: 12px;
+}
+
+.bg-preset-card {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.15s;
+    background: #0d1117;
+}
+.bg-preset-card:hover {
+    border-color: #ff2442;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(0,0,0,0.5);
+}
+.bg-preset-card.active {
+    border-color: #ff2442;
+    box-shadow: 0 0 0 2px rgba(255,36,66,0.5);
+}
+
+.bg-preset-card .bp-swatch {
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+}
+
+.bg-preset-card .bp-label {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 3px 4px;
+    font-size: 9.5px;
+    line-height: 1.2;
+    color: #fff;
+    background: linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0));
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bg-preset-card .bp-star {
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    color: #f1e05a;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    cursor: pointer;
+    z-index: 3;
+}
+.bg-preset-card:hover .bp-star { display: flex; }
+.bg-preset-card.fav-on .bp-star { display: flex; color: #f1e05a; }
+
+.bg-preset-empty {
+    grid-column: span 3;
+    text-align: center;
+    color: #8b949e;
+    font-size: 12px;
+    padding: 16px 0;
+    line-height: 1.6;
+}
+
+.bg-advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #8b949e;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+    margin-bottom: 8px;
+}
+.bg-advanced-toggle:hover { background: #30363d; color: #fff; }
+.bg-advanced-toggle .bg-adv-arrow {
+    margin-left: auto;
+    transition: transform 0.2s;
+    font-size: 10px;
+}
+.bg-advanced-toggle.open .bg-adv-arrow { transform: rotate(180deg); }
+
+.bg-advanced-body {
+    padding: 10px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    margin-bottom: 10px;
+}
+
+.bg-toast {
+    position: fixed;
+    top: 76px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-12px);
+    background: rgba(22,27,34,0.96);
+    border: 1px solid #30363d;
+    border-left: 4px solid #11998e;
+    color: #e1e4e8;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.7);
+    z-index: 9999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s;
+    max-width: 360px;
+    line-height: 1.5;
+}
+.bg-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+
+/* ============================================================
+   背景图片上传 - 完整样式
+   ============================================================ */
+
+.bg-upload-tip {
+    font-size: 10.5px;
+    color: #8b949e;
+    background: rgba(37, 117, 252, 0.08);
+    border: 1px dashed rgba(37, 117, 252, 0.35);
+    border-radius: 6px;
+    padding: 6px 8px;
+    line-height: 1.4;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+.bg-upload-tip i { color: #2575fc; margin-top: 1px; font-size: 11px; }
+
+/* 拖拽区 */
+.bg-image-dropzone {
+    border: 2px dashed #30363d;
+    border-radius: 8px;
+    padding: 18px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #0d1117;
+    margin-bottom: 8px;
+}
+.bg-image-dropzone:hover {
+    border-color: #ff2442;
+    background: rgba(255, 36, 66, 0.05);
+}
+.bg-image-dropzone.dragover {
+    border-color: #00e5ff;
+    background: rgba(0, 229, 255, 0.08);
+    box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.2);
+}
+.bg-image-dropzone i {
+    font-size: 22px;
+    color: #8b949e;
+    margin-bottom: 6px;
+    display: block;
+}
+.bg-image-dropzone.dragover i { color: #00e5ff; }
+.bg-dropzone-title {
+    font-size: 12px;
+    color: #c9d1d9;
+    margin-bottom: 3px;
+    font-weight: 600;
+}
+.bg-dropzone-hint {
+    font-size: 10px;
+    color: #6e7681;
+    line-height: 1.4;
+}
+
+.bg-image-toolbar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+/* 图片控制面板 */
+.bg-image-controls-panel {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed #30363d;
+}
+
+/* 九宫格锚点 */
+.bg-img-anchor-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 3px;
+    width: 84px;
+    height: 84px;
+    padding: 3px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+}
+.bg-img-anchor-grid > div {
+    background: #21262d;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid transparent;
+}
+.bg-img-anchor-grid > div:hover {
+    background: #30363d;
+    border-color: #ff2442;
+}
+.bg-img-anchor-grid > div.active {
+    background: #ff2442;
+    border-color: #ff2442;
+    box-shadow: 0 0 6px rgba(255, 36, 66, 0.6);
+}
+
+/* 上传缩略图（在"最近使用/我的收藏"分类中展示） */
+.bg-preset-card.is-uploaded .bp-swatch {
+    background-size: cover !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+}
+
+/* 图片背景在 canvas 上的最终渲染容器 */
+.canvas-bg-image-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 0;
+}
