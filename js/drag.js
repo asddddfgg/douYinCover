@@ -416,7 +416,12 @@ function initDragModule() {
         }
     });
 
-    container.addEventListener('contextmenu', (e) => e.preventDefault());
+    // ✅ 修复：在 document 捕获阶段拦截浏览器默认右键菜单
+    // 使用 capture:true 保证比其它任何监听器都先执行，全页面生效
+    document.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        return false;
+    }, { capture: true });
 }
 
 function exitAllEditingMode() {
