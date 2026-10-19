@@ -1,4 +1,353 @@
 // Main Application Entry
+/* ============================================================
+   导出补丁：复杂文字特效 → 内联 PNG
+   覆盖：渐变文字 / -webkit-text-stroke / text-shadow / filter /
+        text-decoration 线型 / animation 当前帧
+   ============================================================ */
+
+// 判断是否属于"html2canvas 画不好"的文字
+function _needsRasterize(effectClass) {
+    if (!effectClass) return false;
+    const risky = [
+        // 渐变文字
+        'my_custom_eff_10','my_custom_eff_11','my_custom_eff_12','my_custom_eff_13',
+        'my_custom_eff_14','my_custom_eff_15','my_custom_eff_16','my_custom_eff_17',
+        'my_custom_eff_18','my_custom_eff_19','my_custom_eff_20',
+        // 描边 / 描边渐变
+        'my_custom_eff_26','my_custom_eff_27','my_custom_eff_28','my_custom_eff_29',
+        'my_custom_eff_30',
+        // filter 类
+        'my_custom_eff_87','my_custom_eff_88','my_custom_eff_89','my_custom_eff_90',
+        'my_custom_eff_91','my_custom_eff_92','my_custom_eff_93','my_custom_eff_94',
+        'my_custom_eff_95','my_custom_eff_99','my_custom_eff_100',
+        // 复杂 text-decoration
+        'my_custom_eff_74','my_custom_eff_75','my_custom_eff_76',
+        'my_custom_eff_77','my_custom_eff_78',
+        // backdrop-filter
+        'my_custom_eff_60','my_custom_eff_61',
+        // 动画类（导出时取当前帧的样子，避免空白）
+        'my_custom_eff_41','my_custom_eff_42','my_custom_eff_43','my_custom_eff_44',
+        'my_custom_eff_45','my_custom_eff_46','my_custom_eff_47','my_custom_eff_48',
+        'my_custom_eff_49','my_custom_eff_50','my_custom_eff_51','my_custom_eff_52',
+        'my_custom_eff_97','my_custom_eff_98'
+    ];
+    return risky.includes(effectClass);
+}
+
+// 从 effectClass 对应 CSS 里解析 color / gradient / stroke / shadow
+function _parseEffectStyle(effectClass, computedStyle) {
+    const cs = computedStyle;
+    const out = {
+        fill: cs.color || '#ffffff',
+        stroke: null,
+        strokeWidth: 0,
+        shadow: null,
+        backgroundGradient: null
+    };
+
+    // 读取 text-shadow（html2canvas 其实能画，但这里为了兼容动画瞬态也抓一次）
+    const ts = cs.textShadow;
+    if (ts && ts !== 'none') out.shadow = ts;
+
+    // -webkit-text-stroke 在 computedStyle 里通常读不到，靠特效用例表手动补
+    if (/^my_custom_eff_2[6-9]$/.test(effectClass) || effectClass === 'my_custom_eff_30') {
+        const strokeMap = {
+            my_custom_eff_26: { color: '#000', width: 1 },
+            my_custom_eff_27: { color: '#ff0000', width: 2 },
+            my_custom_eff_28: { color: '#0088ff', width: 2 },
+            my_custom_eff_29: { color: '#ffd700', width: 2 },
+            my_custom_eff_30: { color: null, width: 2 } // 渐变描边特殊处理
+        };
+        const s = strokeMap[effectClass];
+        if (s) {
+            out.stroke = s.color;
+            out.strokeWidth = s.width;
+        }
+    }
+
+    // 渐变背景文字：从 computedStyle 的 backgroundImage 抓（Chrome 能读到 linear-gradient）
+    if (cs.backgroundImage && cs.backgroundImage.includes('gradient')) {
+        out.backgroundGradient = cs.backgroundImage;
+        out.fill = null; // 用渐变
+    }
+    return out;
+}
+
+// 把 CSS 的 linear-gradient(...) 解析成 canvas 用的色标数组 + 角度
+function _parseLinearGradient(cssGradient) {
+    // 形如 linear-gradient(90deg, rgb(255,0,0), rgb(0,136,255)) 或 linear-gradient(0deg, ...)
+    const m = cssGradient.match(/linear-gradient\(\s*([\d.]+)deg\s*,(.+)\)\s*$/i);
+    if (!m) return null;
+    const angleDeg = parseFloat(m[1]);
+    const rest = m[2];
+
+    // 拆出每个色标（按顶层逗号拆，色标里可能有 rgb(...) 逗号）
+    const stops = [];
+    let depth = 0, cur = '';
+    for (let i = 0; i < rest.length; i++) {
+        const ch = rest[i];
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+        if (ch === ',' && depth === 0) {
+            stops.push(cur.trim());
+            cur = '';
+        } else {
+            cur += ch;
+        }
+    }
+    if (cur.trim()) stops.push(cur.trim());
+
+    const parsed = [];
+    stops.forEach((s, idx) => {
+        // 形如 "rgb(255, 0, 0)" 或 "rgb(255, 0, 0) 20%"
+        const mm = s.match(/^(rgba?\([^)]+\))(?:\s+([\d.]+%))?/i);
+        if (!mm) return;
+        const color = mm[1];
+        const pos = mm[2] ? parseFloat(mm[2]) / 100 : (idx / Math.max(1, stops.length - 1));
+        parsed.push({ color, pos });
+    });
+    return parsed.length >= 2 ? { angleDeg, stops: parsed } : null;
+}
+
+// 用原生 Canvas 把一段文字画成 dataURL（支持渐变 / 描边 / 阴影 / 逐行）
+function _drawTextToDataUrl(el, layerStyle) {
+    const cs = window.getComputedStyle(el);
+    const fontSize = parseFloat(cs.fontSize) || 28;
+    const fontFamily = cs.fontFamily || 'sans-serif';
+    const fontWeight = cs.fontWeight || 'normal';
+    const fontStyle = cs.fontStyle || 'normal';
+    const letterSpacing = parseFloat(cs.letterSpacing) || 0;
+    const lineHeightRaw = cs.lineHeight;
+    let lineHeight = fontSize * 1.2;
+    if (lineHeightRaw && lineHeightRaw !== 'normal') lineHeight = parseFloat(lineHeightRaw);
+    const align = cs.textAlign || 'left';
+
+    // 取纯文本 + 逐行（不处理局部 span 的富文本，富文本交给 html2canvas 原生画）
+    const rawText = el.innerText || '';
+    const lines = rawText.split('\n');
+
+    // 临时画布测量
+    const measureCanvas = document.createElement('canvas');
+    const mctx = measureCanvas.getContext('2d');
+    const fontStr = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+    mctx.font = fontStr;
+
+    let maxWidth = 0;
+    lines.forEach(line => {
+        const w = mctx.measureText(line).width + Math.max(0, line.length - 1) * letterSpacing;
+        if (w > maxWidth) maxWidth = w;
+    });
+    const pad = 8 + (layerStyle.strokeWidth || 0) * 2;
+    const canvasW = Math.ceil(maxWidth + pad * 2);
+    const canvasH = Math.ceil(lines.length * lineHeight + pad * 2);
+
+    const scale = 2; // 高清
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasW * scale;
+    canvas.height = canvasH * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+
+    // 背景（若有 bgColor 且不是 transparent）
+    if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') {
+        ctx.fillStyle = cs.backgroundColor;
+        ctx.fillRect(0, 0, canvasW, canvasH);
+    }
+
+    // 字体
+    ctx.font = fontStr;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left'; // 自己算 x
+    ctx.letterSpacing = letterSpacing + 'px';
+
+    // 填充样式：渐变 or 纯色
+    let fillStyle = layerStyle.fill || cs.color || '#ffffff';
+    if (layerStyle.backgroundGradient) {
+        const g = _parseLinearGradient(layerStyle.backgroundGradient);
+        if (g) {
+            // 角度转换：0deg = to top，90deg = to right
+            const rad = (g.angleDeg - 90) * Math.PI / 180;
+            const cx = canvasW / 2, cy = canvasH / 2;
+            const len = Math.abs(canvasW * Math.cos(rad)) + Math.abs(canvasH * Math.sin(rad));
+            const x0 = cx - Math.cos(rad) * len / 2;
+            const y0 = cy - Math.sin(rad) * len / 2;
+            const x1 = cx + Math.cos(rad) * len / 2;
+            const y1 = cy + Math.sin(rad) * len / 2;
+            const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+            g.stops.forEach(s => grad.addColorStop(s.pos, s.color));
+            fillStyle = grad;
+        }
+    }
+
+    // 阴影
+    if (layerStyle.shadow) {
+        // text-shadow 可能多个，只取第一个做近似（canvas 只支持单个 shadow）
+        const firstShadow = layerStyle.shadow.split(/,(?![^(]*\))/)[0].trim();
+        const sm = firstShadow.match(/(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(.+)/);
+        if (sm) {
+            ctx.shadowOffsetX = parseFloat(sm[1]);
+            ctx.shadowOffsetY = parseFloat(sm[2]);
+            ctx.shadowBlur = parseFloat(sm[3]);
+            ctx.shadowColor = sm[4];
+        }
+    }
+
+    // 逐行绘制
+    lines.forEach((line, i) => {
+        const w = mctx.measureText(line).width + Math.max(0, line.length - 1) * letterSpacing;
+        let x = pad;
+        if (align === 'center') x = pad + (maxWidth - w) / 2;
+        else if (align === 'right') x = pad + (maxWidth - w);
+        const y = pad + i * lineHeight;
+
+        if (layerStyle.strokeWidth > 0) {
+            // 有描边：先粗描边再填充（模拟 -webkit-text-stroke）
+            if (layerStyle.stroke) {
+                ctx.lineWidth = layerStyle.strokeWidth * 2;
+                ctx.strokeStyle = layerStyle.stroke;
+                ctx.lineJoin = 'round';
+                ctx.strokeText(line, x, y);
+            } else if (layerStyle.backgroundGradient) {
+                // 渐变描边（30 号）：用渐变做 strokeStyle
+                const g = _parseLinearGradient(layerStyle.backgroundGradient);
+                if (g) {
+                    const rad = (g.angleDeg - 90) * Math.PI / 180;
+                    const cx = canvasW / 2, cy = canvasH / 2;
+                    const len = Math.abs(canvasW * Math.cos(rad)) + Math.abs(canvasH * Math.sin(rad));
+                    const grad2 = ctx.createLinearGradient(
+                        cx - Math.cos(rad) * len / 2, cy - Math.sin(rad) * len / 2,
+                        cx + Math.cos(rad) * len / 2, cy + Math.sin(rad) * len / 2
+                    );
+                    g.stops.forEach(s => grad2.addColorStop(s.pos, s.color));
+                    ctx.lineWidth = layerStyle.strokeWidth * 2;
+                    ctx.strokeStyle = grad2;
+                    ctx.lineJoin = 'round';
+                    ctx.strokeText(line, x, y);
+                }
+            }
+        }
+
+        ctx.fillStyle = fillStyle;
+        ctx.fillText(line, x, y);
+
+
+// 处理 text-decoration
+const deco = cs.textDecorationLine || cs.textDecoration || '';
+if (deco && deco !== 'none') {
+    const decoColor = cs.textDecorationColor || cs.color;
+    const decoStyle = cs.textDecorationStyle || 'solid';
+    ctx.strokeStyle = decoColor;
+    ctx.lineWidth = 1.5;
+    if (decoStyle === 'wavy') {
+        // 波浪线
+        const yBase = y + fontSize + 2;
+        ctx.beginPath();
+        for (let xx = x; xx < x + w; xx += 4) {
+            const yy = yBase + Math.sin((xx - x) / 2) * 1.5;
+            xx === x ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
+        }
+        ctx.stroke();
+    } else if (decoStyle === 'dotted') {
+        for (let xx = x; xx < x + w; xx += 4) {
+            ctx.beginPath();
+            ctx.arc(xx, y + fontSize + 2, 1, 0, Math.PI * 2);
+            ctx.fillStyle = decoColor;
+            ctx.fill();
+        }
+    } else if (decoStyle === 'double') {
+        ctx.beginPath();
+        ctx.moveTo(x, y + fontSize + 1); ctx.lineTo(x + w, y + fontSize + 1);
+        ctx.moveTo(x, y + fontSize + 4); ctx.lineTo(x + w, y + fontSize + 4);
+        ctx.stroke();
+    } else {
+        // 单线：下划线 / 删除线
+        const yLine = deco.includes('line-through') ? (y + fontSize * 0.55) : (y + fontSize + 2);
+        ctx.beginPath();
+        ctx.moveTo(x, yLine);
+        ctx.lineTo(x + w, yLine);
+        ctx.stroke();
+    }
+}
+
+
+
+
+
+
+    });
+
+    // 应用 filter（模糊/灰度/反色等）—— 画完后对 canvas 做像素处理
+    const filterCss = cs.filter;
+    if (filterCss && filterCss !== 'none') {
+        // 用 canvas filter 再画一层
+        const filtered = document.createElement('canvas');
+        filtered.width = canvas.width;
+        filtered.height = canvas.height;
+        const fctx = filtered.getContext('2d');
+        fctx.filter = filterCss;
+        fctx.drawImage(canvas, 0, 0);
+        return filtered.toDataURL('image/png');
+    }
+
+    return canvas.toDataURL('image/png');
+}
+
+// 核心：onclone 回调，把 risky 文字换成 img
+function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
+    // originalNode: 原 DOM 的 .text-content-editable
+    // clonedNode:   clone 里的对应节点（会被替换）
+    if (!originalNode || !clonedNode) return;
+    // 富文本（含 span）不替换，避免丢局部样式；交给 html2canvas 原生画
+    if (originalNode.querySelector('span, b, i, u, s, strong, em')) return;
+
+    try {
+        const computed = window.getComputedStyle(originalNode);
+        const layerStyle = _parseEffectStyle(effectClass, computed);
+        const dataUrl = _drawTextToDataUrl(originalNode, layerStyle);
+        if (!dataUrl) return;
+
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.style.width = originalNode.offsetWidth + 'px';
+        img.style.height = originalNode.offsetHeight + 'px';
+        img.style.display = 'block';
+        img.style.objectFit = 'contain';
+        img.crossOrigin = 'anonymous';
+
+        // 替换 clone 里的节点
+        clonedNode.parentNode.replaceChild(img, clonedNode);
+    } catch (e) {
+        console.warn('rasterize text failed:', e);
+    }
+}
+
+// 主入口：给 html2canvas 的 onclone 用
+function _buildOnCloneForExport(originalCanvasNode) {
+    return function (clonedDoc, clonedCanvasEl) {
+        // 找出原始画布上所有带 effectClass 的文字节点
+        const originalTextEls = originalCanvasNode.querySelectorAll('.text-content-editable');
+        originalTextEls.forEach(origEl => {
+            // 找到它对应的 layer 和 effectClass
+            const layerEl = origEl.closest('.canvas-layer');
+            if (!layerEl) return;
+            const layerId = layerEl.dataset.id;
+            const layer = state.layers.find(l => l.id === layerId);
+            if (!layer || !layer.effectClass) return;
+            if (!_needsRasterize(layer.effectClass)) return;
+
+            // 在 clone 里找同 id 的图层
+            const clonedLayer = clonedCanvasEl.querySelector(`.canvas-layer[data-id="${layerId}"]`);
+            if (!clonedLayer) return;
+            const clonedTextEl = clonedLayer.querySelector('.text-content-editable');
+            if (!clonedTextEl) return;
+
+            _rasterizeRiskyText(origEl, clonedTextEl, layer.effectClass);
+        });
+    };
+}
+
+
+
 document.addEventListener('DOMContentLoaded', () => {
     initEffectsLibrary();
     initTextLayersModule();
@@ -139,14 +488,15 @@ function exportElementToPNG(canvasDOMNode, filename) {
             canvasDOMNode.style.borderRadius = originalStyles.borderRadius;
         };
 
-        html2canvas(canvasDOMNode, {
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: null,
-            logging: false,
-            imageTimeout: 15000
-        }).then(canvas => {
+       html2canvas(canvasDOMNode, {
+    scale: 2,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: null,
+    logging: false,
+    imageTimeout: 15000,
+    onclone: _buildOnCloneForExport(canvasDOMNode)
+}).then(canvas => {
             // ⭐ 关键校验 1：canvas 是否有效
             if (!canvas || canvas.width === 0 || canvas.height === 0) {
                 cleanup();
@@ -260,7 +610,13 @@ function renderPageList() {
 }
 
 function enterTextEditMode(layerId) {
+    // ✅ 关键：进入编辑前，先把「选中」切到这个图层
+    state.selectedLayerId = layerId;
+    if (window.MultiSelect) {
+        state.selectedLayerIds = [layerId];
+    }
     state.editingLayerId = layerId;
+
     renderCanvas();
     renderLayerList();
     updateTopToolbarUI(state.getSelectedLayer());
@@ -440,25 +796,80 @@ function renderCanvas() {
                 const backdropEl = createBackdropElement(layer);
                 if (backdropEl) el.appendChild(backdropEl);
 
-                const textInner = document.createElement('div');
-                textInner.className = 'text-content-editable';
-                textInner.contentEditable = isEditing ? 'true' : 'false';
-                textInner.innerHTML = layer.content;
-                textInner.style.fontSize = layer.fontSize;
-                textInner.style.fontFamily = layer.fontFamily;
-                textInner.style.color = layer.color;
-                textInner.style.backgroundColor = layer.bgColor;
-                textInner.style.fontWeight = layer.bold ? 'bold' : 'normal';
-                textInner.style.fontStyle = layer.italic ? 'italic' : 'normal';
-                let textDecorations = [];
-                if (layer.underline) textDecorations.push('underline');
-                if (layer.strike) textDecorations.push('line-through');
-                textInner.style.textDecoration = textDecorations.join(' ');
-                textInner.style.textAlign = layer.align;
-                textInner.style.writingMode = layer.vertical ? 'vertical-rl' : 'horizontal-tb';
-                textInner.style.letterSpacing = layer.letterSpacing || '0px';
-                textInner.style.lineHeight = layer.lineHeight || 1.2;
-                if (layer.effectClass) textInner.classList.add(layer.effectClass);
+
+
+
+
+
+
+// 判断是否是"背景框 / 高亮类"特效：这类特效的 background 不能加在外层（会撑满）
+// ✅ 不再靠 ID 列表判断：直接看当前特效的 CSS 里是否有"背景框类"属性
+let isBgBox = false;
+if (layer.effectClass) {
+    try {
+        const allFx = (typeof getAllEffectsMaster === 'function') ? getAllEffectsMaster() : [];
+        const fx = allFx.find(e => e.id === layer.effectClass);
+        if (fx && fx.css) {
+            const cssLower = fx.css.toLowerCase();
+            // 只要出现 background（非渐变文字）或 padding 或 border-radius
+            const hasBg = /(^|;|\s)background(-color)?\s*:/.test(cssLower)
+                       && !cssLower.includes('background-clip')
+                       && !cssLower.includes('-webkit-text-fill-color');
+            const hasPadding = /(^|;|\s)padding\s*:/.test(cssLower);
+            const hasRadius = cssLower.includes('border-radius');
+            isBgBox = hasBg || hasPadding || hasRadius;
+        }
+    } catch (e) { isBgBox = false; }
+}
+
+const textInner = document.createElement('div');
+textInner.className = 'text-content-editable';
+textInner.contentEditable = isEditing ? 'true' : 'false';
+textInner.innerHTML = layer.content || '';
+textInner.style.fontSize = layer.fontSize;
+textInner.style.fontFamily = layer.fontFamily;
+textInner.style.color = layer.color;
+textInner.style.backgroundColor = layer.bgColor;
+textInner.style.fontWeight = layer.bold ? 'bold' : 'normal';
+textInner.style.fontStyle = layer.italic ? 'italic' : 'normal';
+let textDecorations = [];
+if (layer.underline) textDecorations.push('underline');
+if (layer.strike) textDecorations.push('line-through');
+textInner.style.textDecoration = textDecorations.join(' ');
+textInner.style.textAlign = layer.align;
+textInner.style.writingMode = layer.vertical ? 'vertical-rl' : 'horizontal-tb';
+textInner.style.letterSpacing = layer.letterSpacing || '0px';
+textInner.style.lineHeight = layer.lineHeight || 1.2;
+
+if (isBgBox) {
+    // 背景框类：让容器保持居中，但背景色交给内层 span，span 紧贴文字
+    textInner.style.textAlign = 'center';
+    textInner.style.display = 'block';
+
+    // 用一个 inline-block 的 span 包住原有内容
+    const wrapSpan = document.createElement('span');
+    wrapSpan.className = layer.effectClass;
+    wrapSpan.style.display = 'inline-block';
+    wrapSpan.style.whiteSpace = 'pre-wrap';
+    wrapSpan.style.maxWidth = '100%';
+    wrapSpan.style.boxSizing = 'border-box';
+    // 把已有 innerHTML 搬进 span
+    while (textInner.firstChild) wrapSpan.appendChild(textInner.firstChild);
+    textInner.appendChild(wrapSpan);
+} else {
+    if (layer.effectClass) textInner.classList.add(layer.effectClass);
+    if (typeof hasLocalInlineColor === 'function' && hasLocalInlineColor(layer.content)) {
+        textInner.classList.add('has-local-color');
+    }
+}
+
+
+
+
+
+
+
+
 
                 // ✅ Auto 模式：内容变化时同步图层 height（避免末行下方留白）
                 if (layer.heightMode !== 'fixed') {

@@ -137,17 +137,12 @@ function createEffectCardDOM(eff, pinIndex, pinTotal, isPinnedSection) {
     }
 
 card.addEventListener('click', () => {
-        const layer = state.getSelectedLayer();
-        if (!layer || layer.type !== 'text') {
-            alert('请先在画布中点击选中一个【文本图层】！');
-            return;
-        }
-        layer.effectClass = eff.id;
-        state.saveState(); // 记录历史，支持 Ctrl + Z 撤销特效更换！
+        handleEffectClick(eff);
         document.querySelectorAll('.effect-card').forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-        renderCanvas();
-        renderLayerList();
+        const layer = state.getSelectedLayer();
+        if (layer && layer.effectClass === eff.id) {
+            card.classList.add('active');
+        }
     });
 
     const delBtn = document.createElement('div');

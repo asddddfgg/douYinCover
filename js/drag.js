@@ -31,7 +31,26 @@ let multiResizeInit = null;    // 每个图层的初始几何快照
     let initPositionsMap = new Map();
 
     container.addEventListener('mousedown', (e) => {
+        // ✅ 编辑态下：点击其它图层 → 先退出当前编辑再切换选中
+if (state.editingLayerId) {
+    const clickedLayerEl = e.target.closest('.canvas-layer');
+    if (clickedLayerEl && clickedLayerEl.dataset.id !== state.editingLayerId) {
+        const curEl = document.querySelector(
+            `.canvas-layer[data-id="${state.editingLayerId}"] .text-content-editable`
+        );
+        if (curEl) {
+            const curLayer = state.layers.find(l => l.id === state.editingLayerId);
+            if (curLayer) curLayer.content = curEl.innerHTML;
+            curEl.blur();
+        }
+        state.editingLayerId = null;
+        // 不 return，继续走下方选中切换逻辑
+    } else {
         if (e.target.isContentEditable || e.target.closest('.editing')) return;
+    }
+} else {
+    if (e.target.isContentEditable) return;
+}
 
         // ========== 旋转手柄 ==========
         const rotateHandle = e.target.closest('.rotate-handle');

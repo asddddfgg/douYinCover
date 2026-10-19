@@ -1642,3 +1642,25 @@ body {
     height: 100% !important;
     overflow: hidden;
 }
+
+
+
+
+/* ============================================================
+   选区级特效 + 局部富文本支持
+   ============================================================ */
+.text-content-editable.has-local-color {
+    -webkit-text-fill-color: initial !important;
+    background-clip: initial !important;
+    -webkit-background-clip: initial !important;
+}
+.text-content-editable[contenteditable="true"] {
+    caret-color: #00e5ff;
+}
+.text-content-editable::selection,
+.text-content-editable *::selection {
+    background: rgba(0, 229, 255, 0.35);
+}
+.text-content-editable span[style*="background-color"] {
+    border-radius: 2px;
+}

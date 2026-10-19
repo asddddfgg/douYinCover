@@ -1,4 +1,8 @@
 // Canva Standard Rich Text Formatting on Selection & Top Toolbar Controls
+
+
+
+
 function initTextLayersModule() {
     setupTopToolbarEvents();
     setupContextMenuEvents();
@@ -9,12 +13,261 @@ function applyFormattingToSelection(command, value = null) {
     document.execCommand(command, false, value);
 }
 
+
+
+/* ============================================================
+   选区级特效 v3 —— 焦点保护 + 冻结 range + 手写 span
+   ============================================================ */
+
+// mousedown 阶段冻结选区快照（防焦点丢失）
+let _savedSelectionContext = null;
+
+document.addEventListener('mousedown', (e) => {
+    if (!state.editingLayerId) return;
+    const ctx = getActiveSelectionRange();
+    if (!ctx || ctx.collapsed) return;
+    // 只有点在面板类按钮上才冻结（画布内点击正常）
+    if (e.target.closest('.effect-card, .btn, .tool-btn, .sidebar-left, .sidebar-right, .top-text-toolbar, .backdrop-card')) {
+        _savedSelectionContext = {
+            layerId: state.editingLayerId,
+            el: ctx.el,
+            range: ctx.range.cloneRange()
+        };
+        e.preventDefault();
+    }
+}, true);
+
+// 取当前编辑容器内选区（优先用快照）
+function getActiveSelectionRange() {
+    if (!state.editingLayerId) return null;
+
+    if (_savedSelectionContext &&
+        _savedSelectionContext.layerId === state.editingLayerId &&
+        document.body.contains(_savedSelectionContext.el)) {
+        const r = _savedSelectionContext.range;
+        try {
+            r.startContainer; r.endContainer;
+            return {
+                el: _savedSelectionContext.el,
+                range: r,
+                sel: null,
+                collapsed: r.collapsed
+            };
+        } catch (e) {
+            _savedSelectionContext = null;
+        }
+    }
+
+    const el = document.querySelector(
+        `.canvas-layer[data-id="${state.editingLayerId}"] .text-content-editable`
+    );
+    if (!el || !el.isContentEditable) return null;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return null;
+    return { el, range, sel, collapsed: range.collapsed };
+}
+
+// 判断特效 CSS 能否安全作用于选区
+function canEffectApplyToSelection(cssText) {
+    const css = (cssText || '').toLowerCase();
+    if (!css) return false;
+    if (css.includes('background-clip') && css.includes('text')) return false;
+    if (css.includes('-webkit-text-fill-color')) return false;
+    if (/(^|;|\s)animation\s*:/.test(css)) return false;
+    if (css.includes('backdrop-filter')) return false;
+    if (css.includes('clip-path')) return false;
+    if (css.includes('mix-blend-mode')) return false;
+    if (/(^|;|\s)border\s*:/.test(css)) return false;
+    if (css.includes('border-radius')) return false;
+    return true;
+}
+
+// 检测 HTML 是否含局部内联 color
+function hasLocalInlineColor(html) {
+    if (!html) return false;
+    return /<span[^>]*style="[^"]*color\s*:\s*[^;"]+/i.test(html);
+}
+
+// 确保 styleWithCSS
+function ensureStyleWithCSS() {
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+}
+
+// 用 Range 逐文本节点切割 + 包 span（跨行安全）
+function wrapSelectionWithStyle(styleList) {
+    const ctx = getActiveSelectionRange();
+    if (!ctx || ctx.collapsed) return false;
+    const range = ctx.range;
+    const el = ctx.el;
+
+    const startContainer = range.startContainer;
+    const startOffset = range.startOffset;
+    const endContainer = range.endContainer;
+    const endOffset = range.endOffset;
+
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+    const tasks = [];
+    while (walker.nextNode()) {
+        const n = walker.currentNode;
+        if (!range.intersectsNode(n)) continue;
+        if (!n.nodeValue || !n.nodeValue.length) continue;
+        let start = 0, end = n.nodeValue.length;
+        if (n === startContainer) start = startOffset;
+        if (n === endContainer) end = endOffset;
+        if (start >= end) continue;
+        tasks.push({ node: n, start, end });
+    }
+
+    tasks.forEach(({ node, start, end }) => {
+        if (!node.parentNode) return;
+        const full = node.nodeValue;
+        const selectedText = full.slice(start, end);
+        if (!selectedText) return;
+        const before = full.slice(0, start);
+        const after = full.slice(end);
+        const parent = node.parentNode;
+
+        if (before) parent.insertBefore(document.createTextNode(before), node);
+        const span = document.createElement('span');
+        styleList.forEach(({ prop, val }) => {
+            try { span.style.setProperty(prop, val); } catch (e) {}
+        });
+        span.textContent = selectedText;
+        parent.insertBefore(span, node);
+        if (after) parent.insertBefore(document.createTextNode(after), node);
+        parent.removeChild(node);
+    });
+
+    _savedSelectionContext = null;
+    return tasks.length > 0;
+}
+
+// 清除选区内局部样式
+function clearLocalFormat() {
+    const ctx = getActiveSelectionRange();
+    if (!ctx || ctx.collapsed) {
+        const layer = state.getSelectedLayer();
+        if (layer && layer.type === 'text') {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = layer.content || '';
+            tmp.querySelectorAll('span').forEach(sp => {
+                sp.removeAttribute('style');
+            });
+            layer.content = tmp.innerHTML;
+            state.saveState();
+            renderCanvas();
+        }
+        return;
+    }
+    ensureStyleWithCSS();
+    try { document.execCommand('removeFormat'); } catch (e) {}
+    const spans = ctx.el.querySelectorAll('span');
+    const sel = ctx.sel;
+    if (sel) {
+        spans.forEach(sp => {
+            if (sel.containsNode(sp, true)) {
+                sp.style.backgroundColor = '';
+                sp.style.color = '';
+                if (!sp.getAttribute('style')) {
+                    const parent = sp.parentNode;
+                    while (sp.firstChild) parent.insertBefore(sp.firstChild, sp);
+                    parent.removeChild(sp);
+                }
+            }
+        });
+    }
+    const layer = state.layers.find(l => l.id === state.editingLayerId);
+    if (layer) layer.content = ctx.el.innerHTML;
+    updateTopToolbarUI(state.getSelectedLayer());
+}
+
+// 把单个特效应用到当前选区
+function applyEffectToSelection(eff) {
+    if (!eff || !eff.css) return;
+    const ctx = getActiveSelectionRange();
+    if (!ctx || ctx.collapsed) return;
+
+    const rules = [];
+    eff.css.split(';').forEach(rule => {
+        const colon = rule.indexOf(':');
+        if (colon === -1) return;
+        const prop = rule.slice(0, colon).trim();
+        const val = rule.slice(colon + 1).trim();
+        if (prop && val) rules.push({ prop, val });
+    });
+    if (rules.length === 0) return;
+
+    const toggleCmds = {
+        'font-weight': (v) => { if (v === 'bold' || parseInt(v, 10) >= 600) document.execCommand('bold'); },
+        'font-style': (v) => { if (v.includes('italic')) document.execCommand('italic'); },
+        'text-decoration': (v) => {
+            if (v.includes('underline')) document.execCommand('underline');
+            if (v.includes('line-through')) document.execCommand('strikeThrough');
+        }
+    };
+
+    ensureStyleWithCSS();
+
+    const manualList = [];
+    rules.forEach(({ prop, val }) => {
+        const p = prop.toLowerCase();
+        if (toggleCmds[p]) {
+            try { toggleCmds[p](val); } catch (e) {}
+        } else {
+            manualList.push({ prop, val });
+        }
+    });
+
+    if (manualList.length > 0) {
+        wrapSelectionWithStyle(manualList);
+    }
+
+    const layer = state.layers.find(l => l.id === state.editingLayerId);
+    if (layer) {
+        layer.content = ctx.el.innerHTML;
+        ctx.el.classList.toggle('has-local-color', hasLocalInlineColor(layer.content));
+    }
+    _savedSelectionContext = null;
+    updateTopToolbarUI(state.getSelectedLayer());
+}
+
+// 核心入口：有选区且特效允许 → 局部；否则 → 整层
+function handleEffectClick(eff) {
+    const layer = state.getSelectedLayer();
+    if (!layer || layer.type !== 'text') {
+        alert('请先在画布中点击选中一个【文本图层】！');
+        return;
+    }
+
+    const ctx = getActiveSelectionRange();
+    const hasSelection = ctx && !ctx.collapsed;
+
+    if (hasSelection && canEffectApplyToSelection(eff.css)) {
+        applyEffectToSelection(eff);
+        return;
+    }
+
+    layer.effectClass = eff.id;
+    state.saveState();
+    if (typeof renderCanvas === 'function') renderCanvas();
+    if (typeof renderLayerList === 'function') renderLayerList();
+    if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
+}
+
+// ============ 顶部工具栏（新版：编辑态自动走选区） ============
 function setupTopToolbarEvents() {
     const fontSelect = document.getElementById('tb-font');
     if (fontSelect) {
         fontSelect.addEventListener('change', (e) => {
-            if (state.editingLayerId) {
-                applyFormattingToSelection('fontName', e.target.value);
+            const ctx = getActiveSelectionRange();
+            if (ctx && !ctx.collapsed) {
+                ensureStyleWithCSS();
+                document.execCommand('fontName', false, e.target.value);
+                const layer = state.layers.find(l => l.id === state.editingLayerId);
+                if (layer) layer.content = ctx.el.innerHTML;
+                updateTopToolbarUI(state.getSelectedLayer());
             } else {
                 const layer = state.getSelectedLayer();
                 if (layer) { layer.fontFamily = e.target.value; state.saveState(); renderCanvas(); }
@@ -25,16 +278,30 @@ function setupTopToolbarEvents() {
     const fontSizeSelect = document.getElementById('tb-fontsize');
     if (fontSizeSelect) {
         fontSizeSelect.addEventListener('change', (e) => {
-            const layer = state.getSelectedLayer();
-            if (layer) { layer.fontSize = e.target.value; state.saveState(); renderCanvas(); }
+            const ctx = getActiveSelectionRange();
+            if (ctx && !ctx.collapsed) {
+                wrapSelectionWithStyle([{ prop: 'font-size', val: e.target.value }]);
+                const layer = state.layers.find(l => l.id === state.editingLayerId);
+                if (layer) layer.content = ctx.el.innerHTML;
+                updateTopToolbarUI(state.getSelectedLayer());
+            } else {
+                const layer = state.getSelectedLayer();
+                if (layer) { layer.fontSize = e.target.value; state.saveState(); renderCanvas(); }
+            }
         });
     }
 
     const colorPicker = document.getElementById('tb-color');
     if (colorPicker) {
         colorPicker.addEventListener('input', (e) => {
-            if (state.editingLayerId) applyFormattingToSelection('foreColor', e.target.value);
-            else {
+            const ctx = getActiveSelectionRange();
+            if (ctx && !ctx.collapsed) {
+                ensureStyleWithCSS();
+                document.execCommand('foreColor', false, e.target.value);
+                const layer = state.layers.find(l => l.id === state.editingLayerId);
+                if (layer) layer.content = ctx.el.innerHTML;
+                updateTopToolbarUI(state.getSelectedLayer());
+            } else {
                 const layer = state.getSelectedLayer();
                 if (layer) { layer.color = e.target.value; state.saveState(); renderCanvas(); }
             }
@@ -44,8 +311,14 @@ function setupTopToolbarEvents() {
     const bgColorPicker = document.getElementById('tb-bgcolor');
     if (bgColorPicker) {
         bgColorPicker.addEventListener('input', (e) => {
-            if (state.editingLayerId) applyFormattingToSelection('hiliteColor', e.target.value);
-            else {
+            const ctx = getActiveSelectionRange();
+            if (ctx && !ctx.collapsed) {
+                ensureStyleWithCSS();
+                document.execCommand('hiliteColor', false, e.target.value);
+                const layer = state.layers.find(l => l.id === state.editingLayerId);
+                if (layer) layer.content = ctx.el.innerHTML;
+                updateTopToolbarUI(state.getSelectedLayer());
+            } else {
                 const layer = state.getSelectedLayer();
                 if (layer) { layer.bgColor = e.target.value; state.saveState(); renderCanvas(); }
             }
@@ -56,8 +329,14 @@ function setupTopToolbarEvents() {
         const btn = document.getElementById(id);
         if (btn) {
             btn.addEventListener('click', () => {
-                if (state.editingLayerId) applyFormattingToSelection(cmd);
-                else {
+                const ctx = getActiveSelectionRange();
+                if (ctx && !ctx.collapsed) {
+                    ensureStyleWithCSS();
+                    document.execCommand(cmd);
+                    const layer = state.layers.find(l => l.id === state.editingLayerId);
+                    if (layer) layer.content = ctx.el.innerHTML;
+                    updateTopToolbarUI(state.getSelectedLayer());
+                } else {
                     const layer = state.getSelectedLayer();
                     if (layer) {
                         const propMap = { bold: 'bold', italic: 'italic', underline: 'underline', strikeThrough: 'strike' };
@@ -74,7 +353,18 @@ function setupTopToolbarEvents() {
     bindCommand('tb-italic', 'italic');
     bindCommand('tb-underline', 'underline');
     bindCommand('tb-strike', 'strikeThrough');
-    bindCommand('tb-bullet', 'insertUnorderedList');
+
+    const bulletBtn = document.getElementById('tb-bullet');
+    if (bulletBtn) {
+        bulletBtn.addEventListener('click', () => {
+            const ctx = getActiveSelectionRange();
+            if (ctx && !ctx.collapsed) {
+                document.execCommand('insertUnorderedList');
+                const layer = state.layers.find(l => l.id === state.editingLayerId);
+                if (layer) layer.content = ctx.el.innerHTML;
+            }
+        });
+    }
 
     ['left', 'center', 'right'].forEach(align => {
         const btn = document.getElementById(`tb-align-${align}`);
@@ -117,29 +407,61 @@ function setupTopToolbarEvents() {
             if (layer) { layer.opacity = parseFloat(e.target.value); state.saveState(); renderCanvas(); }
         });
     }
+
+    // 清除局部样式：右键粗体按钮
+    const boldBtn = document.getElementById('tb-bold');
+    if (boldBtn) {
+        boldBtn.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            clearLocalFormat();
+        });
+    }
 }
 
+// ============ 顶部工具栏状态同步（编辑态回显选区样式） ============
 function updateTopToolbarUI(layer) {
     const toolbar = document.getElementById('text-toolbar');
     if (!toolbar) return;
 
-    // 工具栏永远显示，只切换"点亮/变灰"状态，绝不 display:none
     if (!layer || layer.type !== 'text') {
         toolbar.classList.add('is-inactive');
         return;
     }
     toolbar.classList.remove('is-inactive');
 
+    const ctx = getActiveSelectionRange();
+    const inEditing = !!ctx && !ctx.collapsed;
+
+    let curBold, curItalic, curUnderline, curStrike;
+
+    if (inEditing) {
+        try {
+            curBold = document.queryCommandState('bold');
+            curItalic = document.queryCommandState('italic');
+            curUnderline = document.queryCommandState('underline');
+            curStrike = document.queryCommandState('strikeThrough');
+        } catch (e) {
+            curBold = layer.bold; curItalic = layer.italic;
+            curUnderline = layer.underline; curStrike = layer.strike;
+        }
+    } else {
+        curBold = !!layer.bold;
+        curItalic = !!layer.italic;
+        curUnderline = !!layer.underline;
+        curStrike = !!layer.strike;
+    }
+
     document.getElementById('tb-font').value = layer.fontFamily || 'sans-serif';
     document.getElementById('tb-fontsize').value = layer.fontSize || '28px';
     document.getElementById('tb-color').value = layer.color || '#ffffff';
-    document.getElementById('tb-bgcolor').value = layer.bgColor === 'transparent' ? '#000000' : layer.bgColor;
-    document.getElementById('tb-bold').classList.toggle('active', !!layer.bold);
-    document.getElementById('tb-italic').classList.toggle('active', !!layer.italic);
-    document.getElementById('tb-underline').classList.toggle('active', !!layer.underline);
-    document.getElementById('tb-strike').classList.toggle('active', !!layer.strike);
+    document.getElementById('tb-bgcolor').value = layer.bgColor === 'transparent' ? '#000000' : (layer.bgColor || '#000000');
+    document.getElementById('tb-bold').classList.toggle('active', !!curBold);
+    document.getElementById('tb-italic').classList.toggle('active', !!curItalic);
+    document.getElementById('tb-underline').classList.toggle('active', !!curUnderline);
+    document.getElementById('tb-strike').classList.toggle('active', !!curStrike);
     ['left', 'center', 'right'].forEach(a => {
-        document.getElementById(`tb-align-${a}`).classList.toggle('active', layer.align === a);
+        const btn = document.getElementById(`tb-align-${a}`);
+        if (btn) btn.classList.toggle('active', layer.align === a);
     });
     document.getElementById('tb-vertical').classList.toggle('active', !!layer.vertical);
     document.getElementById('tb-letter-spacing').value = parseInt(layer.letterSpacing) || 0;
@@ -148,6 +470,18 @@ function updateTopToolbarUI(layer) {
 
     syncBackdropPanelToLayer(layer);
 }
+
+// 选区变化时刷新工具栏
+document.addEventListener('selectionchange', () => {
+    if (!state.editingLayerId) return;
+    const ctx = getActiveSelectionRange();
+    if (!ctx) return;
+    const layer = state.layers.find(l => l.id === state.editingLayerId);
+    if (layer) updateTopToolbarUI(layer);
+});
+
+
+
 
 function setupContextMenuEvents() {
     const menu = document.getElementById('context-menu');
