@@ -1664,3 +1664,111 @@ body {
 .text-content-editable span[style*="background-color"] {
     border-radius: 2px;
 }
+
+
+
+
+/* 导出时隐藏所有编辑辅助元素（双保险） */
+body.exporting .custom-guides-layer,
+body.exporting .selection-box,
+body.exporting .snap-lines-layer,
+body.exporting .resize-handle,
+body.exporting .edge-handle,
+body.exporting .rotate-handle {
+    display: none !important;
+}
+
+body.exporting .canvas-layer.selected {
+    border-color: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+    background: transparent !important;
+}
+
+
+/* ===== 参考线体验增强 v5 ===== */
+
+/* 参考线本体：加粗 + 发光 */
+.custom-guide-line {
+    background: #00e5ff;
+    opacity: 1;
+    z-index: 60;
+    box-shadow: 0 0 2px rgba(0, 229, 255, 0.6);
+}
+.custom-guide-line.v { width: 1px; }
+.custom-guide-line.h { height: 1px; }
+
+/* 拖动中：更粗更亮 */
+.custom-guide-line.dragging.v { width: 1px; }
+.custom-guide-line.dragging.h { height: 1px; }
+.custom-guide-line.dragging {
+    box-shadow: 0 0 3px #00e5ff, 0 0 6px #00e5ff;
+}
+
+/* 边缘激活提示：固定贴边，脉冲 */
+.edge-hint-line {
+    position: absolute;
+    background: rgba(0, 229, 255, 0.7);
+    pointer-events: none;
+    z-index: 55;
+    animation: edgeHintPulse 1.2s ease-in-out infinite;
+}
+.edge-hint-line.v {
+    top: 0;
+    height: 100%;
+    width: 2px;
+}
+.edge-hint-line.h {
+    left: 0;
+    width: 100%;
+    height: 2px;
+}
+
+/* 边缘激活时，整条边加一道 6px 淡渐变高亮
+   注意：.cover-canvas 原文件已是 position: relative，::before 才能正确相对它定位 */
+.cover-canvas.edge-active-v::before,
+.cover-canvas.edge-active-h::before {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    z-index: 54;
+}
+.cover-canvas.edge-active-v::before {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 6px;
+    background: linear-gradient(to right, rgba(0,229,255,0.25), transparent);
+}
+.cover-canvas.edge-active-v.edge-active-right::before {
+    left: auto;
+    right: 0;
+    background: linear-gradient(to left, rgba(0,229,255,0.25), transparent);
+}
+.cover-canvas.edge-active-h::before {
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 6px;
+    background: linear-gradient(to bottom, rgba(0,229,255,0.25), transparent);
+}
+.cover-canvas.edge-active-h.edge-active-bottom::before {
+    top: auto;
+    bottom: 0;
+    background: linear-gradient(to top, rgba(0,229,255,0.25), transparent);
+}
+
+/* 光标兜底（body 级，防被盖） */
+body.guide-cursor-v { cursor: ew-resize !important; }
+body.guide-cursor-h { cursor: ns-resize !important; }
+.custom-guide-line.v { cursor: ew-resize; }
+.custom-guide-line.h { cursor: ns-resize; }
+
+@keyframes edgeHintPulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.9; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .edge-hint-line { animation: none; opacity: 0.7; }
+}

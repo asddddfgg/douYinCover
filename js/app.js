@@ -456,19 +456,35 @@ function loadCachedCustomFonts(fontSelect) {
     } catch (err) { console.error('读取字体缓存出错:', err); }
 }
 
+
+
+
+
+
+
+
+
 function exportElementToPNG(canvasDOMNode, filename) {
-    return new Promise((resolve) => {
-        const selectedLayers = canvasDOMNode.querySelectorAll('.canvas-layer.selected');
+    return new Promise((resolve, reject) => {
+        // 1. 找到所有要隐藏的"编辑辅助"元素
+        const guidesLayer = canvasDOMNode.querySelector('.custom-guides-layer');
+        const snapLayer = canvasDOMNode.querySelector('.snap-lines-layer');
+        const selectionBox = canvasDOMNode.querySelector('.selection-box');
+        const handles = canvasDOMNode.querySelectorAll('.resize-handle, .edge-handle, .rotate-handle');
+        const selectedLayers = [...canvasDOMNode.querySelectorAll('.canvas-layer.selected')];
+
+        const toHide = [guidesLayer, snapLayer, selectionBox, ...handles].filter(Boolean);
+        const prevDisplays = toHide.map(el => el.style.display);
+        toHide.forEach(el => el.style.display = 'none');
         selectedLayers.forEach(el => el.classList.remove('selected'));
 
+        // 2. 去掉页面外框高亮
         const pageWrapper = canvasDOMNode.closest('.canvas-page-wrapper');
-        let hadActivePage = false;
-        if (pageWrapper) {
-            hadActivePage = pageWrapper.classList.contains('active-page');
-            pageWrapper.classList.remove('active-page');
-        }
+        const hadActive = pageWrapper ? pageWrapper.classList.contains('active-page') : false;
+        if (pageWrapper) pageWrapper.classList.remove('active-page');
 
-        const originalStyles = {
+        // 3. 去掉画布自己的边框
+        const orig = {
             border: canvasDOMNode.style.border,
             borderColor: canvasDOMNode.style.borderColor,
             boxShadow: canvasDOMNode.style.boxShadow,
@@ -479,65 +495,66 @@ function exportElementToPNG(canvasDOMNode, filename) {
         canvasDOMNode.style.boxShadow = 'none';
         canvasDOMNode.style.borderRadius = '0';
 
+        // 4. 不管成功失败都要恢复
         const cleanup = () => {
+            toHide.forEach((el, i) => { el.style.display = prevDisplays[i] || ''; });
             selectedLayers.forEach(el => el.classList.add('selected'));
-            if (pageWrapper && hadActivePage) pageWrapper.classList.add('active-page');
-            canvasDOMNode.style.border = originalStyles.border;
-            canvasDOMNode.style.borderColor = originalStyles.borderColor;
-            canvasDOMNode.style.boxShadow = originalStyles.boxShadow;
-            canvasDOMNode.style.borderRadius = originalStyles.borderRadius;
+            if (pageWrapper && hadActive) pageWrapper.classList.add('active-page');
+            canvasDOMNode.style.border = orig.border;
+            canvasDOMNode.style.borderColor = orig.borderColor;
+            canvasDOMNode.style.boxShadow = orig.boxShadow;
+            canvasDOMNode.style.borderRadius = orig.borderRadius;
         };
 
-       html2canvas(canvasDOMNode, {
-    scale: 2,
-    useCORS: true,
-    allowTaint: true,
-    backgroundColor: null,
-    logging: false,
-    imageTimeout: 15000,
-    onclone: _buildOnCloneForExport(canvasDOMNode)
-}).then(canvas => {
-            // ⭐ 关键校验 1：canvas 是否有效
-            if (!canvas || canvas.width === 0 || canvas.height === 0) {
-                cleanup();
-                console.error('导出失败：canvas 尺寸为 0（html2canvas 渲染失败）');
-                alert('导出失败：画布渲染异常（可能含无法处理的 SVG / 跨域图片）。\n请尝试：\n1. 换用 Chrome / Edge 最新版\n2. 移除部分 SVG 矢量贴纸后再试\n3. 或将跨域 PNG 贴纸删除后重试');
-                resolve(false);
-                return;
+        // 5. 截图
+        html2canvas(canvasDOMNode, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: null,
+            logging: false,
+            imageTimeout: 15000,
+            onclone: (clonedDoc, clonedEl) => {
+                clonedDoc.querySelectorAll(
+                    '.custom-guides-layer, .snap-lines-layer, .selection-box, ' +
+                    '.resize-handle, .edge-handle, .rotate-handle'
+                ).forEach(el => el.style.display = 'none');
+                clonedEl.querySelectorAll('.canvas-layer.selected')
+                    .forEach(el => el.classList.remove('selected'));
             }
-
-            // ⭐ 关键校验 2：用 toBlob 替代 toDataURL，并检查 blob 大小
-            canvas.toBlob((blob) => {
-                cleanup();
-                if (!blob || blob.size === 0) {
-                    console.error('导出失败：toBlob 返回空 blob');
-                    alert('导出失败：生成的图片为空。\n请检查画布上是否有跨域图片（如 cdn.jsdelivr.net 的 PNG 贴纸），\n可尝试删除这些贴纸后重新导出。');
-                    resolve(false);
-                    return;
-                }
-
-                // 用 blob URL 下载，比 dataURL 更稳，且不受长度限制
-                const blobUrl = URL.createObjectURL(blob);
-                const downloadLink = document.createElement('a');
-                downloadLink.href = blobUrl;
-                downloadLink.download = filename;
-                document.body.appendChild(downloadLink);
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
-                // 延迟释放，确保下载已启动
-                setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-
-                console.log('导出成功：', filename, '大小：', (blob.size / 1024).toFixed(1) + ' KB');
-                resolve(true);
-            }, 'image/png');
+        }).then(canvas => {
+            if (!canvas || canvas.width === 0 || canvas.height === 0) {
+                throw new Error('html2canvas 渲染结果为空');
+            }
+            return new Promise((res, rej) => {
+                canvas.toBlob(blob => {
+                    if (!blob || blob.size === 0) return rej(new Error('toBlob 返回空'));
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    res(true);
+                }, 'image/png');
+            });
+        }).then(() => {
+            resolve(true);
         }).catch(err => {
-            cleanup();
-            console.error('导出失败（html2canvas 异常）:', err);
-            alert('导出失败：' + (err && err.message ? err.message : '未知错误') + '\n\n常见原因：\n1. 画布含跨域图片（CDN 贴纸）\n2. 画布含 SVG 矢量贴纸（部分浏览器处理异常）\n3. 画布尺寸过大内存不足');
+            console.error('导出失败:', err);
+            alert('导出失败：' + (err && err.message ? err.message : '未知错误'));
             resolve(false);
-        });
+        }).finally(cleanup);
     });
 }
+
+
+
+
+
+
 
 async function exportAllPagesAsPNG() {
     const wrappers = document.querySelectorAll('.canvas-page-wrapper');

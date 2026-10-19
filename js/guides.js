@@ -3,6 +3,10 @@
 // 数据：state.guides = [{id, orientation:'v'|'h', pos:number}]
 // 开关：state.snapEnabled = true
 // ============================================================
+// 参考线交互常量（可调）
+const GUIDE_EDGE_THRESHOLD = 20;     // 鼠标距画布边缘多少 px 内 = 从边缘拖出参考线
+const GUIDE_SNAP_TO_EXISTING = 6;    // 边缘处距已有参考线多少 px 内 = 拖动这条已有线
+const GUIDE_CLEAR_DELAY = 50;        // 松手后延迟清除提示（ms）
 
 const Guides = (function () {
     const SNAP_THRESHOLD = 6;
@@ -41,7 +45,7 @@ const Guides = (function () {
 
             state.guides.forEach(g => {
                 const line = document.createElement('div');
-                line.className = `custom-guide-line ${g.orientation === 'v' ? 'v' : 'h'}`;
+                line.className = `custom-guide-line ${g.orientation === 'v' ? 'v' : 'h'}${g._dragging ? ' dragging' : ''}`;
                 line.dataset.guideId = g.id;
                 line.dataset.orientation = g.orientation;
                 if (g.orientation === 'v') {
@@ -55,13 +59,12 @@ const Guides = (function () {
         });
     }
 
-    // ============ 从画布边缘拖出参考线 ============
+    // ============ 从画布边缘拖出参考线 / 拖动已有参考线 ============
+    // 注意：使用 capture=true，保证不被其它模块的 stopPropagation 拦截
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
-        if (e.target.closest('.canvas-layer')) return;
-        if (e.target.closest('.custom-guide-line')) return;
-        if (e.target.closest('.custom-guides-layer .custom-guide-line')) return;
         if (e.target.isContentEditable) return;
+        if (e.target.closest('.canvas-layer')) return;
 
         const canvas = e.target.closest('.cover-canvas');
         if (!canvas) return;
@@ -70,37 +73,69 @@ const Guides = (function () {
         if (state.editingLayerId) return;
 
         const canvasRect = canvas.getBoundingClientRect();
-        const THRESHOLD = 8;
+        if (canvasRect.width === 0 || canvasRect.height === 0) return;
 
-        const dxLeft = e.clientX - canvasRect.left;
-        const dxRight = canvasRect.right - e.clientX;
-        const dyTop = e.clientY - canvasRect.top;
-        const dyBottom = canvasRect.bottom - e.clientY;
+        const scaleX = canvasRect.width / CANVAS_W || 1;
+        const scaleY = canvasRect.height / CANVAS_H || 1;
+        const logicalX = (e.clientX - canvasRect.left) / scaleX;
+        const logicalY = (e.clientY - canvasRect.top) / scaleY;
 
+        const dxLeft = logicalX;
+        const dxRight = CANVAS_W - logicalX;
+        const dyTop = logicalY;
+        const dyBottom = CANVAS_H - logicalY;
+
+        // 1) 鼠标在边缘 20px 内：先找附近有没有已有线 → 有就拖它，没有才新建
         let orientation = null;
-        if (dxLeft <= THRESHOLD) orientation = 'v';
-        else if (dxRight <= THRESHOLD) orientation = 'v';
-        else if (dyTop <= THRESHOLD) orientation = 'h';
-        else if (dyBottom <= THRESHOLD) orientation = 'h';
-        if (!orientation) return;
+        if (dxLeft <= GUIDE_EDGE_THRESHOLD || dxRight <= GUIDE_EDGE_THRESHOLD) orientation = 'v';
+        else if (dyTop <= GUIDE_EDGE_THRESHOLD || dyBottom <= GUIDE_EDGE_THRESHOLD) orientation = 'h';
 
-        e.preventDefault();
-        ensureState();
+        if (orientation) {
+            e.preventDefault();
+            e.stopPropagation();
+            ensureState();
 
-        const localX = e.clientX - canvasRect.left;
-        const localY = e.clientY - canvasRect.top;
-        const pos = orientation === 'v'
-            ? Math.max(0, Math.min(CANVAS_W, localX))
-            : Math.max(0, Math.min(CANVAS_H, localY));
-        const g = {
-            id: 'g-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
-            orientation,
-            pos
-        };
-        state.guides.push(g);
-        renderGuides();
-        startDragGuide(e, g);
-    });
+            const pos = orientation === 'v'
+                ? Math.max(0, Math.min(CANVAS_W, logicalX))
+                : Math.max(0, Math.min(CANVAS_H, logicalY));
+
+            let nearest = null;
+            let nearestDist = Infinity;
+            state.guides.forEach(g => {
+                if (g.orientation !== orientation) return;
+                const d = Math.abs(g.pos - pos);
+                if (d < nearestDist) { nearestDist = d; nearest = g; }
+            });
+
+            if (nearest && nearestDist <= GUIDE_SNAP_TO_EXISTING) {
+                nearest.pos = pos;
+                renderGuides();
+                startDragGuide(e, nearest);
+            } else {
+                const g = {
+                    id: 'g-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+                    orientation,
+                    pos
+                };
+                state.guides.push(g);
+                renderGuides();
+                startDragGuide(e, g);
+            }
+            return;
+        }
+
+        // 2) 不在边缘，但点在已有参考线上 → 拖动它
+        const guideLine = e.target.closest('.custom-guide-line');
+        if (guideLine) {
+            const g = state.guides.find(x => x.id === guideLine.dataset.guideId);
+            if (g) {
+                e.preventDefault();
+                e.stopPropagation();
+                startDragGuide(e, g);
+            }
+            return;
+        }
+    }, true);   // ← 关键：capture=true
 
     // ============ 拖动参考线 ============
     function startDragGuide(e, guide) {
@@ -110,6 +145,11 @@ const Guides = (function () {
         dragOrientation = guide.orientation;
         dragStartPos = guide.orientation === 'v' ? e.clientX : e.clientY;
         dragGuideStart = guide.pos;
+
+        // 立即更新 DOM class（不等 renderGuides）
+        guide._dragging = true;
+        const lineElNow = document.querySelector(`.custom-guide-line[data-guide-id="${guide.id}"]`);
+        if (lineElNow) lineElNow.classList.add('dragging');
 
         document.addEventListener('mousemove', onDragGuideMove);
         document.addEventListener('mouseup', onDragGuideEnd);
@@ -141,6 +181,8 @@ const Guides = (function () {
                 state.guides = state.guides.filter(g => g.id !== draggingGuide.id);
             }
         }
+        if (draggingGuide) draggingGuide._dragging = false;
+        document.querySelectorAll('.custom-guide-line.dragging').forEach(el => el.classList.remove('dragging'));
         draggingGuide = null;
         dragOrientation = null;
         renderGuides();
@@ -159,20 +201,16 @@ const Guides = (function () {
         const candidatesX = [];
         const candidatesY = [];
 
-        // 画布中心
         candidatesX.push({ pos: CANVAS_W / 2 });
         candidatesY.push({ pos: CANVAS_H / 2 });
-        // 画布边缘
         candidatesX.push({ pos: 0 });
         candidatesX.push({ pos: CANVAS_W });
         candidatesY.push({ pos: 0 });
         candidatesY.push({ pos: CANVAS_H });
-        // 自定义参考线
         state.guides.forEach(g => {
             if (g.orientation === 'v') candidatesX.push({ pos: g.pos });
             else candidatesY.push({ pos: g.pos });
         });
-        // 其它图层
         const selectedIds = new Set(state.selectedLayerIds || []);
         state.layers.forEach(other => {
             if (other.id === layer.id) return;
@@ -185,16 +223,8 @@ const Guides = (function () {
             candidatesY.push({ pos: other.y + other.height / 2 });
         });
 
-        const layerXPoints = [
-            layer.x,
-            layer.x + layer.width / 2,
-            layer.x + layer.width
-        ];
-        const layerYPoints = [
-            layer.y,
-            layer.y + layer.height / 2,
-            layer.y + layer.height
-        ];
+        const layerXPoints = [layer.x, layer.x + layer.width / 2, layer.x + layer.width];
+        const layerYPoints = [layer.y, layer.y + layer.height / 2, layer.y + layer.height];
 
         let bestX = null;
         layerXPoints.forEach(p => {
@@ -296,6 +326,129 @@ const Guides = (function () {
         updateSnapButtonUI();
     }
 
+    // ===== 边缘感应：固定贴边提示 + 双向光标 + rAF 节流 =====
+    function initEdgeHints() {
+        if (window.__guideEdgeHintsInited) return;
+        window.__guideEdgeHintsInited = true;
+
+        let currentHint = null;
+        let currentCanvas = null;
+        let currentOrientation = null;
+        let currentSide = null;
+        let rafId = null;
+        let lastEvent = null;
+
+        function clearHint() {
+            lastEvent = null;
+            if (currentHint && currentHint.parentNode) {
+                currentHint.parentNode.removeChild(currentHint);
+            }
+            currentHint = null;
+            if (currentCanvas) {
+                currentCanvas.classList.remove(
+                    'edge-active-v', 'edge-active-h',
+                    'edge-active-right', 'edge-active-bottom'
+                );
+            }
+            currentCanvas = null;
+            currentOrientation = null;
+            currentSide = null;
+            document.body.classList.remove('guide-cursor-v', 'guide-cursor-h');
+        }
+
+        function showHint(canvas, orientation, side) {
+            if (currentHint && currentCanvas === canvas && currentSide === side) return;
+            clearHint();
+
+            const hint = document.createElement('div');
+            hint.className = 'edge-hint-line ' + orientation;
+            if (orientation === 'v') {
+                hint.style.left = (side === 'left' ? '0%' : 'calc(100% - 2px)');
+            } else {
+                hint.style.top = (side === 'top' ? '0%' : 'calc(100% - 2px)');
+            }
+            canvas.appendChild(hint);
+
+            canvas.classList.add(orientation === 'v' ? 'edge-active-v' : 'edge-active-h');
+            if (side === 'right') canvas.classList.add('edge-active-right');
+            if (side === 'bottom') canvas.classList.add('edge-active-bottom');
+
+            document.body.classList.add(orientation === 'v' ? 'guide-cursor-v' : 'guide-cursor-h');
+
+            currentHint = hint;
+            currentCanvas = canvas;
+            currentOrientation = orientation;
+            currentSide = side;
+        }
+
+        function handleMove(e) {
+            if (draggingGuide) { clearHint(); return; }
+            if (state.editingLayerId) { clearHint(); return; }
+
+            const canvas = e.target.closest('.cover-canvas');
+            if (!canvas) { clearHint(); return; }
+            if (e.target.closest('.canvas-layer')) { clearHint(); return; }
+
+            const wrapper = canvas.closest('.canvas-page-wrapper');
+            if (!wrapper || !isCurrentPage(wrapper.dataset.pageId)) { clearHint(); return; }
+
+            const rect = canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) { clearHint(); return; }
+
+            const scaleX = rect.width / CANVAS_W || 1;
+            const scaleY = rect.height / CANVAS_H || 1;
+            const logicalX = (e.clientX - rect.left) / scaleX;
+            const logicalY = (e.clientY - rect.top) / scaleY;
+
+            const dists = [
+                { d: logicalX,            o: 'v', side: 'left'   },
+                { d: CANVAS_W - logicalX, o: 'v', side: 'right'  },
+                { d: logicalY,            o: 'h', side: 'top'    },
+                { d: CANVAS_H - logicalY, o: 'h', side: 'bottom' }
+            ];
+            dists.sort((a, b) => a.d - b.d);
+            const nearest = dists[0];
+
+            if (nearest.d <= GUIDE_EDGE_THRESHOLD) {
+                showHint(canvas, nearest.o, nearest.side);
+            } else {
+                clearHint();
+            }
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            lastEvent = e;
+            if (rafId) return;
+            rafId = requestAnimationFrame(() => {
+                rafId = null;
+                if (lastEvent) handleMove(lastEvent);
+            });
+        });
+
+        const boundContainers = new WeakSet();
+        let containerBound = false;
+        function bindContainerLeave() {
+            const c = document.querySelector('.canvas-container');
+            if (c && !boundContainers.has(c)) {
+                boundContainers.add(c);
+                c.addEventListener('mouseleave', clearHint);
+                containerBound = true;
+            }
+        }
+        bindContainerLeave();
+        let retry = 0;
+        const retryTimer = setInterval(() => {
+            bindContainerLeave();
+            if (containerBound || ++retry >= 20) clearInterval(retryTimer);
+        }, 100);
+
+        window.addEventListener('blur', clearHint);
+
+        document.addEventListener('mouseup', () => {
+            setTimeout(clearHint, GUIDE_CLEAR_DELAY);
+        });
+    }
+
     function init() {
         ensureState();
         initSnapButton();
@@ -307,6 +460,7 @@ const Guides = (function () {
             observer.observe(container, { childList: true, subtree: false });
         }
         renderGuides();
+        initEdgeHints();
     }
 
     return {
