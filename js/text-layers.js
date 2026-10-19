@@ -96,8 +96,8 @@ function ensureStyleWithCSS() {
 }
 
 // 用 Range 逐文本节点切割 + 包 span（跨行安全）
-function wrapSelectionWithStyle(styleList) {
-    const ctx = getActiveSelectionRange();
+function wrapSelectionWithStyle(styleList, markAsEffect = false, passedCtx = null) {
+    const ctx = passedCtx || getActiveSelectionRange();
     if (!ctx || ctx.collapsed) return false;
     const range = ctx.range;
     const el = ctx.el;
@@ -131,6 +131,7 @@ function wrapSelectionWithStyle(styleList) {
 
         if (before) parent.insertBefore(document.createTextNode(before), node);
         const span = document.createElement('span');
+        if (markAsEffect) span.dataset.effectSpan = '1';
         styleList.forEach(({ prop, val }) => {
             try { span.style.setProperty(prop, val); } catch (e) {}
         });
@@ -143,6 +144,308 @@ function wrapSelectionWithStyle(styleList) {
     _savedSelectionContext = null;
     return tasks.length > 0;
 }
+
+
+/* ============================================================
+   清除选区内的"特效 span"（只清 data-effect-span="1" 的）
+   - 只影响与选区相交的部分，不误伤未选中文字
+   - 从内到外拆，避免嵌套 span 拆解错位
+   - 只对强特效属性做清理，保留用户手动颜色/背景
+   ============================================================ */
+function clearEffectSpansInSelection(ctx) {
+    if (!ctx || !ctx.el || !ctx.range) return null;
+    const root = ctx.el;
+    const range = ctx.range;
+
+    const startInfo = getTextOffsetInRoot(root, range.startContainer, range.startOffset);
+    const endInfo = getTextOffsetInRoot(root, range.endContainer, range.endOffset);
+    if (startInfo === null || endInfo === null) return null;
+
+    const effectSpans = [];
+    root.querySelectorAll('[data-effect-span="1"]').forEach(sp => {
+        if (range.intersectsNode(sp)) effectSpans.push(sp);
+    });
+
+    // 历史兼容：无标记、但内联 style 里含有"强特效属性"的 span 也打标
+    root.querySelectorAll('span[style]').forEach(sp => {
+        if (sp.dataset.effectSpan === '1') return;
+        if (!range.intersectsNode(sp)) return;
+        if (looksLikeEffectSpan(sp)) {
+            sp.dataset.effectSpan = '1';
+            effectSpans.push(sp);
+        }
+    });
+
+    if (effectSpans.length === 0) {
+        return { root, start: startInfo, end: endInfo };
+    }
+
+    const depthOf = (el) => {
+        let d = 0, p = el;
+        while (p && p !== root) { d++; p = p.parentNode; }
+        return d;
+    };
+    effectSpans.sort((a, b) => depthOf(b) - depthOf(a));
+
+    effectSpans.forEach(sp => {
+        if (!sp.parentNode) return;
+        splitAndClearEffectSpan(sp, root, range);
+    });
+
+    root.normalize();
+
+    return { root, start: startInfo, end: endInfo };
+}
+
+/* 判断一个 span 是不是"看起来像特效"（历史兼容用）
+   只认强特效属性，避免把"手动加粗+斜体"误判为特效 */
+function looksLikeEffectSpan(sp) {
+    if (!sp.style) return false;
+    const styleProps = Array.from(sp.style).map(p => p.toLowerCase());
+    const strongEffectProps = [
+        'text-shadow',
+        '-webkit-text-stroke',
+        '-webkit-text-fill-color',
+        'background-clip',
+        '-webkit-background-clip',
+        'filter'
+    ];
+    for (const p of styleProps) {
+        if (strongEffectProps.includes(p)) return true;
+    }
+    return false;
+}
+
+/* 记录 (node, offset) 在 root 里的纯文本偏移 */
+function getTextOffsetInRoot(root, node, offset) {
+    if (!root.contains(node)) return null;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+    let total = 0;
+    while (walker.nextNode()) {
+        const n = walker.currentNode;
+        if (n === node) return total + Math.min(offset, n.nodeValue.length);
+        total += n.nodeValue.length;
+    }
+    return null;
+}
+
+/* 按文本偏移恢复 Selection */
+function restoreSelectionByTextOffset(root, start, end) {
+    if (!root || start === null || end === null) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+    let acc = 0;
+    let startNode = null, startOff = 0, endNode = null, endOff = 0;
+    while (walker.nextNode()) {
+        const n = walker.currentNode;
+        const len = n.nodeValue.length;
+        if (!startNode && start <= acc + len) {
+            startNode = n; startOff = start - acc;
+        }
+        if (!endNode && end <= acc + len) {
+            endNode = n; endOff = end - acc;
+            break;
+        }
+        acc += len;
+    }
+    if (!startNode || !endNode) return;
+    try {
+        const sel = window.getSelection();
+        const r = document.createRange();
+        r.setStart(startNode, Math.min(startOff, startNode.nodeValue.length));
+        r.setEnd(endNode, Math.min(endOff, endNode.nodeValue.length));
+        sel.removeAllRanges();
+        sel.addRange(r);
+    } catch (e) { /* 恢复失败不抛 */ }
+}
+
+/* ============================================================
+   一次性把特效 span 拆成"兄弟级三段"：
+     <span data-effect-span>before</span>
+     <span>core</span>                      ← core 是 sp 的兄弟，不是后代
+     <span data-effect-span>after</span>
+   中间层 <b>/<i>/<a> 原样保留；只去掉 sp 这一层的特效。
+   ============================================================ */
+function splitAndClearEffectSpan(sp, root, range) {
+    const parent = sp.parentNode;
+    if (!parent) return;
+
+    const startContainer = range.startContainer;
+    const startOffset = range.startOffset;
+    const endContainer = range.endContainer;
+    const endOffset = range.endOffset;
+
+    // 1) 收集 sp 下所有文本节点
+    const textNodes = [];
+    const walker = document.createTreeWalker(sp, NodeFilter.SHOW_TEXT, null, false);
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+    if (textNodes.length === 0) {
+        stripEffectFromElement(sp);
+        if (!sp.attributes.length && !sp.textContent && !sp.querySelector('*')) {
+            parent.removeChild(sp);
+        }
+        return;
+    }
+
+    // 2) 计算每个文本节点与选区的交集 [s, e)
+    const charMap = [];
+    textNodes.forEach(node => {
+        const text = node.nodeValue;
+        if (!text) return;
+        let s = 0, e = text.length;
+        const nr = document.createRange();
+        nr.selectNodeContents(node);
+        const beforeSel = nr.compareBoundaryPoints(Range.END_TO_START, range) <= 0;
+        const afterSel = nr.compareBoundaryPoints(Range.START_TO_END, range) >= 0;
+        if (beforeSel || afterSel) {
+            charMap.push({ node, text, startChar: 0, endChar: text.length, selected: false });
+            return;
+        }
+        if (node === startContainer) s = startOffset;
+        if (node === endContainer) e = endOffset;
+        s = Math.max(0, Math.min(s, text.length));
+        e = Math.max(0, Math.min(e, text.length));
+        charMap.push({ node, text, startChar: s, endChar: e, selected: s < e });
+    });
+
+    // 3) 构造三个 fragment：before / core / after
+    const beforeFrag = document.createDocumentFragment();
+    const coreFrag = document.createDocumentFragment();
+    const afterFrag = document.createDocumentFragment();
+
+    const pathFromSp = (node) => {
+        const path = [];
+        let cur = node.parentNode;
+        while (cur && cur !== sp) {
+            path.unshift(cur);
+            cur = cur.parentNode;
+        }
+        return path;
+    };
+
+    charMap.forEach(c => {
+        if (!c.text) return;
+        const path = pathFromSp(c.node);
+        if (c.selected) {
+            if (c.startChar > 0) {
+                appendTextWithPath(beforeFrag, path, c.text.slice(0, c.startChar));
+            }
+            if (c.endChar > c.startChar) {
+                appendTextWithPath(coreFrag, path, c.text.slice(c.startChar, c.endChar));
+            }
+            if (c.endChar < c.text.length) {
+                appendTextWithPath(afterFrag, path, c.text.slice(c.endChar));
+            }
+        } else {
+            const nr = document.createRange();
+            nr.selectNodeContents(c.node);
+            const beforeSel = nr.compareBoundaryPoints(Range.END_TO_START, range) <= 0;
+            appendTextWithPath(beforeSel ? beforeFrag : afterFrag, path, c.text);
+        }
+    });
+
+    // 4) 按"有内容才插入"的原则，把 sp 替换成 1~3 段
+    const hasBefore = beforeFrag.textContent.length > 0;
+    const hasCore = coreFrag.textContent.length > 0;
+    const hasAfter = afterFrag.textContent.length > 0;
+
+    if (!hasBefore && !hasAfter && hasCore) {
+        stripEffectFromElement(sp);
+        if (!sp.attributes.length) {
+            const p = sp.parentNode;
+            if (p) {
+                while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
+                p.removeChild(sp);
+            }
+        }
+        return;
+    }
+
+    if (hasBefore) {
+        const beforeWrapper = cloneElementShallow(sp, true);
+        beforeWrapper.appendChild(beforeFrag);
+        parent.insertBefore(beforeWrapper, sp);
+    }
+    if (hasCore) {
+        const coreWrapper = cloneElementShallow(sp, false);
+        coreWrapper.appendChild(coreFrag);
+        parent.insertBefore(coreWrapper, sp);
+    }
+    if (hasAfter) {
+        const afterWrapper = cloneElementShallow(sp, true);
+        afterWrapper.appendChild(afterFrag);
+        parent.insertBefore(afterWrapper, sp);
+    }
+    parent.removeChild(sp);
+}
+
+/* 沿原始祖先链（<b>/<i> 等）递归克隆，把一段文本塞进 frag */
+function appendTextWithPath(frag, path, text) {
+    if (!text) return;
+    if (path.length === 0) {
+        frag.appendChild(document.createTextNode(text));
+        return;
+    }
+    let inner = document.createTextNode(text);
+    for (let i = path.length - 1; i >= 0; i--) {
+        const el = path[i].cloneNode(false);
+        el.removeAttribute('data-effect-span');
+        el.appendChild(inner);
+        inner = el;
+    }
+    frag.appendChild(inner);
+}
+
+/* 浅克隆 sp（含 class / 非特效样式），按 keepEffect 决定是否保留特效与标记 */
+function cloneElementShallow(sp, keepEffect) {
+    const clone = document.createElement(sp.tagName);
+    if (sp.className) clone.className = sp.className;
+    for (const attr of Array.from(sp.attributes)) {
+        if (attr.name === 'style' || attr.name === 'data-effect-span') continue;
+        clone.setAttribute(attr.name, attr.value);
+    }
+    const styleAttr = sp.getAttribute('style') || '';
+    if (styleAttr) {
+        const tmp = document.createElement('span');
+        tmp.setAttribute('style', styleAttr);
+        ['text-shadow', '-webkit-text-stroke', '-webkit-text-fill-color',
+         'background-clip', '-webkit-background-clip', 'filter'].forEach(p => {
+            tmp.style.removeProperty(p);
+        });
+        const kept = tmp.getAttribute('style');
+        if (kept) clone.setAttribute('style', kept);
+    }
+    if (keepEffect) {
+        clone.dataset.effectSpan = '1';
+        if (styleAttr) {
+            const tmp = document.createElement('span');
+            tmp.setAttribute('style', styleAttr);
+            ['text-shadow', '-webkit-text-stroke', '-webkit-text-fill-color',
+             'background-clip', '-webkit-background-clip', 'filter'].forEach(p => {
+                const v = tmp.style.getPropertyValue(p);
+                if (v) clone.style.setProperty(p, v);
+            });
+        }
+    }
+    return clone;
+}
+
+/* 去掉元素上的特效属性与标记 */
+function stripEffectFromElement(el) {
+    el.removeAttribute('data-effect-span');
+    if (el.style) {
+        ['text-shadow', '-webkit-text-stroke', '-webkit-text-fill-color',
+         'background-clip', '-webkit-background-clip', 'filter'].forEach(p => {
+            el.style.removeProperty(p);
+        });
+        if (el.style.cssText === '') el.removeAttribute('style');
+    }
+}
+
+
+
+
+
 
 // 清除选区内局部样式
 function clearLocalFormat() {
@@ -188,6 +491,15 @@ function applyEffectToSelection(eff) {
     if (!eff || !eff.css) return;
     const ctx = getActiveSelectionRange();
     if (!ctx || ctx.collapsed) return;
+    // 先清掉选区里"上一次特效"的 span（只动带 data-effect-span 的），
+    // 保留前后未选中部分；清理后 DOM 会变，必须重新取选区再 wrap。
+    const layerId = state.editingLayerId;
+    const saved = clearEffectSpansInSelection(ctx);
+    if (saved) {
+        restoreSelectionByTextOffset(saved.root, saved.start, saved.end);
+    }
+    const newCtx = getActiveSelectionRange();
+    if (!newCtx || newCtx.collapsed) return;
 
     const rules = [];
     eff.css.split(';').forEach(rule => {
@@ -221,14 +533,15 @@ function applyEffectToSelection(eff) {
     });
 
     if (manualList.length > 0) {
-        wrapSelectionWithStyle(manualList);
+        wrapSelectionWithStyle(manualList, true, newCtx);
     }
 
-    const layer = state.layers.find(l => l.id === state.editingLayerId);
+    const layer = state.layers.find(l => l.id === layerId);
     if (layer) {
-        layer.content = ctx.el.innerHTML;
-        ctx.el.classList.toggle('has-local-color', hasLocalInlineColor(layer.content));
+        layer.content = newCtx.el.innerHTML;
+        newCtx.el.classList.toggle('has-local-color', hasLocalInlineColor(layer.content));
     }
+
     _savedSelectionContext = null;
     updateTopToolbarUI(state.getSelectedLayer());
 }
