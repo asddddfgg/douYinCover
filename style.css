@@ -1857,3 +1857,97 @@ body.guide-cursor-h { cursor: ns-resize !important; }
     background: rgba(255,255,255,0.06);
     margin: 6px 0;
 }
+
+
+/* ===================== 导出面板 ===================== */
+.export-panel {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    z-index: 9500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(3px);
+}
+.export-panel-inner {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    width: 400px;
+    max-width: 92vw;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    overflow: hidden;
+}
+.export-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #30363d;
+    background: #1c2128;
+}
+.export-panel-header h3 {
+    font-size: 13px;
+    color: #e1e4e8;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.export-section {
+    padding: 12px 16px;
+    border-bottom: 1px solid #30363d;
+}
+.export-section-title {
+    font-size: 12px;
+    font-weight: bold;
+    color: #8b949e;
+    margin-bottom: 8px;
+}
+.export-radio {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #c9d1d9;
+    padding: 5px 0;
+    cursor: pointer;
+}
+.export-radio input[type="radio"] {
+    accent-color: #ff2442;
+    cursor: pointer;
+}
+.export-page-checkboxes {
+    margin-top: 6px;
+    max-height: 140px;
+    overflow-y: auto;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px;
+    background: #0d1117;
+}
+.export-page-checkboxes label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #c9d1d9;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.export-page-checkboxes label:hover {
+    background: #21262d;
+}
+.export-page-checkboxes input[type="checkbox"] {
+    accent-color: #ff2442;
+    cursor: pointer;
+}
+.export-panel-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #1c2128;
+}

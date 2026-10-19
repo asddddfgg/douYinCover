@@ -505,9 +505,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderAll();
     });
 
-    document.getElementById('btn-export').addEventListener('click', () => {
-        exportAllPagesAsPNG();
-    });
+        initExportPanel();
 
     renderCanvas();
     renderLayerList();
@@ -589,7 +587,8 @@ function loadCachedCustomFonts(fontSelect) {
 
 
 
-function exportElementToPNG(canvasDOMNode, filename) {
+function exportElementToPNG(canvasDOMNode, filename, scale) {
+    const exportScale = (typeof scale === 'number' && scale > 0) ? scale : 2;
     return new Promise((resolve, reject) => {
         // 1. 找到所有要隐藏的"编辑辅助"元素
         const guidesLayer = canvasDOMNode.querySelector('.custom-guides-layer');
@@ -632,8 +631,8 @@ function exportElementToPNG(canvasDOMNode, filename) {
         };
 
         // 5. 截图
-        html2canvas(canvasDOMNode, {
-            scale: 2,
+                html2canvas(canvasDOMNode, {
+            scale: exportScale,
             useCORS: true,
             allowTaint: true,
             backgroundColor: null,
@@ -693,32 +692,138 @@ onclone: async (clonedDoc, clonedEl) => {
 
 
 
-async function exportAllPagesAsPNG() {
-    const wrappers = document.querySelectorAll('.canvas-page-wrapper');
-    if (wrappers.length === 0) { alert('当前没有可导出的画布页面！'); return; }
-    if (wrappers.length === 1) {
-        const canvasNode = wrappers[0].querySelector('.cover-canvas');
-        if (canvasNode) {
-            const ok = await exportElementToPNG(canvasNode, `龙蛇变_第1页_${Date.now()}.png`);
-            if (ok) alert('第 1 页高清 PNG 导出成功！');
-        }
-        return;
+/* ============================================================
+   导出面板（世界级：范围可选 + 分辨率可选）
+   ============================================================ */
+let _exportScale = 2;
+
+function openExportPanel() {
+    const panel = document.getElementById('export-panel');
+    if (!panel) return;
+
+    // 重置为默认
+    const rangeCurrent = panel.querySelector('input[name="export-range"][value="current"]');
+    if (rangeCurrent) rangeCurrent.checked = true;
+    const scale2 = panel.querySelector('input[name="export-scale"][value="2"]');
+    if (scale2) scale2.checked = true;
+
+    const checkboxes = document.getElementById('export-page-checkboxes');
+    if (checkboxes) checkboxes.style.display = 'none';
+
+    // 填充页面勾选列表
+    const boxWrap = document.getElementById('export-page-checkboxes');
+    if (boxWrap) {
+        boxWrap.innerHTML = '';
+        state.pages.forEach((page, index) => {
+            const label = document.createElement('label');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = page.id;
+            cb.checked = true;
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(`第 ${index + 1} 页（${page.layers.length} 个图层）`));
+            boxWrap.appendChild(label);
+        });
     }
+
+    // 监听范围切换
+    panel.querySelectorAll('input[name="export-range"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const val = panel.querySelector('input[name="export-range"]:checked').value;
+            if (boxWrap) boxWrap.style.display = (val === 'custom') ? 'block' : 'none';
+        });
+    });
+
+    panel.style.display = 'flex';
+}
+
+function closeExportPanel() {
+    const panel = document.getElementById('export-panel');
+    if (panel) panel.style.display = 'none';
+}
+
+async function runExportFromPanel() {
+    const panel = document.getElementById('export-panel');
+    if (!panel) return;
+
+    const range = panel.querySelector('input[name="export-range"]:checked').value;
+    const scale = parseInt(panel.querySelector('input[name="export-scale"]:checked').value, 10) || 2;
+    _exportScale = scale;
+
+    let targetPageIds = [];
+
+    if (range === 'current') {
+        if (!state.currentPageId) { alert('当前没有可导出的页面！'); return; }
+        targetPageIds = [state.currentPageId];
+    } else if (range === 'all') {
+        targetPageIds = state.pages.map(p => p.id);
+    } else {
+        const checked = panel.querySelectorAll('#export-page-checkboxes input[type="checkbox"]:checked');
+        targetPageIds = Array.from(checked).map(cb => cb.value);
+        if (targetPageIds.length === 0) { alert('请至少勾选一个页面！'); return; }
+    }
+
+    closeExportPanel();
+
     let successCount = 0;
     let failCount = 0;
-    for (let i = 0; i < wrappers.length; i++) {
-        const canvasNode = wrappers[i].querySelector('.cover-canvas');
-        if (canvasNode) {
-            const ok = await exportElementToPNG(canvasNode, `龙蛇变_第${i + 1}页_${Date.now()}.png`);
-            if (ok) successCount++; else failCount++;
+
+    for (const pageId of targetPageIds) {
+        const wrapper = document.querySelector(`.canvas-page-wrapper[data-page-id="${pageId}"]`);
+        if (!wrapper) { failCount++; continue; }
+        const canvasNode = wrapper.querySelector('.cover-canvas');
+        if (!canvasNode) { failCount++; continue; }
+
+        const pageIndex = state.pages.findIndex(p => p.id === pageId);
+        const pageNum = pageIndex >= 0 ? pageIndex + 1 : 1;
+
+        const ok = await exportElementToPNG(canvasNode, `龙蛇变_第${pageNum}页_${Date.now()}.png`, scale);
+        if (ok) successCount++; else failCount++;
+
+        // 多页导出时给浏览器一点间隔
+        if (targetPageIds.length > 1) {
             await new Promise(r => setTimeout(r, 500));
         }
     }
+
     if (failCount === 0) {
-        alert(`所有 ${successCount} 个分页面已全部导出成功！`);
+        if (successCount === 1) {
+            const idx = state.pages.findIndex(p => p.id === targetPageIds[0]);
+            alert(`第 ${idx + 1} 页导出成功！`);
+        } else {
+            alert(`全部 ${successCount} 页导出成功！`);
+        }
     } else {
-        alert(`导出完成：成功 ${successCount} 页，失败 ${failCount} 页。\n失败页面通常是含 SVG 矢量贴纸或跨域 PNG 贴纸的页面，请针对性清理后重试。`);
+        alert(`导出完成：成功 ${successCount} 页，失败 ${failCount} 页。`);
     }
+}
+
+function initExportPanel() {
+    const btnExport = document.getElementById('btn-export');
+    if (btnExport) {
+        // 用 clone 替换，避免重复绑定
+        const newBtn = btnExport.cloneNode(true);
+        btnExport.replaceWith(newBtn);
+        newBtn.addEventListener('click', openExportPanel);
+    }
+
+    const btnClose = document.getElementById('export-panel-close');
+    if (btnClose) btnClose.addEventListener('click', closeExportPanel);
+    const btnCancel = document.getElementById('export-panel-cancel');
+    if (btnCancel) btnCancel.addEventListener('click', closeExportPanel);
+    const btnConfirm = document.getElementById('export-panel-confirm');
+    if (btnConfirm) btnConfirm.addEventListener('click', runExportFromPanel);
+
+    const panel = document.getElementById('export-panel');
+    if (panel) {
+        panel.addEventListener('click', (e) => {
+            if (e.target === panel) closeExportPanel();
+        });
+    }
+}
+
+async function exportAllPagesAsPNG() {
+    openExportPanel();
 }
 
 function renderAll() {

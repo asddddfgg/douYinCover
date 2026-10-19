@@ -88,7 +88,7 @@
                 <span id="project-title" style="font-size:12px;color:#8b949e;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
                 <button id="btn-add-text" class="btn"><i class="fa-solid fa-heading"></i> 添加文本</button>
                 <button id="btn-add-sticker" class="btn"><i class="fa-solid fa-face-smile"></i> 添加贴纸</button>
-                <button id="btn-export" class="btn btn-primary"><i class="fa-solid fa-download"></i> 导出 9:16 封面</button>
+                <button id="btn-export" class="btn btn-primary"><i class="fa-solid fa-download"></i> 导出封面</button>
             </div>
         </header>
 
@@ -415,5 +415,37 @@
     <script src="js/guides.js"></script>
     <script src="js/projects.js"></script>
     <script src="js/app.js"></script>
+
+
+<div id="export-panel" class="export-panel" style="display:none;">
+    <div class="export-panel-inner">
+        <div class="export-panel-header">
+            <h3><i class="fa-solid fa-download"></i> 导出封面</h3>
+            <button id="export-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="export-section">
+            <div class="export-section-title">导出范围</div>
+            <label class="export-radio"><input type="radio" name="export-range" value="current" checked> 仅当前页</label>
+            <label class="export-radio"><input type="radio" name="export-range" value="all"> 全部页面</label>
+            <label class="export-radio"><input type="radio" name="export-range" value="custom"> 自定义勾选</label>
+            <div id="export-page-checkboxes" class="export-page-checkboxes" style="display:none;"></div>
+        </div>
+
+        <div class="export-section">
+            <div class="export-section-title">导出分辨率</div>
+            <label class="export-radio"><input type="radio" name="export-scale" value="1" checked> 1x（360×640）</label>
+            <label class="export-radio"><input type="radio" name="export-scale" value="2"> 2x（720×1280）</label>
+            <label class="export-radio"><input type="radio" name="export-scale" value="3"> 3x（1080×1920）</label>
+        </div>
+
+        <div class="export-panel-actions">
+            <button id="export-panel-cancel" class="btn">取消</button>
+            <button id="export-panel-confirm" class="btn btn-primary"><i class="fa-solid fa-download"></i> 开始导出</button>
+        </div>
+    </div>
+</div>
+
+
 </body>
 </html>
