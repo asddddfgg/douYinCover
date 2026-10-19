@@ -1,4 +1,132 @@
 // Art Effects Library (Supports pin, hide, delete, batch upload with auto-rename duplicate protection, hidden bin, reordering & selectable copy modal)
+
+/* ============================================================
+   特效栏位分类 v1：文字 / 整层 × 置顶 / 普通
+   ============================================================ */
+const EFFECT_STATE_KEY = 'douyin_effects_states_v3';
+const EFFECT_PINNED_TEXT_KEY = 'douyin_effects_pinned_order_text';
+const EFFECT_PINNED_WHOLE_KEY = 'douyin_effects_pinned_order_whole';
+const EFFECT_NORMAL_TEXT_KEY = 'douyin_effects_normal_order_text';
+const EFFECT_NORMAL_WHOLE_KEY = 'douyin_effects_normal_order_whole';
+const EFFECT_CATEGORY_OVERRIDES_KEY = 'douyin_effects_category_overrides';
+
+function getEffectCategory(eff) {
+    if (!eff) return 'text';
+    let overrides = {};
+    try { overrides = JSON.parse(localStorage.getItem(EFFECT_CATEGORY_OVERRIDES_KEY) || '{}'); } catch (e) {}
+    if (overrides[eff.id]) return overrides[eff.id];
+
+    if (typeof canEffectApplyToSelection === 'function') {
+        return canEffectApplyToSelection(eff.css) ? 'text' : 'whole';
+    }
+
+    const c = (eff.css || '').toLowerCase();
+    if (/(^|;|\s)border\s*:/.test(c)) return 'whole';
+    if (c.includes('border-radius')) return 'whole';
+    if (/(^|;|\s)padding\s*:/.test(c)) return 'whole';
+    if (/(^|;|\s)animation\s*:/.test(c)) return 'whole';
+    if (c.includes('backdrop-filter')) return 'whole';
+    if (c.includes('clip-path')) return 'whole';
+    if (c.includes('mix-blend-mode')) return 'whole';
+    return 'text';
+}
+
+function getEffectOrder(cat, area) {
+    const key = area === 'pinned'
+        ? (cat === 'text' ? EFFECT_PINNED_TEXT_KEY : EFFECT_PINNED_WHOLE_KEY)
+        : (cat === 'text' ? EFFECT_NORMAL_TEXT_KEY : EFFECT_NORMAL_WHOLE_KEY);
+    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; }
+}
+
+function saveEffectOrder(cat, area, ids) {
+    const key = area === 'pinned'
+        ? (cat === 'text' ? EFFECT_PINNED_TEXT_KEY : EFFECT_PINNED_WHOLE_KEY)
+        : (cat === 'text' ? EFFECT_NORMAL_TEXT_KEY : EFFECT_NORMAL_WHOLE_KEY);
+    try { localStorage.setItem(key, JSON.stringify(ids)); } catch (e) {}
+}
+
+function moveEffectToCategory(id, targetCat) {
+    let overrides = {};
+    try { overrides = JSON.parse(localStorage.getItem(EFFECT_CATEGORY_OVERRIDES_KEY) || '{}'); } catch (e) {}
+    overrides[id] = targetCat;
+    try { localStorage.setItem(EFFECT_CATEGORY_OVERRIDES_KEY, JSON.stringify(overrides)); } catch (e) {}
+
+    let states = {};
+    try { states = JSON.parse(localStorage.getItem(EFFECT_STATE_KEY) || '{}'); } catch (e) {}
+    const isPinned = !!(states[id] && states[id].pinned);
+
+    ['text', 'whole'].forEach(cat => {
+        ['pinned', 'normal'].forEach(area => {
+            const ids = getEffectOrder(cat, area).filter(x => x !== id);
+            saveEffectOrder(cat, area, ids);
+        });
+    });
+
+    if (isPinned) {
+        const arr = getEffectOrder(targetCat, 'pinned');
+        arr.unshift(id);
+        saveEffectOrder(targetCat, 'pinned', arr);
+    } else {
+        const arr = getEffectOrder(targetCat, 'normal');
+        arr.unshift(id);
+        saveEffectOrder(targetCat, 'normal', arr);
+    }
+
+    if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
+    if (typeof showBgToast === 'function') {
+        showBgToast(`已移到${targetCat === 'text' ? '文字特效' : '整层特效'}栏`);
+    }
+}
+
+function restoreEffectCategory(id) {
+    let overrides = {};
+    try { overrides = JSON.parse(localStorage.getItem(EFFECT_CATEGORY_OVERRIDES_KEY) || '{}'); } catch (e) {}
+    if (!overrides[id]) return;
+    delete overrides[id];
+    try { localStorage.setItem(EFFECT_CATEGORY_OVERRIDES_KEY, JSON.stringify(overrides)); } catch (e) {}
+
+    ['text', 'whole'].forEach(cat => {
+        ['pinned', 'normal'].forEach(area => {
+            const ids = getEffectOrder(cat, area).filter(x => x !== id);
+            saveEffectOrder(cat, area, ids);
+        });
+    });
+
+    if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
+}
+
+function migrateEffectOrdersIfNeeded() {
+    const hasText = localStorage.getItem(EFFECT_PINNED_TEXT_KEY) !== null;
+    const hasWhole = localStorage.getItem(EFFECT_PINNED_WHOLE_KEY) !== null;
+    if (hasText || hasWhole) return;
+
+    let oldPinned = [];
+    try { oldPinned = JSON.parse(localStorage.getItem('douyin_effects_pinned_order') || '[]'); } catch (e) { return; }
+    if (!Array.isArray(oldPinned) || oldPinned.length === 0) {
+        saveEffectOrder('text', 'pinned', []);
+        saveEffectOrder('whole', 'pinned', []);
+        try { localStorage.removeItem('douyin_effects_pinned_order'); } catch (e) {}
+        return;
+    }
+
+    const all = (typeof getAllEffectsMaster === 'function') ? getAllEffectsMaster() : [];
+    const map = new Map(all.map(e => [e.id, e]));
+
+    const textPinned = [];
+    const wholePinned = [];
+    oldPinned.forEach(id => {
+        const eff = map.get(id);
+        if (!eff) return;
+        const cat = getEffectCategory(eff);
+        if (cat === 'whole') wholePinned.push(id);
+        else textPinned.push(id);
+    });
+
+    saveEffectOrder('text', 'pinned', textPinned);
+    saveEffectOrder('whole', 'pinned', wholePinned);
+    try { localStorage.removeItem('douyin_effects_pinned_order'); } catch (e) {}
+}
+
 const DEFAULT_ART_EFFECTS = [
     { id: 'effect-gradient', name: '双色渐变', css: 'background: linear-gradient(135deg, #ff7e5f, #feb47b); -webkit-background-clip: text; -webkit-text-fill-color: transparent;' },
     { id: 'effect-neon', name: '霓虹发光', css: 'color: #fff; text-shadow: 0 0 5px #ff00de, 0 0 10px #ff00de, 0 0 20px #ff00de, 0 0 40px #ff00de;' },
@@ -23,6 +151,7 @@ const DEFAULT_ART_EFFECTS = [
 ];
 
 function initEffectsLibrary() {
+    migrateEffectOrdersIfNeeded();
     renderEffectsGrid();
     initEffectsManagerPanel();
 }
@@ -75,54 +204,92 @@ function getPinnedEffectsList() {
 }
 
 function renderEffectsGrid() {
+    migrateEffectOrdersIfNeeded();
     const grid = document.getElementById('effects-grid');
     if (!grid) return;
     grid.innerHTML = '';
-    
+
     let styleTag = document.getElementById('dynamic-custom-effects-style');
     if (!styleTag) {
         styleTag = document.createElement('style');
         styleTag.id = 'dynamic-custom-effects-style';
         document.head.appendChild(styleTag);
     }
-    
+
     let allEffects = getAllEffectsMaster();
-    let pinnedList = getPinnedEffectsList();
     let cssRules = '';
 
-    // 1. 渲染【置顶特效栏】
-    if (pinnedList.length > 0) {
-        const pinHeader = document.createElement('div');
-        pinHeader.style.cssText = 'grid-column: span 2; font-size: 11px; color: #f1e05a; font-weight: bold; margin-bottom: 2px; border-bottom: 1px solid #30363d; padding-bottom: 2px; display: flex; align-items: center; gap: 4px;';
-        pinHeader.innerHTML = '<i class="fa-solid fa-thumbtack"></i> 置顶特效栏';
-        grid.appendChild(pinHeader);
+    allEffects.forEach(eff => {
+        if (eff.css) cssRules += `.${eff.id} { ${eff.css} }\n`;
+    });
+    styleTag.innerHTML = cssRules;
 
-        pinnedList.forEach((eff, index) => {
-            if (eff.css) cssRules += `.${eff.id} { ${eff.css} }\n`;
-            if (eff.hidden) return;
+    const visible = allEffects.filter(eff => !eff.hidden);
+    const textEffects = visible.filter(eff => getEffectCategory(eff) === 'text');
+    const wholeEffects = visible.filter(eff => getEffectCategory(eff) === 'whole');
 
-            const card = createEffectCardDOM(eff, index, pinnedList.length, true);
-            grid.appendChild(card);
+    function sortByOrder(list, cat, area) {
+        const orderIds = getEffectOrder(cat, area);
+        const map = new Map(list.map(e => [e.id, e]));
+        const sorted = [];
+        orderIds.forEach(id => {
+            if (map.has(id)) {
+                sorted.push(map.get(id));
+                map.delete(id);
+            }
         });
+        list.forEach(eff => {
+            if (map.has(eff.id)) {
+                sorted.push(eff);
+                map.delete(eff.id);
+            }
+        });
+        return sorted;
     }
 
-    // 2. 渲染【全部特效库】（过滤掉已经置顶的特效，防止重复展示）
-    const normalHeader = document.createElement('div');
-    normalHeader.style.cssText = 'grid-column: span 2; font-size: 11px; color: #8b949e; font-weight: bold; margin-top: 6px; margin-bottom: 2px; border-bottom: 1px solid #30363d; padding-bottom: 2px; display: flex; align-items: center; gap: 4px;';
-    normalHeader.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 全部特效库';
-    grid.appendChild(normalHeader);
+    function renderSection(cat, catTitle, catEffects) {
+        if (catEffects.length === 0) return;
 
-    let unpinnedEffects = allEffects.filter(eff => !eff.pinned);
+        const pinned = catEffects.filter(eff => eff.pinned);
+        const normal = catEffects.filter(eff => !eff.pinned);
+        const pinnedSorted = sortByOrder(pinned, cat, 'pinned');
+        const normalSorted = sortByOrder(normal, cat, 'normal');
 
-    unpinnedEffects.forEach(eff => {
-        if (eff.css) cssRules += `.${eff.id} { ${eff.css} }\n`;
-        if (eff.hidden) return;
+        const section = document.createElement('div');
+        section.className = 'effects-section effects-section-' + cat;
+        section.style.gridColumn = 'span 2';
 
-        const card = createEffectCardDOM(eff, 0, 0, false);
-        grid.appendChild(card);
-    });
+        const catHeader = document.createElement('div');
+        catHeader.className = 'effects-section-header';
+        catHeader.innerHTML = cat === 'text'
+            ? '<i class="fa-solid fa-font"></i> 文字特效'
+            : '<i class="fa-solid fa-square-full"></i> 整层特效';
+        section.appendChild(catHeader);
 
-    styleTag.innerHTML = cssRules;
+        const body = document.createElement('div');
+        body.className = 'effects-section-body';
+
+        pinnedSorted.forEach((eff, idx) => {
+            body.appendChild(createEffectCardDOM(eff, idx, pinnedSorted.length, true));
+        });
+
+        if (pinnedSorted.length > 0 && normalSorted.length > 0) {
+            const divider = document.createElement('div');
+            divider.className = 'effects-section-divider';
+            divider.style.gridColumn = 'span 2';
+            body.appendChild(divider);
+        }
+
+        normalSorted.forEach((eff, idx) => {
+            body.appendChild(createEffectCardDOM(eff, idx, normalSorted.length, false));
+        });
+
+        section.appendChild(body);
+        grid.appendChild(section);
+    }
+
+    renderSection('text', '文字特效', textEffects);
+    renderSection('whole', '整层特效', wholeEffects);
 }
 
 function createEffectCardDOM(eff, pinIndex, pinTotal, isPinnedSection) {
@@ -136,13 +303,19 @@ function createEffectCardDOM(eff, pinIndex, pinTotal, isPinnedSection) {
         card.classList.add('active');
     }
 
-card.addEventListener('click', () => {
+    card.addEventListener('click', () => {
         handleEffectClick(eff);
         document.querySelectorAll('.effect-card').forEach(c => c.classList.remove('active'));
         const layer = state.getSelectedLayer();
         if (layer && layer.effectClass === eff.id) {
             card.classList.add('active');
         }
+    });
+
+    card.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showEffectContextMenu(e, eff);
     });
 
     const delBtn = document.createElement('div');
@@ -168,33 +341,110 @@ card.addEventListener('click', () => {
     const pinBtn = document.createElement('div');
     pinBtn.className = 'effect-action-btn btn-pin';
     pinBtn.innerHTML = eff.pinned ? '📍' : '📌';
-    pinBtn.title = eff.pinned ? '取消置顶' : '置顶特效';
+    pinBtn.title = eff.pinned ? '取消置顶' : '置顶到本栏顶部';
     pinBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleEffectPinned(eff.id);
     });
     card.appendChild(pinBtn);
 
-    if (isPinnedSection) {
-        if (pinIndex > 0) {
-            const moveUp = document.createElement('div');
-            moveUp.style.cssText = 'position:absolute; bottom:2px; left:2px; background:rgba(0,0,0,0.8); color:#fff; font-size:9px; width:14px; height:14px; display:flex; align-items:center; justify-content:center; border-radius:3px; cursor:pointer;';
-            moveUp.innerHTML = '◀';
-            moveUp.title = '向前移动';
-            moveUp.addEventListener('click', (e) => { e.stopPropagation(); movePinnedOrder(eff.id, -1); });
-            card.appendChild(moveUp);
-        }
-        if (pinIndex < pinTotal - 1) {
-            const moveDown = document.createElement('div');
-            moveDown.style.cssText = 'position:absolute; bottom:2px; right:2px; background:rgba(0,0,0,0.8); color:#fff; font-size:9px; width:14px; height:14px; display:flex; align-items:center; justify-content:center; border-radius:3px; cursor:pointer;';
-            moveDown.innerHTML = '▶';
-            moveDown.title = '向后移动';
-            moveDown.addEventListener('click', (e) => { e.stopPropagation(); movePinnedOrder(eff.id, 1); });
-            card.appendChild(moveDown);
-        }
+    const moveUp = document.createElement('div');
+    moveUp.className = 'effect-action-btn btn-move-left';
+    moveUp.innerHTML = '◀';
+    moveUp.title = '向前移动（同区内）';
+    if (pinIndex <= 0) {
+        moveUp.style.opacity = '0.3';
+        moveUp.style.pointerEvents = 'none';
+    } else {
+        moveUp.addEventListener('click', (e) => {
+            e.stopPropagation();
+            movePinnedOrder(eff.id, -1);
+        });
     }
+    card.appendChild(moveUp);
+
+    const moveDown = document.createElement('div');
+    moveDown.className = 'effect-action-btn btn-move-right';
+    moveDown.innerHTML = '▶';
+    moveDown.title = '向后移动（同区内）';
+    if (pinIndex >= pinTotal - 1) {
+        moveDown.style.opacity = '0.3';
+        moveDown.style.pointerEvents = 'none';
+    } else {
+        moveDown.addEventListener('click', (e) => {
+            e.stopPropagation();
+            movePinnedOrder(eff.id, 1);
+        });
+    }
+    card.appendChild(moveDown);
 
     return card;
+}
+
+function showEffectContextMenu(e, eff) {
+    document.querySelectorAll('.effect-context-menu').forEach(m => m.remove());
+
+    const cat = getEffectCategory(eff);
+    const targetCat = cat === 'text' ? 'whole' : 'text';
+    const targetLabel = targetCat === 'text' ? '文字特效' : '整层特效';
+
+    let overrides = {};
+    try { overrides = JSON.parse(localStorage.getItem(EFFECT_CATEGORY_OVERRIDES_KEY) || '{}'); } catch (err) {}
+    const hasOverride = !!overrides[eff.id];
+
+    const menu = document.createElement('div');
+    menu.className = 'effect-context-menu';
+    menu.style.cssText = 'position:fixed;z-index:99999;background:#161b22;border:1px solid #30363d;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.8);padding:4px 0;min-width:160px;font-size:12px;';
+
+    function addItem(label, onClick, danger) {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding:6px 14px;cursor:pointer;color:' + (danger ? '#f85149' : '#c9d1d9') + ';';
+        item.textContent = label;
+        item.addEventListener('mouseenter', () => { item.style.background = '#30363d'; });
+        item.addEventListener('mouseleave', () => { item.style.background = ''; });
+        item.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            menu.remove();
+            onClick();
+        });
+        menu.appendChild(item);
+    }
+
+    addItem('移到' + targetLabel, () => {
+        moveEffectToCategory(eff.id, targetCat);
+    });
+
+    if (hasOverride) {
+        addItem('恢复默认分类', () => {
+            restoreEffectCategory(eff.id);
+            if (typeof showBgToast === 'function') {
+                showBgToast('已恢复默认分类');
+            }
+        }, true);
+    }
+
+    document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    let x = e.clientX;
+    let y = e.clientY;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (x + rect.width > vw - 8) x = vw - rect.width - 8;
+    if (y + rect.height > vh - 8) y = vh - rect.height - 8;
+    if (x < 8) x = 8;
+    if (y < 8) y = 8;
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+
+    const closeHandler = (ev) => {
+        if (menu.contains(ev.target)) return;
+        menu.remove();
+        document.removeEventListener('mousedown', closeHandler, true);
+    };
+    setTimeout(() => {
+        document.addEventListener('mousedown', closeHandler, true);
+    }, 0);
 }
 
 function initEffectsManagerPanel() {
@@ -230,7 +480,6 @@ function initEffectsManagerPanel() {
         }
     });
 
-    // 修复误覆盖问题：批量上传增加自动智能重命名 / 版本的防覆盖机制
     document.getElementById('btn-batch-upload').addEventListener('click', () => {
         const rawText = document.getElementById('ce-batch-json').value.trim();
         if (!rawText) {
@@ -252,11 +501,9 @@ function initEffectsManagerPanel() {
                 if (item.id && item.name && item.css) {
                     let existing = customList.find(ex => ex.id === item.id);
                     if (existing) {
-                        // 如果 ID 相同且内容完全一样，直接跳过
                         if (existing.css.trim() === item.css.trim()) {
                             return;
                         }
-                        // 如果内容不同，避免覆盖喜欢的旧版本：自动追加新版本编号
                         let ver = 2;
                         let newId = `${item.id}_v${ver}`;
                         let newName = `${item.name} (v${ver})`;
@@ -382,41 +629,63 @@ function toggleEffectHidden(id) {
 
 function toggleEffectPinned(id) {
     try {
-        let userOverrides = JSON.parse(localStorage.getItem('douyin_effects_states_v3') || '{}');
+        let userOverrides = JSON.parse(localStorage.getItem(EFFECT_STATE_KEY) || '{}');
         if (!userOverrides[id]) userOverrides[id] = {};
-        let isNowPinned = !userOverrides[id].pinned;
-        userOverrides[id].pinned = isNowPinned;
-        localStorage.setItem('douyin_effects_states_v3', JSON.stringify(userOverrides));
+        const willPin = !userOverrides[id].pinned;
+        userOverrides[id].pinned = willPin;
+        localStorage.setItem(EFFECT_STATE_KEY, JSON.stringify(userOverrides));
 
-        let pinnedIds = [];
-        try { pinnedIds = JSON.parse(localStorage.getItem('douyin_effects_pinned_order') || '[]'); } catch(e) {}
+        const all = getAllEffectsMaster();
+        const eff = all.find(e => e.id === id);
+        if (!eff) { renderEffectsGrid(); return; }
+        const cat = getEffectCategory(eff);
 
-        if (isNowPinned) {
-            if (!pinnedIds.includes(id)) pinnedIds.push(id);
+        ['text', 'whole'].forEach(c => {
+            ['pinned', 'normal'].forEach(area => {
+                const ids = getEffectOrder(c, area).filter(x => x !== id);
+                saveEffectOrder(c, area, ids);
+            });
+        });
+
+        if (willPin) {
+            const arr = getEffectOrder(cat, 'pinned');
+            arr.unshift(id);
+            saveEffectOrder(cat, 'pinned', arr);
         } else {
-            pinnedIds = pinnedIds.filter(pid => pid !== id);
+            const arr = getEffectOrder(cat, 'normal');
+            arr.unshift(id);
+            saveEffectOrder(cat, 'normal', arr);
         }
-        localStorage.setItem('douyin_effects_pinned_order', JSON.stringify(pinnedIds));
+
         renderEffectsGrid();
-    } catch(e) { console.error(e); }
+    } catch (e) { console.error(e); }
 }
 
 function movePinnedOrder(id, direction) {
     try {
-        let pinnedIds = [];
-        try { pinnedIds = JSON.parse(localStorage.getItem('douyin_effects_pinned_order') || '[]'); } catch(e) {}
-        let idx = pinnedIds.indexOf(id);
+        const all = getAllEffectsMaster();
+        const eff = all.find(e => e.id === id);
+        if (!eff) return;
+        const cat = getEffectCategory(eff);
+
+        const states = JSON.parse(localStorage.getItem(EFFECT_STATE_KEY) || '{}');
+        const isPinned = !!(states[id] && states[id].pinned);
+        const area = isPinned ? 'pinned' : 'normal';
+
+        const ids = getEffectOrder(cat, area);
+        const idx = ids.indexOf(id);
         if (idx === -1) return;
 
-        let targetIdx = idx + direction;
-        if (targetIdx >= 0 && targetIdx < pinnedIds.length) {
-            let temp = pinnedIds[idx];
-            pinnedIds[idx] = pinnedIds[targetIdx];
-            pinnedIds[targetIdx] = temp;
-            localStorage.setItem('douyin_effects_pinned_order', JSON.stringify(pinnedIds));
-            renderEffectsGrid();
-        }
-    } catch(e) { console.error(e); }
+        const targetIdx = idx + direction;
+        if (targetIdx < 0 || targetIdx >= ids.length) return;
+
+        const temp = ids[idx];
+        ids[idx] = ids[targetIdx];
+        ids[targetIdx] = temp;
+        saveEffectOrder(cat, area, ids);
+
+        renderEffectsGrid();
+    } catch (e) { console.error(e); }
 }
 
 function deleteEffect(id, isCustom) {
@@ -438,6 +707,14 @@ function deleteEffect(id, isCustom) {
             pinnedIds = pinnedIds.filter(pid => pid !== id);
             localStorage.setItem('douyin_effects_pinned_order', JSON.stringify(pinnedIds));
         }
+
+        ['text', 'whole'].forEach(c => {
+            ['pinned', 'normal'].forEach(area => {
+                const ids = getEffectOrder(c, area).filter(x => x !== id);
+                saveEffectOrder(c, area, ids);
+            });
+        });
+
         renderEffectsGrid();
         const binBox = document.getElementById('hidden-bin-container');
         if (binBox && binBox.style.display === 'block') renderHiddenBinList();

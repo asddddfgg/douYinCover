@@ -562,6 +562,13 @@ function handleEffectClick(eff) {
         return;
     }
 
+    // 有选区，但这特效只支持整层 → 弹提示后再整层套
+    if (hasSelection && !canEffectApplyToSelection(eff.css)) {
+        if (typeof showBgToast === 'function') {
+            showBgToast(`「${eff.name}」只能作用于整个图层，已为你整层套用`);
+        }
+    }
+
     layer.effectClass = eff.id;
     state.saveState();
     if (typeof renderCanvas === 'function') renderCanvas();

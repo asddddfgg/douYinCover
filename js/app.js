@@ -917,7 +917,22 @@ if (isBgBox) {
                 });
 
                 textInner.addEventListener('blur', () => {
-                    layer.content = textInner.innerHTML;
+
+
+
+                     let blurHtml = textInner.innerHTML;
+    if (isBgBox) {
+        const blurWrap = textInner.querySelector(':scope > span');
+        if (blurWrap && blurWrap.className === layer.effectClass) {
+            blurHtml = blurWrap.innerHTML;
+        }
+    }
+    layer.content = blurHtml;
+
+
+
+
+
                     if (state.editingLayerId === layer.id) {
                         state.editingLayerId = null;
                         setTimeout(() => {
