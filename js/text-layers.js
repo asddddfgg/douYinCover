@@ -912,7 +912,7 @@ const BACKDROP_PRESETS = [
     { type: 'linen', name: '亚麻布', cat: 'texture' },
     // 装饰
     { type: 'glass', name: '毛玻璃', cat: 'decor' },
-    { type: 'brush', name: '荧光笔', cat: 'decor' },
+
     { type: 'polaroid', name: '拍立得', cat: 'decor' },
     { type: 'ticket', name: '车票/电影票', cat: 'decor' },
     { type: 'washi', name: '日式和纸', cat: 'decor' }

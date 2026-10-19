@@ -365,6 +365,10 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
         return;
     }
     if (!dataUrl) return;
+
+    // ✅ 关键修复 1：截图的原节点如果是 .canvas-layer，把它的 left/top 也继承给 img
+    const isLayerNode = originalNode.classList && originalNode.classList.contains('canvas-layer');
+
     const img = document.createElement('img');
     img.src = dataUrl;
     img.style.width = w + 'px';
@@ -374,16 +378,24 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
     img.crossOrigin = 'anonymous';
     img.dataset.offscreenRasterized = '1';
 
-
-const layerElForLog = originalNode.closest('.canvas-layer');
-console.log('📌 离屏截图前 layerId:', layerElForLog ? layerElForLog.dataset.id : '无', '| rect:', w, 'x', h, '| effectClass:', (() => {
-    try { const l = state.layers.find(x => x.id === (layerElForLog ? layerElForLog.dataset.id : '')); return l ? l.effectClass : '无'; } catch (e) { return 'err'; }
-})());
-
-
-
-console.log('✅ 离屏截图替换了 clone 节点, 尺寸:', w, 'x', h, '| dataUrl 长度:', dataUrl.length);
-
+    if (isLayerNode) {
+        // ✅ 关键修复 2：原节点是绝对定位的 canvas-layer，要把 left/top/transform 照搬
+        const cs = window.getComputedStyle(originalNode);
+        img.style.position = 'absolute';
+        img.style.left = originalNode.style.left || cs.left;
+        img.style.top = originalNode.style.top || cs.top;
+        img.style.transform = originalNode.style.transform || cs.transform;
+        img.style.transformOrigin = originalNode.style.transformOrigin || cs.transformOrigin;
+        img.style.opacity = originalNode.style.opacity || cs.opacity;
+        // ✅ 关键修复 3：把原来那层 div 上可能有的 class（如 layer-type-text）带上，避免 CSS 不匹配
+        // 但不要带 selected / editing 这些编辑态 class
+        if (originalNode.classList) {
+            originalNode.classList.forEach(cls => {
+                if (cls === 'selected' || cls === 'editing') return;
+                img.classList.add(cls);
+            });
+        }
+    }
 
     if (clonedNode && clonedNode.parentNode) {
         clonedNode.parentNode.replaceChild(img, clonedNode);
@@ -402,6 +414,17 @@ function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
     // originalNode: 原 DOM 的 .text-content-editable
     // clonedNode:   clone 里的对应节点（会被替换）
     if (!originalNode || !clonedNode) return;
+
+
+    // ✅ 新增：如果这个文字图层有底衬，就把截图对象换成外层 .canvas-layer（连底衬一起截）
+    const layerEl = originalNode.closest('.canvas-layer');
+    if (layerEl && layerEl.querySelector('.layer-backdrop')) {
+        const clonedLayerEl = clonedNode.closest('.canvas-layer');
+        if (clonedLayerEl) {
+            return _rasterizeByOffscreenHtml2Canvas(layerEl, clonedLayerEl);
+        }
+    }
+
 
 
 if (isBgBoxLayer(originalNode)) {
@@ -894,6 +917,8 @@ function enterTextEditMode(layerId) {
     }, 30);
 }
 
+
+
 function createBackdropElement(layer) {
     if (!layer.backdrop || !layer.backdrop.type || layer.backdrop.type === 'none') return null;
     const bd = layer.backdrop;
@@ -946,9 +971,13 @@ function createBackdropElement(layer) {
         el.style.background = '';
         el.style.backgroundImage = '';
         el.classList.add(`backdrop-${bd.type}`);
-        if (bd.type === 'brush') {
-            el.style.background = bd.color || 'rgba(255,235,59,0.55)';
-        } else if (bd.type === 'sticky') {
+       
+
+
+ if (bd.type === 'sticky') {
+
+
+
             el.style.background = bd.color || '#fff740';
         } else if (bd.type === 'polaroid') {
             el.style.background = bd.color || '#ffffff';
@@ -1200,37 +1229,39 @@ if (isBgBox) {
                 });
 
                 el.appendChild(textInner);
-            } else if (layer.type === 'sticker') {
-                el.style.display = 'flex';
-                el.style.alignItems = 'center';
-                el.style.justifyContent = 'center';
-                el.style.pointerEvents = 'none';
+} else if (layer.type === 'sticker') {
+    // ✅ 改成普通块级布局 + 行高居中，html2canvas 导出才不会丢内容
+    el.style.display = 'block';
+    el.style.textAlign = 'center';
+    el.style.lineHeight = layer.height + 'px';
+    el.style.fontSize = layer.fontSize;
+    el.style.overflow = 'hidden';
+    el.style.pointerEvents = 'auto';
 
-                if (layer.stickerType === 'svg' || layer.stickerType === 'image' || layer.stickerType === 'uploaded') {
-                    let src = layer.content;
-                    if (layer.stickerType === 'svg' && layer.stickerColor) {
-                        try {
-                            const decoded = decodeURIComponent(src.split('utf8,')[1] || '');
-                            src = 'data:image/svg+xml;utf8,' + encodeURIComponent(decoded.replace(/fill="currentColor"/g, `fill="${layer.stickerColor}"`));
-                        } catch (err) { }
-                    }
-                    const img = document.createElement('img');
-                    // ⭐ 关键修复：给跨域图片加 crossOrigin，避免 canvas 污染导致导出空文件
-                    img.crossOrigin = 'anonymous';
-                    img.src = src;
-                    img.style.width = '100%';
-                    img.style.height = '100%';
-                    img.style.objectFit = 'contain';
-                    img.draggable = false;
-                    img.style.pointerEvents = 'none';
-                    el.appendChild(img);
-                } else {
-                    el.style.fontSize = layer.fontSize;
-                    el.style.pointerEvents = 'auto';
-                    el.innerText = layer.content;
-                }
-                el.style.pointerEvents = 'auto';
-            }
+    if (layer.stickerType === 'svg' || layer.stickerType === 'image' || layer.stickerType === 'uploaded') {
+        let src = layer.content;
+        if (layer.stickerType === 'svg' && layer.stickerColor) {
+            try {
+                const decoded = decodeURIComponent(src.split('utf8,')[1] || '');
+                src = 'data:image/svg+xml;utf8,' + encodeURIComponent(decoded.replace(/fill="currentColor"/g, `fill="${layer.stickerColor}"`));
+            } catch (err) { }
+        }
+        const img = document.createElement('img');
+        img.crossOrigin = 'anonymous';
+        img.src = src;
+        img.style.display = 'inline-block';
+        img.style.verticalAlign = 'middle';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain';
+        img.draggable = false;
+        img.style.pointerEvents = 'none';
+        el.appendChild(img);
+    } else {
+        el.innerText = layer.content;
+        el.style.pointerEvents = 'auto';
+    }
+}
 
             ['nw', 'ne', 'sw', 'se'].forEach(dir => {
                 const handle = document.createElement('div');
