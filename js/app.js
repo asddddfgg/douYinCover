@@ -8,24 +8,43 @@
 // 判断是否属于"html2canvas 画不好"的文字
 function _needsRasterize(effectClass) {
     if (!effectClass) return false;
+
+    let eff = null;
+    try {
+        if (typeof getAllEffectsMaster === 'function') {
+            eff = getAllEffectsMaster().find(e => e.id === effectClass);
+        }
+    } catch (e) {}
+    if (!eff || !eff.css) return false;
+
+    const c = eff.css.toLowerCase();
+
+    if (c.includes('background-clip: text') || c.includes('-webkit-background-clip: text')) return true;
+    if (c.includes('-webkit-text-fill-color')) return true;
+    if (c.includes('-webkit-text-stroke')) return true;
+    if (/(^|;|\s)animation\s*:/.test(c)) return true;
+    if (/(^|;|\s)filter\s*:/.test(c)) return true;
+    if (c.includes('backdrop-filter')) return true;
+    if (c.includes('clip-path')) return true;
+    if (c.includes('mix-blend-mode')) return true;
+
+    const hasBg = /(^|;|\s)background(-color)?\s*:/.test(c)
+                && !c.includes('background-clip');
+    // 只要有 background（非渐变文字），就预渲染 —— 因为 html2canvas 处理 inline 元素的 background + padding 有坑
+    if (hasBg) return true;
+
     const risky = [
-        // 渐变文字
         'my_custom_eff_10','my_custom_eff_11','my_custom_eff_12','my_custom_eff_13',
         'my_custom_eff_14','my_custom_eff_15','my_custom_eff_16','my_custom_eff_17',
         'my_custom_eff_18','my_custom_eff_19','my_custom_eff_20',
-        // 描边 / 描边渐变
         'my_custom_eff_26','my_custom_eff_27','my_custom_eff_28','my_custom_eff_29',
         'my_custom_eff_30',
-        // filter 类
         'my_custom_eff_87','my_custom_eff_88','my_custom_eff_89','my_custom_eff_90',
         'my_custom_eff_91','my_custom_eff_92','my_custom_eff_93','my_custom_eff_94',
         'my_custom_eff_95','my_custom_eff_99','my_custom_eff_100',
-        // 复杂 text-decoration
         'my_custom_eff_74','my_custom_eff_75','my_custom_eff_76',
         'my_custom_eff_77','my_custom_eff_78',
-        // backdrop-filter
         'my_custom_eff_60','my_custom_eff_61',
-        // 动画类（导出时取当前帧的样子，避免空白）
         'my_custom_eff_41','my_custom_eff_42','my_custom_eff_43','my_custom_eff_44',
         'my_custom_eff_45','my_custom_eff_46','my_custom_eff_47','my_custom_eff_48',
         'my_custom_eff_49','my_custom_eff_50','my_custom_eff_51','my_custom_eff_52',
@@ -111,7 +130,15 @@ function _parseLinearGradient(cssGradient) {
 
 // 用原生 Canvas 把一段文字画成 dataURL（支持渐变 / 描边 / 阴影 / 逐行）
 function _drawTextToDataUrl(el, layerStyle) {
-    const cs = window.getComputedStyle(el);
+        // 如果文字被包裹在特效 span 里（有背景色/描边/padding 的特效），
+    // 读内层 span 的样式（background/color 都在它上面，外层是透明的）
+    let styleTarget = el;
+    const innerSpan = el.querySelector('span[data-effect-span], span[class*="eff"], span[class*="effect"]');
+    if (innerSpan) {
+        styleTarget = innerSpan;
+    }
+    const cs = window.getComputedStyle(styleTarget);
+
     const fontSize = parseFloat(cs.fontSize) || 28;
     const fontFamily = cs.fontFamily || 'sans-serif';
     const fontWeight = cs.fontWeight || 'normal';
@@ -292,16 +319,108 @@ if (deco && deco !== 'none') {
     return canvas.toDataURL('image/png');
 }
 
+
+function _isBgBoxEffectClass(effectClass) {
+    if (!effectClass) return false;
+    try {
+        const allFx = (typeof getAllEffectsMaster === 'function') ? getAllEffectsMaster() : [];
+        const fx = allFx.find(e => e.id === effectClass);
+        if (!fx || !fx.css) return false;
+        const c = fx.css.toLowerCase();
+        const hasBg = /(^|;|\s)background(-color)?\s*:/.test(c)
+                   && !c.includes('background-clip')
+                   && !c.includes('-webkit-text-fill-color');
+        const hasPadding = /(^|;|\s)padding\s*:/.test(c);
+        const hasRadius = c.includes('border-radius');
+        return hasBg || hasPadding || hasRadius;
+    } catch (e) { return false; }
+}
+
+function isBgBoxLayer(node) {
+    if (!node) return false;
+    const layerEl = node.closest('.canvas-layer');
+    if (!layerEl) return false;
+    const layerId = layerEl.dataset.id;
+    const layer = state.layers ? state.layers.find(l => l.id === layerId) : null;
+    if (!layer || !layer.effectClass) return false;
+    return _isBgBoxEffectClass(layer.effectClass);
+}
+
+async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
+    if (document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch (e) {}
+    }
+    const rect = originalNode.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width));
+    const h = Math.max(1, Math.round(rect.height));
+    let dataUrl = '';
+    try {
+        const c = await html2canvas(originalNode, {
+            scale: 2, backgroundColor: null, logging: false,
+            useCORS: true, allowTaint: true
+        });
+        dataUrl = c.toDataURL('image/png');
+    } catch (e) {
+        console.warn('离屏截图失败，退回原逻辑:', e);
+        return;
+    }
+    if (!dataUrl) return;
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.style.width = w + 'px';
+    img.style.height = h + 'px';
+    img.style.display = 'block';
+    img.style.objectFit = 'fill';
+    img.crossOrigin = 'anonymous';
+    img.dataset.offscreenRasterized = '1';
+
+
+const layerElForLog = originalNode.closest('.canvas-layer');
+console.log('📌 离屏截图前 layerId:', layerElForLog ? layerElForLog.dataset.id : '无', '| rect:', w, 'x', h, '| effectClass:', (() => {
+    try { const l = state.layers.find(x => x.id === (layerElForLog ? layerElForLog.dataset.id : '')); return l ? l.effectClass : '无'; } catch (e) { return 'err'; }
+})());
+
+
+
+console.log('✅ 离屏截图替换了 clone 节点, 尺寸:', w, 'x', h, '| dataUrl 长度:', dataUrl.length);
+
+
+    if (clonedNode && clonedNode.parentNode) {
+        clonedNode.parentNode.replaceChild(img, clonedNode);
+    }
+}
+
+
+
+
+
+
+
+
 // 核心：onclone 回调，把 risky 文字换成 img
 function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
     // originalNode: 原 DOM 的 .text-content-editable
     // clonedNode:   clone 里的对应节点（会被替换）
     if (!originalNode || !clonedNode) return;
+
+
+if (isBgBoxLayer(originalNode)) {
+    return _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode);
+}
+
+
+
     // 富文本（含 span）不替换，避免丢局部样式；交给 html2canvas 原生画
     if (originalNode.querySelector('span, b, i, u, s, strong, em')) return;
 
+
+
+
     try {
-        const computed = window.getComputedStyle(originalNode);
+        let styleNode = originalNode;
+const innerSpan = originalNode.querySelector('span[data-effect-span], span[class*="eff"], span[class*="effect"]');
+if (innerSpan) styleNode = innerSpan;
+const computed = window.getComputedStyle(styleNode);
         const layerStyle = _parseEffectStyle(effectClass, computed);
         const dataUrl = _drawTextToDataUrl(originalNode, layerStyle);
         if (!dataUrl) return;
@@ -323,11 +442,11 @@ function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
 
 // 主入口：给 html2canvas 的 onclone 用
 function _buildOnCloneForExport(originalCanvasNode) {
-    return function (clonedDoc, clonedCanvasEl) {
+    return async function (clonedDoc, clonedCanvasEl) {
         // 找出原始画布上所有带 effectClass 的文字节点
         const originalTextEls = originalCanvasNode.querySelectorAll('.text-content-editable');
+        const tasks = [];
         originalTextEls.forEach(origEl => {
-            // 找到它对应的 layer 和 effectClass
             const layerEl = origEl.closest('.canvas-layer');
             if (!layerEl) return;
             const layerId = layerEl.dataset.id;
@@ -335,14 +454,20 @@ function _buildOnCloneForExport(originalCanvasNode) {
             if (!layer || !layer.effectClass) return;
             if (!_needsRasterize(layer.effectClass)) return;
 
-            // 在 clone 里找同 id 的图层
             const clonedLayer = clonedCanvasEl.querySelector(`.canvas-layer[data-id="${layerId}"]`);
             if (!clonedLayer) return;
             const clonedTextEl = clonedLayer.querySelector('.text-content-editable');
             if (!clonedTextEl) return;
 
-            _rasterizeRiskyText(origEl, clonedTextEl, layer.effectClass);
+            // 兼容同步返回（原 _rasterizeRiskyText）和 Promise 返回（_rasterizeByOffscreenHtml2Canvas）
+            const ret = _rasterizeRiskyText(origEl, clonedTextEl, layer.effectClass);
+            if (ret && typeof ret.then === 'function') {
+                tasks.push(ret);
+            }
         });
+        if (tasks.length > 0) {
+            await Promise.all(tasks);
+        }
     };
 }
 
@@ -514,14 +639,26 @@ function exportElementToPNG(canvasDOMNode, filename) {
             backgroundColor: null,
             logging: false,
             imageTimeout: 15000,
-            onclone: (clonedDoc, clonedEl) => {
-                clonedDoc.querySelectorAll(
-                    '.custom-guides-layer, .snap-lines-layer, .selection-box, ' +
-                    '.resize-handle, .edge-handle, .rotate-handle'
-                ).forEach(el => el.style.display = 'none');
-                clonedEl.querySelectorAll('.canvas-layer.selected')
-                    .forEach(el => el.classList.remove('selected'));
-            }
+
+
+
+onclone: async (clonedDoc, clonedEl) => {
+    clonedDoc.querySelectorAll(
+        '.custom-guides-layer, .snap-lines-layer, .selection-box, ' +
+        '.resize-handle, .edge-handle, .rotate-handle'
+    ).forEach(el => el.style.display = 'none');
+    clonedEl.querySelectorAll('.canvas-layer.selected')
+        .forEach(el => el.classList.remove('selected'));
+
+    // 接回 _buildOnCloneForExport，让"文字预渲染"生效
+    const fn = _buildOnCloneForExport(canvasDOMNode);
+    await fn(clonedDoc, clonedEl);
+}
+
+
+
+
+
         }).then(canvas => {
             if (!canvas || canvas.width === 0 || canvas.height === 0) {
                 throw new Error('html2canvas 渲染结果为空');
@@ -858,21 +995,41 @@ textInner.style.writingMode = layer.vertical ? 'vertical-rl' : 'horizontal-tb';
 textInner.style.letterSpacing = layer.letterSpacing || '0px';
 textInner.style.lineHeight = layer.lineHeight || 1.2;
 
+
+
+
+
 if (isBgBox) {
-    // 背景框类：让容器保持居中，但背景色交给内层 span，span 紧贴文字
-    textInner.style.textAlign = 'center';
+    // 背景框类：直接把 background / padding / border-radius 加在外层
+    // 不包 wrapSpan —— html2canvas 对 inline-block + background 渲染有 bug
+    textInner.style.textAlign = layer.align;
     textInner.style.display = 'block';
 
-    // 用一个 inline-block 的 span 包住原有内容
-    const wrapSpan = document.createElement('span');
-    wrapSpan.className = layer.effectClass;
-    wrapSpan.style.display = 'inline-block';
-    wrapSpan.style.whiteSpace = 'pre-wrap';
-    wrapSpan.style.maxWidth = '100%';
-    wrapSpan.style.boxSizing = 'border-box';
-    // 把已有 innerHTML 搬进 span
-    while (textInner.firstChild) wrapSpan.appendChild(textInner.firstChild);
-    textInner.appendChild(wrapSpan);
+    // 从特效 CSS 里拆出背景相关属性，直接应用外层
+    try {
+        const allFx = (typeof getAllEffectsMaster === 'function') ? getAllEffectsMaster() : [];
+        const fx = allFx.find(e => e.id === layer.effectClass);
+        if (fx && fx.css) {
+            fx.css.split(';').forEach(rule => {
+                const idx = rule.indexOf(':');
+                if (idx === -1) return;
+                const prop = rule.slice(0, idx).trim().toLowerCase();
+                const val = rule.slice(idx + 1).trim();
+                if (!prop || !val) return;
+                if (prop === 'background' || prop === 'background-color'
+                    || prop === 'padding' || prop === 'border-radius'
+                    || prop === 'border' || prop === 'color'
+                    || prop === 'font-weight' || prop === 'font-style') {
+                    textInner.style.setProperty(prop, val);
+                }
+            });
+        }
+    } catch (e) {}
+
+    // 保留用户手动局部色
+    if (typeof hasLocalInlineColor === 'function' && hasLocalInlineColor(layer.content)) {
+        textInner.classList.add('has-local-color');
+    }
 } else {
     if (layer.effectClass) textInner.classList.add(layer.effectClass);
     if (typeof hasLocalInlineColor === 'function' && hasLocalInlineColor(layer.content)) {
@@ -920,14 +1077,7 @@ if (isBgBox) {
 
 
 
-                     let blurHtml = textInner.innerHTML;
-    if (isBgBox) {
-        const blurWrap = textInner.querySelector(':scope > span');
-        if (blurWrap && blurWrap.className === layer.effectClass) {
-            blurHtml = blurWrap.innerHTML;
-        }
-    }
-    layer.content = blurHtml;
+    layer.content = textInner.innerHTML;
 
 
 
