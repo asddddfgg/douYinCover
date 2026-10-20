@@ -922,6 +922,9 @@ let currentBackdropCategory = 'paper';
 let backdropCache = {};   // custom id -> dataUrl
 
 function setupBackdropPanel() {
+    // ✅ 绑定"批量导入形状"按钮
+    setupBackdropImport();
+
     // 分类切换
     const tabsEl = document.getElementById('backdrop-tabs');
     if (tabsEl) {
@@ -1177,6 +1180,19 @@ async function renderCustomBackdropGrid(grid) {
                 layer.backdrop.type = 'custom';
                 layer.backdrop.customId = item.id;
                 layer.backdrop.sizeMode = layer.backdrop.sizeMode || 'cover';
+                // ✅ 根据库里记录的 isMask 决定：是形状蒙版才标记，上传图片不标
+                               // ✅ 兼容：从"形状导入"进来的蒙版底衬，标记 isMask + 白色默认色
+                if (!layer.backdrop.isMask && (item.name || '').trim()) {
+                    // 判断是不是形状导入的（BackdropDB 里的记录没有额外标记，统一按蒙版处理更安全）
+                    layer.backdrop.isMask = true;
+                    if (!layer.backdrop.color || layer.backdrop.color === '#fff8dc') {
+                        layer.backdrop.color = '#ffffff';
+                    }
+                }
+
+
+
+
                 state.saveState();
                 renderCanvas();
                 renderBackdropGrid();
@@ -1381,4 +1397,280 @@ function fallbackCopy(text) {
     ta.select();
     try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
+}
+
+
+
+
+
+/* ============================================================
+   底衬形状批量导入（A 方案：白色透明蒙版 + 每图层独立着色）
+   - 支持 { "shapes": [ { name, svg?, path?, viewBox? } ] }
+   - 也兼容直接数组 [ { name, svg?, path? } ]
+   - 支持 .svg 文件一次性拖入
+   - 严格白名单校验，拒绝 script / on* / 外链
+   - 所有形状统一转成白色透明蒙版 PNG 存进 BackdropDB
+   ============================================================ */
+
+const SHAPE_FORMAT = 'douyin-backdrop-shapes';
+const SHAPE_MASK_SIZE = 256;
+
+const SVG_ALLOWED_TAGS = new Set([
+    'svg', 'g', 'defs', 'path', 'circle', 'ellipse', 'rect', 'polygon', 'polyline',
+    'line', 'linearGradient', 'radialGradient', 'stop'
+]);
+const SVG_ALLOWED_ATTRS = new Set([
+    'xmlns', 'viewbox', 'preserveaspectratio', 'width', 'height',
+    'fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linejoin', 'stroke-linecap', 'stroke-opacity',
+    'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2',
+    'points', 'transform', 'gradientunits', 'offset', 'stop-color', 'stop-opacity',
+    'id', 'opacity'
+]);
+
+function _sanitizeSvg(rawSvg) {
+    if (!rawSvg || typeof rawSvg !== 'string') throw new Error('svg 为空');
+    const trimmed = rawSvg.trim();
+    if (!trimmed.startsWith('<svg')) throw new Error('svg 必须以 <svg 开头');
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(trimmed, 'image/svg+xml');
+    if (doc.querySelector('parsererror')) throw new Error('svg 解析失败');
+    const svg = doc.documentElement;
+    if (!svg || svg.tagName.toLowerCase() !== 'svg') throw new Error('根节点不是 <svg>');
+
+    const walker = doc.createTreeWalker(svg, NodeFilter.SHOW_ELEMENT, null);
+    const toCheck = [svg];
+    while (walker.nextNode()) toCheck.push(walker.currentNode);
+
+    toCheck.forEach(node => {
+        const tag = node.tagName.toLowerCase();
+        if (!SVG_ALLOWED_TAGS.has(tag)) {
+            throw new Error('SVG 含不允许的标签 <' + tag + '>');
+        }
+        for (const attr of Array.from(node.attributes)) {
+            const name = attr.name.toLowerCase();
+            if (name.startsWith('on')) throw new Error('SVG 含事件属性 ' + name);
+            if (name === 'href' || name === 'xlink:href') {
+                if (!/^data:image\//i.test(attr.value)) throw new Error('SVG 含外链引用');
+                continue;
+            }
+            if (!SVG_ALLOWED_ATTRS.has(name)) {
+                throw new Error('SVG 含不允许的属性 ' + name);
+            }
+        }
+    });
+
+    return svg;
+}
+
+
+// 把任意 SVG 统一成：白色填充、无描边、透明底，然后转 PNG 蒙版
+// 把任意 SVG 统一成：白色填充、无描边、透明底，然后转 PNG 蒙版
+// 把任意 SVG 统一成：白色填充、无描边、透明底，然后转 PNG 蒙版
+// 核心：强制 SVG 的 width/height = 256，用 data:image/svg+xml 加载，
+//       直接 drawImage(img,0,0,256,256)，完全不依赖 naturalWidth/Height
+function _svgToWhiteMaskDataUrl(svgString) {
+    const svg = _sanitizeSvg(svgString);
+
+    // ---------- 1. 保证有合法的 viewBox ----------
+    let vb = svg.getAttribute('viewBox') || svg.getAttribute('viewbox');
+    if (!vb) {
+        const w = parseFloat(svg.getAttribute('width')) || 0;
+        const h = parseFloat(svg.getAttribute('height')) || 0;
+        vb = (w > 0 && h > 0) ? `0 0 ${w} ${h}` : '0 0 100 100';
+    }
+    const parts = vb.trim().split(/[\s,]+/).map(Number);
+    const vx = parts[0], vy = parts[1], vw = parts[2], vh = parts[3];
+    const safeVb = (parts.length === 4 && vw > 0 && vh > 0)
+        ? `${vx} ${vy} ${vw} ${vh}`
+        : '0 0 100 100';
+    svg.setAttribute('viewBox', safeVb);
+
+    // ---------- 2. 强制 intrinsic size = 目标尺寸（关键） ----------
+    svg.setAttribute('width', String(SHAPE_MASK_SIZE));
+    svg.setAttribute('height', String(SHAPE_MASK_SIZE));
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+    // 确保 xmlns（sanitize 后有时会丢）
+    if (!svg.getAttribute('xmlns')) {
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    }
+
+    // ---------- 3. 所有图形 → 白色填充、无描边 ----------
+    const walker = document.createTreeWalker(svg, NodeFilter.SHOW_ELEMENT, null);
+    const all = [svg];
+    while (walker.nextNode()) all.push(walker.currentNode);
+
+    all.forEach(node => {
+        const tag = node.tagName.toLowerCase();
+        if (['path', 'circle', 'ellipse', 'rect', 'polygon', 'polyline', 'line'].includes(tag)) {
+            node.setAttribute('fill', '#ffffff');
+            node.removeAttribute('stroke');
+            node.removeAttribute('stroke-width');
+            node.removeAttribute('stroke-linejoin');
+            node.removeAttribute('stroke-linecap');
+            node.removeAttribute('fill-opacity');
+            node.removeAttribute('stroke-opacity');
+            node.removeAttribute('opacity');
+        }
+        if (node.hasAttribute('style')) node.removeAttribute('style');
+    });
+
+    // ---------- 4. 序列化 → data:image/svg+xml → 绘制 ----------
+    const serialized = new XMLSerializer().serializeToString(svg);
+    const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serialized);
+
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+
+        img.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = SHAPE_MASK_SIZE;
+                canvas.height = SHAPE_MASK_SIZE;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, SHAPE_MASK_SIZE, SHAPE_MASK_SIZE);
+                // 直接 1:1 画，SVG 已经是 256×256，绝不依赖 naturalWidth
+                ctx.drawImage(img, 0, 0, SHAPE_MASK_SIZE, SHAPE_MASK_SIZE);
+                resolve(canvas.toDataURL('image/png'));
+            } catch (e) {
+                reject(e);
+            }
+        };
+        img.onerror = () => reject(new Error('SVG 转 PNG 失败（img onerror）'));
+        img.src = svgDataUrl;
+    });
+}
+
+
+
+
+
+
+// 从"只有 path"的简写生成 SVG
+function _pathToSvg(pathD, viewBox, fill) {
+    const vb = viewBox || '0 0 100 100';
+    const f = fill || '#ffffff';
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}"><path d="${pathD}" fill="${f}"/></svg>`;
+}
+
+// 解析输入（JSON 文本 或 SVG 文本），返回 shapes 数组
+async function _parseShapeInput(text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) throw new Error('输入为空');
+
+    // 情况 1：单个 SVG 文本
+    if (trimmed.startsWith('<svg')) {
+        return [{ name: 'SVG 形状 ' + Date.now(), svg: trimmed }];
+    }
+
+    // 情况 2：JSON
+    let data;
+    try { data = JSON.parse(trimmed); }
+    catch (e) { throw new Error('JSON 解析失败：' + e.message); }
+
+    let shapes;
+    if (Array.isArray(data)) shapes = data;
+    else if (data && Array.isArray(data.shapes)) shapes = data.shapes;
+    else if (data && data.format === SHAPE_FORMAT && Array.isArray(data.shapes)) shapes = data.shapes;
+    else throw new Error('JSON 必须是数组，或 { "shapes": [...] }');
+
+    if (shapes.length === 0) throw new Error('shapes 为空');
+
+    return shapes.map((s, i) => {
+        if (!s || typeof s !== 'object') throw new Error(`第 ${i + 1} 项不是对象`);
+        const name = (s.name || '').trim() || `形状 ${i + 1}`;
+        if (s.svg) return { name, svg: s.svg };
+        if (s.path) return { name, svg: _pathToSvg(s.path, s.viewBox, '#ffffff') };
+        throw new Error(`第 ${i + 1} 项（${name}）缺少 svg 或 path`);
+    });
+}
+
+// 主流程：解析 → 转蒙版 → 存 BackdropDB（同名覆盖）
+async function _importShapesFromText(text) {
+    const shapes = await _parseShapeInput(text);
+    const status = document.getElementById('backdrop-import-status');
+    const results = [];
+    let ok = 0, fail = 0;
+
+    for (let i = 0; i < shapes.length; i++) {
+        const s = shapes[i];
+        try {
+            const dataUrl = await _svgToWhiteMaskDataUrl(s.svg);
+            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl);
+            results.push({ name: s.name, ok: true, id });
+            ok++;
+            if (status) status.innerHTML = `处理中 ${i + 1}/${shapes.length}：${s.name} ✔`;
+        } catch (e) {
+            fail++;
+            results.push({ name: s.name, ok: false, error: e.message });
+            if (status) status.innerHTML = `处理中 ${i + 1}/${shapes.length}：${s.name} ✖ ${e.message}`;
+        }
+    }
+
+    await refreshCustomBackdropCache();
+    // 切到"自定义"分类，让用户立刻看到
+    currentBackdropCategory = 'custom';
+    const tabsEl = document.getElementById('backdrop-tabs');
+    if (tabsEl) {
+        tabsEl.querySelectorAll('.backdrop-tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.cat === 'custom');
+        });
+    }
+    renderBackdropGrid();
+
+    if (status) {
+        const okNames = results.filter(r => r.ok).map(r => r.name).join('、') || '无';
+        const failLines = results.filter(r => !r.ok).map(r => `${r.name}：${r.error}`).join('<br>') || '无';
+        status.innerHTML = `✅ 成功 ${ok} 个：${okNames}<br>❌ 失败 ${fail} 个：<br>${failLines}`;
+    }
+
+    return { ok, fail };
+}
+
+// 绑定 UI
+function setupBackdropImport() {
+    const btnOpen = document.getElementById('btn-backdrop-import');
+    const panel = document.getElementById('backdrop-import-panel');
+    const btnRun = document.getElementById('btn-backdrop-import-run');
+    const btnCancel = document.getElementById('btn-backdrop-import-cancel');
+    const textarea = document.getElementById('backdrop-import-json');
+    if (!btnOpen || !panel || !btnRun) return;
+
+    if (btnOpen.dataset.bound !== 'true') {
+        btnOpen.dataset.bound = 'true';
+        btnOpen.addEventListener('click', () => {
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        });
+    }
+    if (btnCancel && btnCancel.dataset.bound !== 'true') {
+        btnCancel.dataset.bound = 'true';
+        btnCancel.addEventListener('click', () => {
+            panel.style.display = 'none';
+            const status = document.getElementById('backdrop-import-status');
+            if (status) status.innerHTML = '';
+        });
+    }
+    if (btnRun.dataset.bound !== 'true') {
+        btnRun.dataset.bound = 'true';
+        btnRun.addEventListener('click', async () => {
+            const text = textarea.value;
+            if (!text.trim()) {
+                alert('请先粘贴 JSON 或 SVG');
+                return;
+            }
+            btnRun.disabled = true;
+            btnRun.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 导入中…';
+            try {
+                await _importShapesFromText(text);
+            } catch (e) {
+                const status = document.getElementById('backdrop-import-status');
+                if (status) status.innerHTML = `<span style="color:#f85149;">❌ ${e.message}</span>`;
+            } finally {
+                btnRun.disabled = false;
+                btnRun.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> 开始导入';
+            }
+        });
+    }
 }

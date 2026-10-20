@@ -22,7 +22,7 @@ const BackdropDB = (function () {
         return dbPromise;
     }
 
-    async function addBackdrop(name, dataUrl) {
+            async function addBackdrop(name, dataUrl) {
         const db = await openDB();
         return new Promise((resolve, reject) => {
             const tx = db.transaction('backdrops', 'readwrite');
@@ -66,5 +66,37 @@ const BackdropDB = (function () {
         });
     }
 
-    return { addBackdrop, getAllBackdrops, getBackdropById, deleteBackdrop };
+
+       async function upsertBackdropByName(name, dataUrl) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('backdrops', 'readwrite');
+            const store = tx.objectStore('backdrops');
+            const getAllReq = store.getAll();
+            getAllReq.onsuccess = () => {
+                const all = getAllReq.result || [];
+                const existing = all.find(it => it.name === name);
+                if (existing) {
+                    existing.dataUrl = dataUrl;
+                    existing.createdAt = existing.createdAt || Date.now();
+                    const putReq = store.put(existing);
+                    putReq.onsuccess = () => resolve(existing.id);
+                    putReq.onerror = (e) => reject(e);
+                } else {
+                    const addReq = store.add({
+                        name: name,
+                        dataUrl: dataUrl,
+                        createdAt: Date.now()
+                    });
+                    addReq.onsuccess = () => resolve(addReq.result);
+                    addReq.onerror = (e) => reject(e);
+                }
+            };
+            getAllReq.onerror = (e) => reject(e);
+        });
+    }
+
+
+
+        return { addBackdrop, getAllBackdrops, getBackdropById, deleteBackdrop, upsertBackdropByName };
 })();

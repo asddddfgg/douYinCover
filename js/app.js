@@ -925,32 +925,78 @@ function createBackdropElement(layer) {
     const el = document.createElement('div');
     el.className = 'layer-backdrop';
     const pad = (bd.padding !== undefined ? bd.padding : 12);
-    el.style.left = (-pad) + 'px';
-    el.style.top = (-pad) + 'px';
-    el.style.right = (-pad) + 'px';
-    el.style.bottom = (-pad) + 'px';
+
+    if (bd.isMask) {
+        // ✅ 形状蒙版：用正方形框，边长 = max(文字宽, 文字高) * 0.85 + 2*padding
+        const side = Math.max(layer.width || 0, layer.height || 0) * 0.85 + pad * 2;
+        el.style.width = side + 'px';
+        el.style.height = side + 'px';
+        el.style.left = ((layer.width || 0) - side) / 2 + 'px';
+        el.style.top = ((layer.height || 0) - side) / 2 + 'px';
+        el.style.right = 'auto';
+        el.style.bottom = 'auto';
+    } else {
+        // 普通底衬：跟随文字宽高 + 外扩 padding（原逻辑）
+        el.style.left = (-pad) + 'px';
+        el.style.top = (-pad) + 'px';
+        el.style.right = (-pad) + 'px';
+        el.style.bottom = (-pad) + 'px';
+    }
+
     el.style.opacity = (bd.opacity !== undefined ? bd.opacity : 1);
     el.style.transform = `rotate(${bd.rotate || 0}deg)`;
     el.style.backgroundSize = 'cover';
     el.style.backgroundPosition = 'center';
     el.style.backgroundRepeat = 'no-repeat';
 
-    if (bd.type === 'custom') {
+       if (bd.type === 'custom') {
         const cid = bd.customId;
         if (cid !== undefined && cid !== null) {
+            const isMask = !!bd.isMask;
+            const maskColor = bd.color || '#ffffff';
             let dataUrl = (typeof backdropCache !== 'undefined' && backdropCache[cid]) || null;
+
+            const applyTinted = (url) => {
+                if (!url) return;
+                if (isMask) {
+                    // 先尝试同步着色（缓存命中时可用）
+                    const sync = tintMaskToColor(url, maskColor);
+                    if (sync) {
+                        el.style.backgroundImage = `url(${sync})`;
+                        applyCustomBackdropStyle(el, sync, bd);
+                        return;
+                    }
+                    // 缓存未命中 → 异步着色
+                    tintMaskToColorAsync(url, maskColor).then(tinted => {
+                        if (!tinted) return;
+                        el.style.backgroundImage = `url(${tinted})`;
+                        applyCustomBackdropStyle(el, tinted, bd);
+                    });
+                } else {
+                    el.style.backgroundImage = `url(${url})`;
+                    applyCustomBackdropStyle(el, url, bd);
+                }
+            };
+
             if (dataUrl) {
-                el.style.backgroundImage = `url(${dataUrl})`;
-                applyCustomBackdropStyle(el, dataUrl, bd);
+                applyTinted(dataUrl);
             } else {
-                el.style.background = bd.color || '#ffffff';
+                el.style.background = isMask ? maskColor : (bd.color || '#ffffff');
                 BackdropDB.getBackdropById(cid).then(item => {
                     if (!item) return;
                     if (typeof backdropCache !== 'undefined') backdropCache[cid] = item.dataUrl;
                     const target = document.querySelector(`.canvas-layer[data-id="${layer.id}"] .layer-backdrop`);
                     if (target) {
-                        target.style.backgroundImage = `url(${item.dataUrl})`;
-                        applyCustomBackdropStyle(target, item.dataUrl, bd);
+                        if (isMask) {
+                            tintMaskToColorAsync(item.dataUrl, maskColor).then(tinted => {
+                                if (!tinted) return;
+                                target.style.backgroundImage = `url(${tinted})`;
+                                applyCustomBackdropStyle(target, tinted, bd);
+                            });
+                        } else {
+                            target.style.backgroundImage = `url(${item.dataUrl})`;
+                            applyCustomBackdropStyle(target, item.dataUrl, bd);
+                        }
                     }
                 }).catch(() => {});
             }
@@ -994,8 +1040,18 @@ function createBackdropElement(layer) {
 }
 
 function applyCustomBackdropStyle(el, dataUrl, bd) {
-    el.style.backgroundImage = `url(${dataUrl})`;
-    const mode = bd.sizeMode || 'cover';
+    // ✅ 蒙版着色：如果这个底衬是"形状蒙版"，按 bd.color 着色
+    let finalUrl = dataUrl;
+    if (bd && bd.isMask && bd.color) {
+        finalUrl = tintMaskToColor(dataUrl, bd.color);
+        if (!finalUrl) finalUrl = dataUrl;
+    }
+
+    el.style.backgroundImage = `url(${finalUrl})`;
+        // ✅ 形状蒙版默认用 contain（不裁切），其它自定义底衬保持 cover
+        // ✅ 形状蒙版一律用 contain（不裁切），忽略 bd.sizeMode；
+    //    其它自定义底衬保持原逻辑
+    const mode = (bd && bd.isMask) ? 'contain' : (bd.sizeMode || 'cover');
     if (mode === 'cover') {
         el.style.backgroundSize = 'cover';
         el.style.backgroundRepeat = 'no-repeat';
@@ -1010,9 +1066,77 @@ function applyCustomBackdropStyle(el, dataUrl, bd) {
         el.style.backgroundPosition = 'top left';
     }
     if (bd.overlayColor) {
-        el.style.backgroundImage = `linear-gradient(${bd.overlayColor}, ${bd.overlayColor}), url(${dataUrl})`;
+        el.style.backgroundImage = `linear-gradient(${bd.overlayColor}, ${bd.overlayColor}), url(${finalUrl})`;
         el.style.backgroundBlendMode = 'multiply';
     }
+}
+
+/* ============================================================
+   蒙版着色：白色透明 PNG → 按 color 着色（同步返回 dataUrl）
+   原理：把白色蒙版画到 canvas，再用 'source-in' 填色，白色区域变彩色，透明区域保持透明。
+   用同步缓存避免同一 (dataUrl+color) 重复计算。
+   ============================================================ */
+const _tintCache = new Map();
+function tintMaskToColor(maskDataUrl, color) {
+    const key = color + '::' + maskDataUrl.slice(-120);
+    if (_tintCache.has(key)) return _tintCache.get(key);
+
+    try {
+        const img = new Image();
+        img.src = maskDataUrl;
+        // 同步接口无法等 img.onload；用"同步缓存 + 异步补算"策略：
+        // 如果图片已解码完成（缓存命中），可以直接画；否则先用原图占位，
+        // 在 createBackdropElement 的异步里再补一次。
+        if (!img.complete || !img.naturalWidth) {
+            return null;
+        }
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        ctx.globalCompositeOperation = 'source-in';
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, w, h);
+        const out = c.toDataURL('image/png');
+        _tintCache.set(key, out);
+        return out;
+    } catch (e) {
+        return null;
+    }
+}
+
+/* 异步版：确保图片加载完再着色，给 createBackdropElement 的异步链用 */
+function tintMaskToColorAsync(maskDataUrl, color) {
+    const key = color + '::' + maskDataUrl.slice(-120);
+    if (_tintCache.has(key)) return Promise.resolve(_tintCache.get(key));
+
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const w = img.naturalWidth;
+                const h = img.naturalHeight;
+                const c = document.createElement('canvas');
+                c.width = w;
+                c.height = h;
+                const ctx = c.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                ctx.globalCompositeOperation = 'source-in';
+                ctx.fillStyle = color;
+                ctx.fillRect(0, 0, w, h);
+                const out = c.toDataURL('image/png');
+                _tintCache.set(key, out);
+                resolve(out);
+            } catch (e) {
+                resolve(null);
+            }
+        };
+        img.onerror = () => resolve(null);
+        img.src = maskDataUrl;
+    });
 }
 
 function renderCanvas() {
