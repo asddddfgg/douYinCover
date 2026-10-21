@@ -26,8 +26,13 @@ document.addEventListener('mousedown', (e) => {
     if (!state.editingLayerId) return;
     const ctx = getActiveSelectionRange();
     if (!ctx || ctx.collapsed) return;
-    // 只有点在面板类按钮上才冻结（画布内点击正常）
-    if (e.target.closest('.effect-card, .btn, .tool-btn, .sidebar-left, .sidebar-right, .top-text-toolbar, .backdrop-card')) {
+
+    // 底衬在 sidebar 内：必须先排除，否则 .sidebar-right 仍会 preventDefault
+    if (e.target.closest('.backdrop-card')) {
+        return;
+    }
+
+    if (e.target.closest('.effect-card, .btn, .tool-btn, .sidebar-left, .sidebar-right, .top-text-toolbar')) {
         _savedSelectionContext = {
             layerId: state.editingLayerId,
             el: ctx.el,
@@ -1040,6 +1045,8 @@ function createBackdropCard(preset) {
     const card = document.createElement('div');
     card.className = 'backdrop-card';
     card.dataset.backdropType = preset.type;
+    card.setAttribute('draggable', 'false');
+    card.addEventListener('dragstart', (e) => e.preventDefault());
 
     const currentLayer = state.getSelectedLayer();
     if (currentLayer && currentLayer.backdrop && currentLayer.backdrop.type === preset.type) {
@@ -1109,7 +1116,7 @@ function createBackdropCard(preset) {
         }
         state.saveState();
         renderCanvas();
-        renderBackdropGrid();
+        // 禁止整表重建，否则侧栏滚动/布局跳动，看起来像光标回弹
         syncBackdropPanelToLayer(layer);
     });
 
@@ -1135,6 +1142,8 @@ async function renderCustomBackdropGrid(grid) {
             card.className = 'backdrop-card';
             card.dataset.backdropType = 'custom';
             card.dataset.customId = item.id;
+            card.setAttribute('draggable', 'false');
+            card.addEventListener('dragstart', (e) => e.preventDefault());
 
             const currentLayer = state.getSelectedLayer();
             if (currentLayer && currentLayer.backdrop && currentLayer.backdrop.type === 'custom'
@@ -1199,7 +1208,7 @@ if (item.isMask) {
 
                 state.saveState();
                 renderCanvas();
-                renderBackdropGrid();
+                // 同上：不要 rebuild
                 syncBackdropPanelToLayer(layer);
             });
 
@@ -1495,7 +1504,21 @@ function _svgToWhiteMaskDataUrl(svgString) {
     const safeVb = (parts.length === 4 && vw > 0 && vh > 0)
         ? `${vx} ${vy} ${vw} ${vh}`
         : '0 0 100 100';
-    svg.setAttribute('viewBox', safeVb);
+      svg.setAttribute('viewBox', safeVb);
+
+    // 关键修复：先把 SVG 的 viewBox 扩展为正方形坐标范围，再栅格化为正方形 PNG。
+    // 仅设置 preserveAspectRatio 在部分输入/渲染链路中不足以避免宽高比被压缩；
+    // 扩展较短的一边而不是拉伸图形，因此圆仍是圆、三角形仍保持原有角度。
+    const viewBoxParts = safeVb.split(/\s+/).map(Number);
+    const [viewX, viewY, viewWidth, viewHeight] = viewBoxParts;
+    const squareSide = Math.max(viewWidth, viewHeight);
+    const squareViewBox = [
+        viewX - (squareSide - viewWidth) / 2,
+        viewY - (squareSide - viewHeight) / 2,
+        squareSide,
+        squareSide
+    ].join(' ');
+    svg.setAttribute('viewBox', squareViewBox);
 
     // ---------- 2. 强制 intrinsic size = 目标尺寸（关键） ----------
     svg.setAttribute('width', String(SHAPE_MASK_SIZE));

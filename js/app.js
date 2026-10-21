@@ -927,19 +927,31 @@ function createBackdropElement(layer) {
     const bd = layer.backdrop;
     const el = document.createElement('div');
     el.className = 'layer-backdrop';
-    const pad = (bd.padding !== undefined ? bd.padding : 12);
+        const pad = (bd.padding !== undefined ? bd.padding : 12);
 
     if (bd.isMask) {
-        // ✅ 形状蒙版：用正方形框，边长 = max(文字宽, 文字高) * 0.85 + 2*padding
-        const side = Math.max(layer.width || 0, layer.height || 0) * 0.85 + pad * 2;
+        // 形状蒙版：正方形框 + 动态 shrink
+        const w = layer.width || 0;
+        const h = layer.height || 0;
+        const maxSide = Math.max(w, h);
+        const minSide = Math.min(w, h);
+        const ratio = maxSide > 0 ? minSide / maxSide : 1; // 1=方，接近0=极扁
+
+        // 方文字多缩，扁文字少缩
+        const dynamicShrink = 0.62 + (1 - ratio) * 0.25;
+        const sizeScale = (bd.sizeScale != null && isFinite(bd.sizeScale))
+            ? Math.max(0.3, Math.min(1.5, bd.sizeScale))
+            : 0.85; // 全局默认
+
+        const side = maxSide * dynamicShrink * sizeScale + pad * 2;
+
         el.style.width = side + 'px';
         el.style.height = side + 'px';
-        el.style.left = ((layer.width || 0) - side) / 2 + 'px';
-        el.style.top = ((layer.height || 0) - side) / 2 + 'px';
+        el.style.left = ((w - side) / 2) + 'px';
+        el.style.top = ((h - side) / 2) + 'px';
         el.style.right = 'auto';
         el.style.bottom = 'auto';
     } else {
-        // 普通底衬：跟随文字宽高 + 外扩 padding（原逻辑）
         el.style.left = (-pad) + 'px';
         el.style.top = (-pad) + 'px';
         el.style.right = (-pad) + 'px';
