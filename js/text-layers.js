@@ -1495,7 +1495,20 @@ function _svgToWhiteMaskDataUrl(svgString) {
     const safeVb = (parts.length === 4 && vw > 0 && vh > 0)
         ? `${vx} ${vy} ${vw} ${vh}`
         : '0 0 100 100';
-    svg.setAttribute('viewBox', safeVb);
+
+    // 关键修复：先把 SVG 的 viewBox 扩展为正方形坐标范围，再栅格化为正方形 PNG。
+    // 仅设置 preserveAspectRatio 在部分输入/渲染链路中不足以避免宽高比被压缩；
+    // 扩展较短的一边而不是拉伸图形，因此圆仍是圆、三角形仍保持原有角度。
+    const viewBoxParts = safeVb.split(/\s+/).map(Number);
+    const [viewX, viewY, viewWidth, viewHeight] = viewBoxParts;
+    const squareSide = Math.max(viewWidth, viewHeight);
+    const squareViewBox = [
+        viewX - (squareSide - viewWidth) / 2,
+        viewY - (squareSide - viewHeight) / 2,
+        squareSide,
+        squareSide
+    ].join(' ');
+    svg.setAttribute('viewBox', squareViewBox);
 
     // ---------- 2. 强制 intrinsic size = 目标尺寸（关键） ----------
     svg.setAttribute('width', String(SHAPE_MASK_SIZE));
