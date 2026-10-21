@@ -846,32 +846,45 @@ function setupContextMenuEvents() {
         }
     });
 
-    document.getElementById('ctx-move-up').addEventListener('click', () => {
-        if (state.selectedLayerId) {
-            state.moveLayer(state.selectedLayerId, 'up');
-            renderCanvas();
-            renderLayerList();
-            updateTopToolbarUI(state.getSelectedLayer());
+        const doMoveLayer = (direction) => {
+        // 优先用多选里的"主选中"，没有再退回 selectedLayerId
+        let id = state.selectedLayerId;
+        if (window.MultiSelect && state.selectedLayerIds && state.selectedLayerIds.length === 1) {
+            id = state.selectedLayerIds[0];
         }
-    });
+        if (!id) return;
 
-    document.getElementById('ctx-move-down').addEventListener('click', () => {
-        if (state.selectedLayerId) {
-            state.moveLayer(state.selectedLayerId, 'down');
-            renderCanvas();
-            renderLayerList();
-            updateTopToolbarUI(state.getSelectedLayer());
-        }
-    });
+        // 先确认这一层确实存在于当前页，避免"点了没反应"
+        const exists = state.layers.some(l => l.id === id);
+        if (!exists) return;
+
+        const moved = state.moveLayer(id, direction);
+        if (!moved) return; // 已经在最顶/最底，什么都不用做
+
+        // 挪完保持选中
+        state.selectedLayerId = id;
+        if (window.MultiSelect) state.selectedLayerIds = [id];
+
+        renderCanvas();
+        renderLayerList();
+        updateTopToolbarUI(state.getSelectedLayer());
+    };
+
+    document.getElementById('ctx-move-up').addEventListener('click', () => doMoveLayer('up'));
+    document.getElementById('ctx-move-down').addEventListener('click', () => doMoveLayer('down'));
 
     document.getElementById('ctx-flip-h').addEventListener('click', () => {
         const layer = state.getSelectedLayer();
+
+
         if (layer) { layer.flipH = !layer.flipH; state.saveState(); renderCanvas(); }
     });
+
     document.getElementById('ctx-flip-v').addEventListener('click', () => {
         const layer = state.getSelectedLayer();
         if (layer) { layer.flipV = !layer.flipV; state.saveState(); renderCanvas(); }
     });
+
     document.getElementById('ctx-rotate-90').addEventListener('click', () => {
         const layer = state.getSelectedLayer();
         if (layer) {

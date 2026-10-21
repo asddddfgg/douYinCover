@@ -191,17 +191,21 @@ class AppState {
         this.saveState();
     }
 
-    moveLayer(id, direction) {
-        const curLayers = this.getCurrentPage().layers;
+        moveLayer(id, direction) {
+        const curLayers = this.layers;
         const index = curLayers.findIndex(l => l.id === id);
-        if (index === -1) return;
+        if (index === -1) return false;
+
         const targetIndex = direction === 'up' ? index + 1 : index - 1;
-        if (targetIndex >= 0 && targetIndex < curLayers.length) {
-            const temp = curLayers[index];
-            curLayers[index] = curLayers[targetIndex];
-            curLayers[targetIndex] = temp;
-            this.saveState();
-        }
+        if (targetIndex < 0 || targetIndex >= curLayers.length) return false;
+
+        const temp = curLayers[index];
+        curLayers[index] = curLayers[targetIndex];
+        curLayers[targetIndex] = temp;
+
+        this.getCurrentPage().layers = curLayers;
+        this.saveState();
+        return true;
     }
 
     addPage() {

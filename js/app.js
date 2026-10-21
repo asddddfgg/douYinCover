@@ -905,11 +905,21 @@ function enterTextEditMode(layerId) {
     renderCanvas();
     renderLayerList();
     updateTopToolbarUI(state.getSelectedLayer());
+
+        const container = document.querySelector('.canvas-container');
+        const _prevScrollTop = container ? container.scrollTop : 0;
+        const _prevScrollLeft = container ? container.scrollLeft : 0;
+
+
+
     setTimeout(() => {
         const currentEditable = document.querySelector(`.canvas-layer[data-id="${layerId}"] .text-content-editable`);
         if (currentEditable) {
             currentEditable.contentEditable = 'true';
-            currentEditable.focus();
+
+            // preventScroll：避免浏览器在聚焦时把画布滚动到图层位置
+            // （点击/双击靠近画布底部的图层时，视图会突然上跳）
+            currentEditable.focus({ preventScroll: true });
             const range = document.createRange();
             const sel = window.getSelection();
             range.selectNodeContents(currentEditable);
@@ -917,6 +927,15 @@ function enterTextEditMode(layerId) {
             sel.removeAllRanges();
             sel.addRange(range);
         }
+
+        // 部分浏览器在设置 Range 时仍会滚动，强制把滚动位置还原
+        if (container) {
+            container.scrollTop = _prevScrollTop;
+            container.scrollLeft = _prevScrollLeft;
+        }
+
+
+
     }, 30);
 }
 
@@ -925,8 +944,13 @@ function enterTextEditMode(layerId) {
 function createBackdropElement(layer) {
     if (!layer.backdrop || !layer.backdrop.type || layer.backdrop.type === 'none') return null;
     const bd = layer.backdrop;
+
+
     const el = document.createElement('div');
     el.className = 'layer-backdrop';
+    el.style.zIndex = '0';
+
+
         const pad = (bd.padding !== undefined ? bd.padding : 12);
 
     if (bd.isMask) {
@@ -1157,6 +1181,16 @@ function tintMaskToColorAsync(maskDataUrl, color) {
 function renderCanvas() {
     const container = document.querySelector('.canvas-container');
     if (!container) return;
+
+
+    // 选中图层会触发整层重绘；innerHTML 清空后 scrollTop 会被浏览器归零，
+    // 导致点击靠近画布底部的图层时视图突然上跳（表现为“视觉焦点滚到了中部”）。
+    // 因此先快照，重建后再恢复。
+    const _prevScrollTop = container.scrollTop;
+    const _prevScrollLeft = container.scrollLeft;
+
+
+
     container.innerHTML = '';
 
     state.pages.forEach((page, index) => {
@@ -1220,6 +1254,9 @@ function renderCanvas() {
             if (transforms.length > 0) el.style.transform = transforms.join(' ');
 
             if (layer.type === 'text') {
+                const layerOrderIndex = page.layers.findIndex(l => l.id === layer.id);
+                el.style.zIndex = String(10 + layerOrderIndex);
+
                 const backdropEl = createBackdropElement(layer);
                 if (backdropEl) el.appendChild(backdropEl);
 
@@ -1367,6 +1404,8 @@ if (isBgBox) {
                     }
                 });
 
+                textInner.style.position = 'relative';
+                textInner.style.zIndex = '1';
                 el.appendChild(textInner);
 } else if (layer.type === 'sticker') {
     // ✅ 改成普通块级布局 + 行高居中，html2canvas 导出才不会丢内容
@@ -1437,6 +1476,13 @@ if (isBgBox) {
 
     // 重绘参考线
     if (window.Guides) Guides.renderGuides();
+
+
+    // 恢复滚动位置（见函数开头注释）
+    container.scrollTop = _prevScrollTop;
+    container.scrollLeft = _prevScrollLeft;
+
+
 }
 
 function renderLayerList() {
