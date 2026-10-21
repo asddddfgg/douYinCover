@@ -137,7 +137,23 @@ const DEFAULT_BACKGROUND = {
     imageUrl: '',
     angle: 135,
     texture: 'none',
-    presetId: null
+    presetId: null,
+    fit: 'cover',
+    scale: 1,
+    positionX: 50,
+    positionY: 50,
+    blur: 0,
+    overlayColor: '#000000',
+    overlayOpacity: 0,
+    overlayType: 'solid',
+    overlayStops: [
+        { pos: 0, color: '#FFF9F0', opacity: 0.12 },
+        { pos: 0.40, color: '#FFF9F0', opacity: 0.05 },
+        { pos: 1, color: '#F0E6D8', opacity: 0.35 }
+    ],
+    overlayAngle: 180,
+    overlayCenter: { x: 50, y: 40 },
+    colorFilter: 'none'
 };
 
 window.BG_PRESETS = BG_PRESETS;

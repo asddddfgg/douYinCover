@@ -27,13 +27,18 @@ const BGImageDB = (function () {
         return dbPromise;
     }
 
-    async function addImage(name, dataUrl) {
+
+
+        // 增加可选第三参数 category，默认 null
+    // 现有调用点（handleUploadBgImageFile 等）不用改
+    async function addImage(name, dataUrl, category = null) {
         const db = await openDB();
         return new Promise((resolve, reject) => {
             const tx = db.transaction(BG_IMG_STORE, 'readwrite');
             const req = tx.objectStore(BG_IMG_STORE).add({
                 name: name || '背景图片',
                 dataUrl,
+                category,
                 createdAt: Date.now()
             });
             req.onsuccess = () => resolve(req.result);
@@ -78,6 +83,15 @@ window.BGImageDB = BGImageDB;
 // 运行时缓存：id -> dataUrl，避免每次渲染都异步读
 const bgImageCache = {};
 
+
+
+
+
+
+
+
+
+
 // 最近使用 id 列表（前端 localStorage）
 function getBgImageRecentIds() {
     try { return JSON.parse(localStorage.getItem(BG_IMG_RECENT_KEY) || '[]'); }
@@ -119,17 +133,29 @@ function buildImageBackgroundStyle(bg) {
     }
 
     const repeatCss = fit === 'repeat' ? 'repeat' : 'no-repeat';
-    const filter = blur > 0 ? `blur(${blur}px)` : 'none';
+
+    // 滤镜解耦：blur 单独拼，colorFilter 不含 blur（防双叠加）
+    const parts = [];
+    if (bg.blur > 0) parts.push(`blur(${bg.blur}px)`);
+    if (bg.colorFilter && bg.colorFilter !== 'none' && !/blur\s*\(/i.test(bg.colorFilter)) {
+        parts.push(bg.colorFilter);
+    }
+    const filterValue = parts.length ? parts.join(' ') : 'none';
 
     return {
         backgroundSize: sizeCss,
         backgroundPosition: `${posX}% ${posY}%`,
         backgroundRepeat: repeatCss,
-        filter,
+        filter: filterValue,
         transform: (fit === 'cover' && scale !== 1) ? `scale(${scale})` : 'none',
         transformOrigin: `${posX}% ${posY}%`
     };
 }
+
+
+
+
+
 
 // 将图片应用到所有 .canvas-bg（不会破坏文字/图层结构）
 function applyImageBackgroundToCanvases(bg) {
@@ -156,11 +182,14 @@ function applyImageBackgroundToCanvases(bg) {
             bgEl.style.transform = styleObj.transform;
             bgEl.style.transformOrigin = styleObj.transformOrigin;
 
-            // 遮罩层
+                        // 遮罩层（支持 solid / linear / radial）
             let overlay = canvasEl.querySelector('.canvas-bg-overlay');
-            const overlayColor = bg.overlayColor;
-            const overlayOpacity = bg.overlayOpacity !== undefined ? bg.overlayOpacity : 0;
-            if (overlayColor && overlayOpacity > 0) {
+            const hasOverlay =
+                (bg.overlayType === 'linear' || bg.overlayType === 'radial')
+                    ? Array.isArray(bg.overlayStops) && bg.overlayStops.length > 0
+                    : (bg.overlayColor && (bg.overlayOpacity || 0) > 0);
+
+            if (hasOverlay) {
                 if (!overlay) {
                     overlay = document.createElement('div');
                     overlay.className = 'canvas-bg-overlay';
@@ -168,14 +197,19 @@ function applyImageBackgroundToCanvases(bg) {
                     overlay.style.inset = '0';
                     overlay.style.zIndex = '1';
                     overlay.style.pointerEvents = 'none';
-                    // 插入到 canvas-bg 之后、layers-wrapper 之前
                     const layersWrapper = canvasEl.querySelector('.layers-wrapper');
                     if (layersWrapper) canvasEl.insertBefore(overlay, layersWrapper);
                     else canvasEl.appendChild(overlay);
                 }
-                // 把 hex + opacity 转 rgba
-                const rgba = hexToRgba(overlayColor, overlayOpacity);
-                overlay.style.background = rgba;
+                if (bg.overlayType === 'linear') {
+                    overlay.style.background =
+                        `linear-gradient(${bg.overlayAngle}deg, ${stopsToCss(bg.overlayStops)})`;
+                } else if (bg.overlayType === 'radial') {
+                    overlay.style.background =
+                        `radial-gradient(circle at ${bg.overlayCenter.x}% ${bg.overlayCenter.y}%, ${stopsToCss(bg.overlayStops)})`;
+                } else {
+                    overlay.style.background = hexToRgba(bg.overlayColor, bg.overlayOpacity);
+                }
             } else if (overlay) {
                 overlay.remove();
             }
@@ -204,6 +238,16 @@ function applyImageBackgroundToCanvases(bg) {
     }
 }
 
+function stopsToCss(stops) {
+  return (stops || []).map(s => {
+    const rgba = hexToRgba(s.color, s.opacity);
+    return `${rgba} ${(Number(s.pos) || 0) * 100}%`;
+  }).join(', ');
+}
+
+
+
+
 function hexToRgba(hex, opacity) {
     if (!hex) return 'transparent';
     let h = hex.replace('#', '');
@@ -226,12 +270,15 @@ function applyBackgroundToCanvasesWithImage(bg) {
         document.querySelectorAll('.canvas-bg').forEach(el => {
             el.style.background = '';
         });
-        applyImageBackgroundToCanvases(bg);
-        // 清理旧 overlay
+                applyImageBackgroundToCanvases(bg);
+        // 清理旧 overlay（与新遮罩逻辑保持一致）
         document.querySelectorAll('.cover-canvas').forEach(canvasEl => {
             const overlay = canvasEl.querySelector('.canvas-bg-overlay');
-            const bg = state.background;
-            const hasOverlay = bg.overlayColor && (bg.overlayOpacity || 0) > 0;
+            const bg2 = state.background;
+            const hasOverlay =
+                (bg2.overlayType === 'linear' || bg2.overlayType === 'radial')
+                    ? Array.isArray(bg2.overlayStops) && bg2.overlayStops.length > 0
+                    : (bg2.overlayColor && (bg2.overlayOpacity || 0) > 0);
             if (!hasOverlay && overlay) overlay.remove();
         });
         return true;
@@ -387,8 +434,15 @@ function handleUploadBgImageFile(file, opts) {
     reader.readAsDataURL(file);
 }
 
-function applyUploadedImageAsBackground(id, dataUrl) {
-    state.background = normalizeBackground({
+/**
+ * @param {string} id
+ * @param {string} dataUrl
+ * @param {object} [overrides={}] 整体覆盖对象。
+ *        任何字段（包括 overlayStops 数组）都会整体替换默认值，
+ *        而不是按元素合并。传 overlayStops 时请传完整数组。
+ */
+function applyUploadedImageAsBackground(id, dataUrl, overrides = {}) {
+    state.background = normalizeBackground(Object.assign({
         type: 'image',
         imageUrl: dataUrl,
         customImageId: id,
@@ -397,12 +451,11 @@ function applyUploadedImageAsBackground(id, dataUrl) {
         positionX: 50,
         positionY: 50,
         blur: 0,
+        overlayType: 'solid',
         overlayColor: '#000000',
         overlayOpacity: 0,
-        angle: 135,
-        texture: 'none',
-        presetId: null
-    });
+        colorFilter: 'none'
+    }, overrides));
     applyBackgroundToCanvases(state.background);
     syncBgPanelInputs(state.background);
     syncImagePanelVisibility(state.background);

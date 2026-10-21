@@ -152,8 +152,8 @@ const DEFAULT_ART_EFFECTS = [
 
 function initEffectsLibrary() {
     migrateEffectOrdersIfNeeded();
-    renderEffectsGrid();
     initEffectsManagerPanel();
+    loadEffectsFromDB();
 }
 
 function getAllEffectsMaster() {
@@ -161,7 +161,9 @@ function getAllEffectsMaster() {
     try { userOverrides = JSON.parse(localStorage.getItem('douyin_effects_states_v3') || '{}'); } catch(e) {}
 
     let customList = [];
-    try { customList = JSON.parse(localStorage.getItem('douyin_custom_effects_v3') || '[]'); } catch(e) {}
+if (window.__effectsCustomListCache) {
+    customList = window.__effectsCustomListCache;
+}
 
     let defaults = DEFAULT_ART_EFFECTS.map(eff => ({
         ...eff,
@@ -291,6 +293,24 @@ function renderEffectsGrid() {
     renderSection('text', '文字特效', textEffects);
     renderSection('whole', '整层特效', wholeEffects);
 }
+
+
+async function loadEffectsFromDB() {
+    try {
+        const list = await EffectsDB.getAllEffects();
+        window.__effectsCustomListCache = list;
+        renderEffectsGrid();
+    } catch (e) {
+        console.error('读取特效库失败:', e);
+        renderEffectsGrid();
+    }
+}
+
+
+
+
+
+
 
 function createEffectCardDOM(eff, pinIndex, pinTotal, isPinnedSection) {
     const card = document.createElement('div');
@@ -480,20 +500,28 @@ function initEffectsManagerPanel() {
         }
     });
 
-    document.getElementById('btn-batch-upload').addEventListener('click', () => {
+
+
+
+
+
+    document.getElementById('btn-batch-upload').addEventListener('click', async () => {
         const rawText = document.getElementById('ce-batch-json').value.trim();
         if (!rawText) {
             alert('请先粘贴符合格式的 JSON 代码！');
             return;
         }
 
+        const btn = document.getElementById('btn-batch-upload');
+        const oldText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中…';
+
         try {
             const newItems = JSON.parse(rawText);
             if (!Array.isArray(newItems)) throw new Error('导入的数据必须是数组 [...] 格式');
 
-            let customList = [];
-            try { customList = JSON.parse(localStorage.getItem('douyin_custom_effects_v3') || '[]'); } catch(e) {}
-
+            let customList = window.__effectsCustomListCache || [];
             let countAdded = 0;
             let countRenamed = 0;
 
@@ -501,9 +529,7 @@ function initEffectsManagerPanel() {
                 if (item.id && item.name && item.css) {
                     let existing = customList.find(ex => ex.id === item.id);
                     if (existing) {
-                        if (existing.css.trim() === item.css.trim()) {
-                            return;
-                        }
+                        if (existing.css.trim() === item.css.trim()) return;
                         let ver = 2;
                         let newId = `${item.id}_v${ver}`;
                         let newName = `${item.name} (v${ver})`;
@@ -512,36 +538,32 @@ function initEffectsManagerPanel() {
                             newId = `${item.id}_v${ver}`;
                             newName = `${item.name} (v${ver})`;
                         }
-                        customList.push({
-                            id: newId,
-                            name: newName,
-                            css: item.css,
-                            hidden: false,
-                            deleted: false
-                        });
+                        customList.push({ id: newId, name: newName, css: item.css, hidden: false, deleted: false });
                         countRenamed++;
                     } else {
-                        customList.push({
-                            id: item.id,
-                            name: item.name,
-                            css: item.css,
-                            hidden: false,
-                            deleted: false
-                        });
+                        customList.push({ id: item.id, name: item.name, css: item.css, hidden: false, deleted: false });
                         countAdded++;
                     }
                 }
             });
 
-            localStorage.setItem('douyin_custom_effects_v3', JSON.stringify(customList));
+            // ✅ 关键：等所有写入完成，再更新缓存和 UI
+            for (const item of customList) {
+                try { await EffectsDB.putEffect(item); } catch (e) { console.error('写入失败', item.id, e); }
+            }
+
+            window.__effectsCustomListCache = customList;
             document.getElementById('ce-batch-json').value = '';
             renderEffectsGrid();
             if (document.getElementById('hidden-bin-container').style.display === 'block') {
                 renderHiddenBinList();
             }
-            alert(`批量上传成功！新增 ${countAdded} 款特效` + (countRenamed > 0 ? `，为 ${countRenamed} 款存在重名但内容不同的特效自动创建了新版本（防止旧版本被覆盖）` : '') + '。');
+            alert(`批量上传成功！新增 ${countAdded} 款特效` + (countRenamed > 0 ? `，为 ${countRenamed} 款存在重名但内容不同的特效自动创建了新版本。` : '。'));
         } catch (err) {
-            alert('JSON 解析失败，请检查格式：\n' + err.message);
+            alert('上传失败：' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = oldText;
         }
     });
 }
@@ -692,9 +714,23 @@ function deleteEffect(id, isCustom) {
     if (!confirm('确定要删除这款特效吗？')) return;
     try {
         if (isCustom) {
-            let customList = JSON.parse(localStorage.getItem('douyin_custom_effects_v3') || '[]');
-            customList = customList.filter(item => item.id !== id);
-            localStorage.setItem('douyin_custom_effects_v3', JSON.stringify(customList));
+            // 从 IndexedDB 删除
+            if (window.EffectsDB) {
+                EffectsDB.deleteEffect(id).catch(() => {});
+            }
+            // 同步内存缓存
+            if (window.__effectsCustomListCache) {
+                window.__effectsCustomListCache = window.__effectsCustomListCache.filter(item => item.id !== id);
+            }
+            // 兼容：万一还有旧 localStorage 数据，一并删掉
+            try {
+                const raw = localStorage.getItem('douyin_custom_effects_v3');
+                if (raw) {
+                    let oldList = JSON.parse(raw);
+                    oldList = oldList.filter(item => item.id !== id);
+                    localStorage.setItem('douyin_custom_effects_v3', JSON.stringify(oldList));
+                }
+            } catch (e) {}
         } else {
             let userOverrides = JSON.parse(localStorage.getItem('douyin_effects_states_v3') || '{}');
             if (!userOverrides[id]) userOverrides[id] = {};

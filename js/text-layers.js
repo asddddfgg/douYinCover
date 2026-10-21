@@ -1182,13 +1182,17 @@ async function renderCustomBackdropGrid(grid) {
                 layer.backdrop.sizeMode = layer.backdrop.sizeMode || 'cover';
                 // ✅ 根据库里记录的 isMask 决定：是形状蒙版才标记，上传图片不标
                                // ✅ 兼容：从"形状导入"进来的蒙版底衬，标记 isMask + 白色默认色
-                if (!layer.backdrop.isMask && (item.name || '').trim()) {
-                    // 判断是不是形状导入的（BackdropDB 里的记录没有额外标记，统一按蒙版处理更安全）
-                    layer.backdrop.isMask = true;
-                    if (!layer.backdrop.color || layer.backdrop.color === '#fff8dc') {
-                        layer.backdrop.color = '#ffffff';
-                    }
-                }
+               // ✅ 严格按 BackdropDB 记录里的 isMask 决定，不再靠 name 猜测
+if (item.isMask) {
+    layer.backdrop.isMask = true;
+    if (!layer.backdrop.color || layer.backdrop.color === '#fff8dc') {
+        layer.backdrop.color = '#ffffff';
+    }
+} else {
+    // 普通图片底衬：明确不染色
+    layer.backdrop.isMask = false;
+    // color 可以保留，但 UI 会隐藏，不影响渲染
+}
 
 
 
@@ -1214,7 +1218,7 @@ async function uploadBackdropImage(file) {
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });
-        await BackdropDB.addBackdrop(file.name, dataUrl);
+        await BackdropDB.addBackdrop(file.name, dataUrl, false);   // ⭐ 加 false，表示普通图片
         alert(`底衬图片 "${file.name}" 上传成功！已保存到"自定义"分类。`);
     } catch (err) {
         console.error('上传底衬失败:', err);
@@ -1272,6 +1276,13 @@ function syncBackdropPanelToLayer(layer) {
             card.classList.remove('active');
         }
     });
+      // ✅ 按 isMask 显隐"底衬颜色"控制组
+    const colorGroup = document.getElementById('backdrop-color-group');
+    if (colorGroup) {
+        // 仅「自定义 + 形状蒙版」显示颜色选择器
+        const showColor = (bd.type === 'custom' && bd.isMask === true);
+        colorGroup.style.display = showColor ? 'block' : 'none';
+    }
 }
 
 /* ============================================================
@@ -1598,7 +1609,7 @@ async function _importShapesFromText(text) {
         const s = shapes[i];
         try {
             const dataUrl = await _svgToWhiteMaskDataUrl(s.svg);
-            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl);
+            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl, true);   // ⭐ 加 true，表示形状蒙版
             results.push({ name: s.name, ok: true, id });
             ok++;
             if (status) status.innerHTML = `处理中 ${i + 1}/${shapes.length}：${s.name} ✔`;

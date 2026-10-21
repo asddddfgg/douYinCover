@@ -181,7 +181,7 @@ const ProjectManager = (function () {
             if (ok) await save(true);
         }
         suspendAutosave = true;
-        state.background = JSON.parse(JSON.stringify(proj.data.background));
+                state.background = normalizeBackground(JSON.parse(JSON.stringify(proj.data.background)));
         state.pages = JSON.parse(JSON.stringify(proj.data.pages));
         state.currentPageId = proj.data.currentPageId || state.pages[0]?.id;
         state.guides = JSON.parse(JSON.stringify(proj.data.guides || []));

@@ -611,6 +611,9 @@ function loadCachedCustomFonts(fontSelect) {
 
 
 function exportElementToPNG(canvasDOMNode, filename, scale) {
+    // ⚠️ 已知限制：图片背景的 colorFilter（sepia / saturate 等）在 html2canvas
+    // 导出时可能被部分忽略，暖调效果在导出图中可能减弱。
+    // 如需像素级一致，需在导出前对背景图做 canvas 预渲染（当前暂不实现）。
     const exportScale = (typeof scale === 'number' && scale > 0) ? scale : 2;
     return new Promise((resolve, reject) => {
         // 1. 找到所有要隐藏的"编辑辅助"元素
@@ -1042,7 +1045,7 @@ function createBackdropElement(layer) {
 function applyCustomBackdropStyle(el, dataUrl, bd) {
     // ✅ 蒙版着色：如果这个底衬是"形状蒙版"，按 bd.color 着色
     let finalUrl = dataUrl;
-    if (bd && bd.isMask && bd.color) {
+    if (bd && bd.isMask === true && bd.color) {
         finalUrl = tintMaskToColor(dataUrl, bd.color);
         if (!finalUrl) finalUrl = dataUrl;
     }
@@ -1482,11 +1485,51 @@ const BG_RECENT_MAX = 12;
 let currentBgCategory = 'hot';
 
 function normalizeBackground(bg) {
-    const base = window.DEFAULT_BACKGROUND || {
-        type: 'gradient', color1: '#ff2442', color2: '#2575fc',
-        imageUrl: '', angle: 135, texture: 'none', presetId: null
-    };
-    return Object.assign({}, base, bg || {});
+  // hardDefaults 是模块级共享对象，仅用作兜底快照。
+  // 切勿在外部 mutate hardDefaults.overlayStops / .overlayCenter，
+  // 本函数每次都会返回深拷贝。
+  const hardDefaults = {
+    type: 'gradient',
+    color1: '#ff2442',
+    color2: '#2575fc',
+    imageUrl: '',
+    angle: 135,
+    texture: 'none',
+    presetId: null,
+    fit: 'cover',
+    scale: 1,
+    positionX: 50,
+    positionY: 50,
+    blur: 0,
+    overlayColor: '#000000',
+    overlayOpacity: 0,
+    overlayType: 'solid',
+    // pos 为 0~1（注意：不是 0~100），渲染时会 ×100 转 %
+    overlayStops: [
+      { pos: 0,    color: '#FFF9F0', opacity: 0.12 },
+      { pos: 0.40, color: '#FFF9F0', opacity: 0.05 },
+      { pos: 1,    color: '#F0E6D8', opacity: 0.35 }
+    ],
+    // CSS 语义：0=下→上，90=左→右，180=上→下（默认上亮下暗）
+    overlayAngle: 180,
+    overlayCenter: { x: 50, y: 40 },
+    colorFilter: 'none'
+  };
+
+  const base = Object.assign({}, hardDefaults, window.DEFAULT_BACKGROUND || {}, bg || {});
+
+  base.overlayStops = (Array.isArray(base.overlayStops) ? base.overlayStops : [])
+    .map(s => ({
+      pos: Math.max(0, Math.min(1, Number(s.pos) || 0)),
+      color: s.color || '#000000',
+      opacity: Math.max(0, Math.min(1, Number(s.opacity) || 0))
+    }));
+  if (!base.overlayStops.length) {
+    base.overlayStops = hardDefaults.overlayStops.map(s => ({...s}));
+  }
+  base.overlayCenter = Object.assign({ x: 50, y: 40 }, base.overlayCenter || {});
+
+  return base;
 }
 
 function textureOverlayCss(texture) {
