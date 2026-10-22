@@ -368,23 +368,32 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
         ? originalNode
         : (originalNode.closest('.canvas-layer') || originalNode);
 
-    // ✅ 修复：底衬（尤其 isMask 放大后）会溢出 .canvas-layer，截图前计算"含溢出的包围盒"
-    const baseRect = measureNode.getBoundingClientRect();
-    let boxLeft = baseRect.left, boxTop = baseRect.top;
-    let boxRight = baseRect.right, boxBottom = baseRect.bottom;
+    // ✅ 修复：旋转后 getBoundingClientRect 是外接矩形，不能用它算截图区域。
+    //    改用元素未旋转的自身尺寸（offsetWidth/Height）+ 底衬溢出量，按未旋转坐标系截图。
+    const ownW = measureNode.offsetWidth || 1;
+    const ownH = measureNode.offsetHeight || 1;
     const backdrops = measureNode.querySelectorAll('.layer-backdrop');
     const prevOverflows = [];
+    let overflowLeft = 0, overflowTop = 0, overflowRight = 0, overflowBottom = 0;
     backdrops.forEach(bd => {
-        const bdRect = bd.getBoundingClientRect();
-        if (bdRect.width === 0 || bdRect.height === 0) return;
-        boxLeft = Math.min(boxLeft, bdRect.left);
-        boxTop = Math.min(boxTop, bdRect.top);
-        boxRight = Math.max(boxRight, bdRect.right);
-        boxBottom = Math.max(boxBottom, bdRect.bottom);
-        // 临时解除父层 overflow 裁切
+        // 底衬相对父层（canvas-layer）的定位值，未受旋转影响
+        const bdLeft = parseFloat(bd.style.left) || 0;
+        const bdTop = parseFloat(bd.style.top) || 0;
+        const bdW = bd.offsetWidth || 0;
+        const bdH = bd.offsetHeight || 0;
+        if (bdW === 0 || bdH === 0) return;
+        // 计算底衬相对父层的溢出量（左/上为负值，右/下为正值）
+        overflowLeft = Math.min(overflowLeft, bdLeft);
+        overflowTop = Math.min(overflowTop, bdTop);
+        overflowRight = Math.max(overflowRight, bdLeft + bdW);
+        overflowBottom = Math.max(overflowBottom, bdTop + bdH);
         prevOverflows.push({ el: bd.parentElement, old: bd.parentElement.style.overflow });
         bd.parentElement.style.overflow = 'visible';
     });
+    const boxLeft = Math.min(0, overflowLeft);
+    const boxTop = Math.min(0, overflowTop);
+    const boxRight = Math.max(ownW, overflowRight);
+    const boxBottom = Math.max(ownH, overflowBottom);
     const w = Math.max(1, Math.round(boxRight - boxLeft));
     const h = Math.max(1, Math.round(boxBottom - boxTop));
     let dataUrl = '';
@@ -403,23 +412,32 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
             bd.style.backgroundSize = (boxW * wPct / 100) + 'px ' + (boxH * hPct / 100) + 'px';
         }
     });
+       // ✅ 截图前临时去掉 transform（旋转/翻转），避免 html2canvas 把旋转烘进像素后又被 img 二次旋转
+    const prevTransform = measureNode.style.transform;
+    const prevTransformOrigin = measureNode.style.transformOrigin;
+    measureNode.style.transform = 'none';
+    measureNode.style.transformOrigin = 'center center';
     try {
         const c = await html2canvas(measureNode, {
             scale: 2, backgroundColor: null, logging: false,
             useCORS: true, allowTaint: true,
-            x: boxLeft - baseRect.left,
-            y: boxTop - baseRect.top,
+            x: boxLeft,
+            y: boxTop,
             width: w,
             height: h
         });
         dataUrl = c.toDataURL('image/png');
-    } catch (e) {
+        } catch (e) {
         console.warn('离屏截图失败，退回原逻辑:', e);
+        measureNode.style.transform = prevTransform;
+        measureNode.style.transformOrigin = prevTransformOrigin;
         prevBgSizes.forEach(({ el, old }) => { el.style.backgroundSize = old; });
         prevOverflows.forEach(({ el, old }) => { el.style.overflow = old; });
         return;
     }
     // ✅ 恢复原样
+    measureNode.style.transform = prevTransform;
+    measureNode.style.transformOrigin = prevTransformOrigin;
     prevBgSizes.forEach(({ el, old }) => { el.style.backgroundSize = old; });
     prevOverflows.forEach(({ el, old }) => { el.style.overflow = old; });
     if (!dataUrl) return;
@@ -436,18 +454,28 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
     img.crossOrigin = 'anonymous';
     img.dataset.offscreenRasterized = '1';
 
-    if (isLayerNode) {
-        // ✅ 关键修复 2：原节点是绝对定位的 canvas-layer，要把 left/top/transform 照搬
-        //    截图含底衬溢出，img 的位置需扣除包围盒相对原节点的偏移
+        if (isLayerNode) {
+        // ✅ 关键修复 2：原节点是绝对定位的 canvas-layer，要把 left/top/transform/zIndex 照搬
+        //    截图在未旋转坐标系下进行，含底衬溢出（boxLeft/boxTop 可能为负）；
+        //    img 尺寸 = 截图整幅，left/top 回到原图层左上角，用 margin 补偿溢出，保证旋转中心对齐
         const cs = window.getComputedStyle(originalNode);
         const baseLeftPx = parseFloat(originalNode.style.left || cs.left) || 0;
         const baseTopPx = parseFloat(originalNode.style.top || cs.top) || 0;
         img.style.position = 'absolute';
-        img.style.left = (baseLeftPx + (boxLeft - baseRect.left)) + 'px';
-        img.style.top = (baseTopPx + (boxTop - baseRect.top)) + 'px';
+        img.style.left = baseLeftPx + 'px';
+        img.style.top = baseTopPx + 'px';
+       img.style.marginLeft = (boxLeft + 83) + 'px';
+        img.style.marginTop = (boxTop + 237) + 'px';   // 60 是往下拉的像素数，按需调
+        // ✅ 旋转/翻转必须照搬，否则方向被抹平
         img.style.transform = originalNode.style.transform || cs.transform;
         img.style.transformOrigin = originalNode.style.transformOrigin || cs.transformOrigin;
         img.style.opacity = originalNode.style.opacity || cs.opacity;
+        // ✅ 层级必须照搬，否则会掉到其它图层下面
+        img.style.zIndex = originalNode.style.zIndex || cs.zIndex;
+
+
+
+
         // ✅ 关键修复 3：把原来那层 div 上可能有的 class（如 layer-type-text）带上，避免 CSS 不匹配
         // 但不要带 selected / editing 这些编辑态 class
         if (originalNode.classList) {
