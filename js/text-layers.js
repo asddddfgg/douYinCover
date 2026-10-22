@@ -7,6 +7,7 @@ function initTextLayersModule() {
     setupTopToolbarEvents();
     setupContextMenuEvents();
     setupBackdropPanel();
+    setupExternalPasteEntry();
 }
 
 function applyFormattingToSelection(command, value = null) {
@@ -1721,3 +1722,152 @@ function setupBackdropImport() {
         });
     }
 }
+
+
+
+function setupExternalPasteEntry() {
+    // 粘贴绑定用的是立即执行函数，这里只是占位，保证 init 时能调用到
+    if (typeof bindExternalPaste === 'function') bindExternalPaste();
+}
+
+
+
+/* ============================================================
+   外部剪贴板粘贴 → 新建文字图层（Canva 风格）
+   - 只在"非编辑焦点"时生效：当前没在编辑任何文字框
+   - 原有输入框内粘贴逻辑完全不动（见守卫函数）
+   - 位置 = 鼠标最后停在画布上的位置，否则画布中心
+   - 新图层：align:'left'，fontSize:'24px'，heightMode:'auto'
+   ============================================================ */
+
+// 记录鼠标最后停在画布上的坐标（画布坐标系）
+window.__lastCanvasMouse = null;
+
+// 判断事件目标是否处于"文字编辑态"（input / textarea / contenteditable）
+function _isEditingTextTarget(el) {
+    if (!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return true;
+    let n = el;
+    while (n && n !== document.body) {
+        if (n.isContentEditable) return true;
+        n = n.parentElement;
+    }
+    return false;
+}
+
+// 把纯文本转成安全的 HTML（转义 + 换行变 <br>）
+function _textToHtmlContent(text) {
+    const esc = String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    return esc.split(/\r?\n/).map(line => line || '&nbsp;').join('<br>');
+}
+
+// 从剪贴板事件里取纯文本（优先 text/plain，最稳）
+function _extractPastedText(e) {
+    const cd = e.clipboardData;
+    if (!cd) return '';
+    const text = cd.getData('text/plain');
+    let raw = text || '';
+    if (!raw) {
+        const html = cd.getData('text/html');
+        if (html) {
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            raw = div.innerText || div.textContent || '';
+        }
+    }
+    return raw ? raw.replace(/\r\n/g, '\n').trim() : '';
+}
+
+// 主处理器：非编辑态粘贴 → 新建文字图层
+function handleExternalPaste(e) {
+    const text = _extractPastedText(e);
+    if (!text) return;              // 没有文本（如粘贴图片）→ 不拦，放行
+    if (!state || !state.pages) return;
+
+    const page = state.pages.find(p => p.id === state.currentPageId);
+    if (!page) return;
+
+    e.preventDefault();             // 只在自己的分支阻止默认行为
+
+    // 落点：优先用最后的鼠标位置，否则画布中心（360×640）
+    let x = 180, y = 320;
+    const m = window.__lastCanvasMouse;
+    if (m && m.pageId === page.id) {
+        x = m.x;
+        y = m.y;
+    }
+    // 稍微左上偏移，避免文字正好压在鼠标下
+    x = Math.max(0, Math.min(x - 10, 360 - 40));
+    y = Math.max(0, Math.min(y - 10, 640 - 40));
+
+    const newLayer = {
+        id: 'text-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+        type: 'text',
+        content: _textToHtmlContent(text),
+        fontSize: '20px',
+        fontFamily: 'sans-serif',
+        color: '#ffffff',
+        bgColor: 'transparent',
+        bold: false, italic: false, underline: false, strike: false,
+        align: 'left',
+        vertical: false,
+        letterSpacing: 0,
+        lineHeight: 1.2,
+        opacity: 1,
+        effectClass: null,
+        rotation: 0, flipH: false, flipV: false,
+        x: x, y: y,
+        width: 280,
+        height: 40,
+        heightMode: 'auto'
+    };
+
+    state.addLayer(newLayer);
+    if (typeof renderAll === 'function') {
+        renderAll();
+    } else if (typeof renderCanvas === 'function') {
+        renderCanvas();
+        if (typeof renderLayerList === 'function') renderLayerList();
+        if (typeof updateTopToolbarUI === 'function') updateTopToolbarUI(state.getSelectedLayer());
+    }
+}
+window.handleExternalPaste = handleExternalPaste;
+
+// 绑定：捕获阶段监听 paste，先做守卫，编辑态直接放行
+(function bindExternalPaste() {
+    if (window.__externalPasteBound) return;
+    window.__externalPasteBound = true;
+
+    // 1) 记录鼠标在画布上的最后坐标
+    document.addEventListener('mousemove', (e) => {
+        const canvas = e.target.closest && e.target.closest('.cover-canvas');
+        if (!canvas) return;
+        const wrapper = canvas.closest('.canvas-page-wrapper');
+        if (!wrapper) return;
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+        const scaleX = rect.width / 360 || 1;
+        const scaleY = rect.height / 640 || 1;
+        window.__lastCanvasMouse = {
+            pageId: wrapper.dataset.pageId,
+            x: (e.clientX - rect.left) / scaleX,
+            y: (e.clientY - rect.top) / scaleY
+        };
+    }, true);
+
+    // 2) 粘贴守卫：编辑态放行，非编辑态走新逻辑
+    document.addEventListener('paste', (e) => {
+        if (_isEditingTextTarget(e.target) || _isEditingTextTarget(document.activeElement)) {
+            return; // ⚠️ 原有输入框粘贴逻辑，完全不动
+        }
+        handleExternalPaste(e);
+    }, true);
+})();
+
+
+
+

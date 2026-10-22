@@ -512,12 +512,12 @@ document.addEventListener('DOMContentLoaded', () => {
             id: 'text-' + Date.now(),
             type: 'text',
             content: '双击插入光标编辑文本',
-            fontSize: '28px',
+            fontSize: '20px',
             fontFamily: 'sans-serif',
             color: '#ffffff',
             bgColor: 'transparent',
             bold: false, italic: false, underline: false, strike: false,
-            align: 'center', vertical: false,
+            align: 'left', vertical: false,
             letterSpacing: 0, lineHeight: 1.2, opacity: 1,
             effectClass: 'effect-black-stroke',
             rotation: 0, flipH: false, flipV: false,
@@ -728,10 +728,11 @@ function openExportPanel() {
     if (!panel) return;
 
     // 重置为默认
+    // 重置为默认（导出范围 current + 分辨率 3x）
     const rangeCurrent = panel.querySelector('input[name="export-range"][value="current"]');
     if (rangeCurrent) rangeCurrent.checked = true;
-    const scale2 = panel.querySelector('input[name="export-scale"][value="2"]');
-    if (scale2) scale2.checked = true;
+    const scale3 = panel.querySelector('input[name="export-scale"][value="3"]');
+    if (scale3) scale3.checked = true;
 
     const checkboxes = document.getElementById('export-page-checkboxes');
     if (checkboxes) checkboxes.style.display = 'none';

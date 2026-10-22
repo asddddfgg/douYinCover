@@ -108,6 +108,46 @@ const ProjectManager = (function () {
         });
     }
 
+
+    // ✅ 关闭页面/刷新专用：纯数据写入，不截图，能赶在 beforeunload 前完成
+    function saveSync() {
+        if (!state) return;
+        const now = Date.now();
+        if (!currentProjectId) currentProjectId = 'proj-' + now;
+        // 复用已有缩略图（避免关页面时再跑 html2canvas 被杀掉）
+        ProjectDB.get(currentProjectId).then(existing => {
+            const record = {
+                id: currentProjectId,
+                name: currentProjectName,
+                thumbnail: existing?.thumbnail || '',
+                updatedAt: now,
+                createdAt: existing?.createdAt || now,
+                data: serializeState()
+            };
+            // 不 await，但 IndexedDB 的 put 事务在页面卸载前通常会完成
+            ProjectDB.put(record).catch(() => {});
+            localStorage.setItem(AUTOSAVE_KEY, currentProjectId);
+            isDirty = false;
+        }).catch(() => {
+            // 读不到旧记录也照样存
+            const record = {
+                id: currentProjectId,
+                name: currentProjectName,
+                thumbnail: '',
+                updatedAt: now,
+                createdAt: now,
+                data: serializeState()
+            };
+            ProjectDB.put(record).catch(() => {});
+            localStorage.setItem(AUTOSAVE_KEY, currentProjectId);
+            isDirty = false;
+        });
+    }
+
+
+
+
+
     async function save(silent = false) {
         if (!state) return;
         const thumb = await captureThumbnail();
@@ -388,10 +428,9 @@ const ProjectManager = (function () {
 
         window.addEventListener('beforeunload', (e) => {
             if (isDirty && !suspendAutosave) {
-                save(true);
-                e.preventDefault();
-                e.returnValue = '';
-                return '';
+                // ✅ 关页面/刷新：走同步纯数据保存（不截图），避免 html2canvas 被杀掉导致丢数据
+                saveSync();
+                // 不弹确认框，直接让浏览器正常卸载（数据已尽量同步写入）
             }
         });
     }
@@ -399,6 +438,7 @@ const ProjectManager = (function () {
     return {
         init,
         save,
+        saveSync,
         saveAs,
         newProject,
         openPanel: openProjectPanel,

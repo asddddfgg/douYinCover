@@ -230,24 +230,7 @@ function renderEffectsGrid() {
     const textEffects = visible.filter(eff => getEffectCategory(eff) === 'text');
     const wholeEffects = visible.filter(eff => getEffectCategory(eff) === 'whole');
 
-    function sortByOrder(list, cat, area) {
-        const orderIds = getEffectOrder(cat, area);
-        const map = new Map(list.map(e => [e.id, e]));
-        const sorted = [];
-        orderIds.forEach(id => {
-            if (map.has(id)) {
-                sorted.push(map.get(id));
-                map.delete(id);
-            }
-        });
-        list.forEach(eff => {
-            if (map.has(eff.id)) {
-                sorted.push(eff);
-                map.delete(eff.id);
-            }
-        });
-        return sorted;
-    }
+
 
     function renderSection(cat, catTitle, catEffects) {
         if (catEffects.length === 0) return;
@@ -683,6 +666,9 @@ function toggleEffectPinned(id) {
     } catch (e) { console.error(e); }
 }
 
+
+
+    // sortByOrder 已提升为模块级函数（见下方定义），此处直接使用
 function movePinnedOrder(id, direction) {
     try {
         const all = getAllEffectsMaster();
@@ -694,7 +680,14 @@ function movePinnedOrder(id, direction) {
         const isPinned = !!(states[id] && states[id].pinned);
         const area = isPinned ? 'pinned' : 'normal';
 
-        const ids = getEffectOrder(cat, area);
+        // ✅ 修复：以「当前区内完整可见顺序」为基准，确保后导入的特效也在数组里
+        const visibleInArea = all.filter(e =>
+            !e.hidden &&
+            getEffectCategory(e) === cat &&
+            (!!e.pinned === isPinned)
+        );
+        const ids = sortByOrder(visibleInArea, cat, area).map(e => e.id);
+
         const idx = ids.indexOf(id);
         if (idx === -1) return;
 
@@ -707,8 +700,31 @@ function movePinnedOrder(id, direction) {
         saveEffectOrder(cat, area, ids);
 
         renderEffectsGrid();
-    } catch (e) { console.error(e); }
-}
+     } catch (e) { console.error(e); }
+ }
+
+// ✅ 顶层 sortByOrder：renderEffectsGrid 与 movePinnedOrder 共用，
+//    保证 UI 顺序与排序数组完全同源
+function sortByOrder(list, cat, area) {
+    const orderIds = getEffectOrder(cat, area);
+    const map = new Map(list.map(e => [e.id, e]));
+    const sorted = [];
+    orderIds.forEach(id => {
+        if (map.has(id)) {
+            sorted.push(map.get(id));
+            map.delete(id);
+        }
+    });
+    list.forEach(eff => {
+        if (map.has(eff.id)) {
+            sorted.push(eff);
+            map.delete(eff.id);
+        }
+    });
+    return sorted;
+}      
+
+
 
 function deleteEffect(id, isCustom) {
     if (!confirm('确定要删除这款特效吗？')) return;
