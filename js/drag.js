@@ -541,7 +541,14 @@ function exitAllEditingMode() {
     if (state.editingLayerId) {
         const editableEl = document.querySelector(`.canvas-layer[data-id="${state.editingLayerId}"] .text-content-editable`);
         if (editableEl) {
-            const layer = state.layers.find(l => l.id === state.editingLayerId);
+            // ✅ 修复：跨页时 state.layers 可能不是该图层所在页，改为在全部页中查找
+            let layer = state.layers.find(l => l.id === state.editingLayerId);
+            if (!layer) {
+                for (const p of state.pages) {
+                    const found = p.layers.find(l => l.id === state.editingLayerId);
+                    if (found) { layer = found; break; }
+                }
+            }
             if (layer) layer.content = editableEl.innerHTML;
         }
         state.editingLayerId = null;

@@ -159,9 +159,15 @@ function _drawTextToDataUrl(el, layerStyle) {
     const fontStr = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
     mctx.font = fontStr;
 
+       // ✅ 统一测量：把 letterSpacing 计入（canvas letterSpacing 在部分浏览器不生效，手动加）
+    function measureLineWidth(line) {
+        const base = mctx.measureText(line).width;
+        const spacing = letterSpacing > 0 ? Math.max(0, line.length - 1) * letterSpacing : 0;
+        return base + spacing;
+    }
     let maxWidth = 0;
     lines.forEach(line => {
-        const w = mctx.measureText(line).width + Math.max(0, line.length - 1) * letterSpacing;
+        const w = measureLineWidth(line);
         if (w > maxWidth) maxWidth = w;
     });
     const pad = 8 + (layerStyle.strokeWidth || 0) * 2;
@@ -181,11 +187,11 @@ function _drawTextToDataUrl(el, layerStyle) {
         ctx.fillRect(0, 0, canvasW, canvasH);
     }
 
-    // 字体
     ctx.font = fontStr;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left'; // 自己算 x
-    ctx.letterSpacing = letterSpacing + 'px';
+    // ⚠️ 不要在 canvas 上设 letterSpacing：各浏览器支持不一致会与手动测量双重叠加导致变形
+    // 统一由 measureLineWidth 与逐字绘制处理
 
     // 填充样式：渐变 or 纯色
     let fillStyle = layerStyle.fill || cs.color || '#ffffff';
@@ -221,41 +227,48 @@ function _drawTextToDataUrl(el, layerStyle) {
 
     // 逐行绘制
     lines.forEach((line, i) => {
-        const w = mctx.measureText(line).width + Math.max(0, line.length - 1) * letterSpacing;
+        const w = measureLineWidth(line);
         let x = pad;
         if (align === 'center') x = pad + (maxWidth - w) / 2;
         else if (align === 'right') x = pad + (maxWidth - w);
         const y = pad + i * lineHeight;
 
-        if (layerStyle.strokeWidth > 0) {
-            // 有描边：先粗描边再填充（模拟 -webkit-text-stroke）
-            if (layerStyle.stroke) {
-                ctx.lineWidth = layerStyle.strokeWidth * 2;
-                ctx.strokeStyle = layerStyle.stroke;
-                ctx.lineJoin = 'round';
-                ctx.strokeText(line, x, y);
-            } else if (layerStyle.backgroundGradient) {
-                // 渐变描边（30 号）：用渐变做 strokeStyle
-                const g = _parseLinearGradient(layerStyle.backgroundGradient);
-                if (g) {
-                    const rad = (g.angleDeg - 90) * Math.PI / 180;
-                    const cx = canvasW / 2, cy = canvasH / 2;
-                    const len = Math.abs(canvasW * Math.cos(rad)) + Math.abs(canvasH * Math.sin(rad));
-                    const grad2 = ctx.createLinearGradient(
-                        cx - Math.cos(rad) * len / 2, cy - Math.sin(rad) * len / 2,
-                        cx + Math.cos(rad) * len / 2, cy + Math.sin(rad) * len / 2
-                    );
-                    g.stops.forEach(s => grad2.addColorStop(s.pos, s.color));
+                // ✅ 逐字绘制：保证 letterSpacing 与测量完全一致，避免行内特效变形
+        const chars = Array.from(line);
+        let charX = x;
+        chars.forEach((ch, ci) => {
+            if (layerStyle.strokeWidth > 0) {
+                // 有描边：先粗描边再填充（模拟 -webkit-text-stroke）
+                if (layerStyle.stroke) {
                     ctx.lineWidth = layerStyle.strokeWidth * 2;
-                    ctx.strokeStyle = grad2;
+                    ctx.strokeStyle = layerStyle.stroke;
                     ctx.lineJoin = 'round';
-                    ctx.strokeText(line, x, y);
+                    ctx.strokeText(ch, charX, y);
+                } else if (layerStyle.backgroundGradient) {
+                    // 渐变描边（30 号）：用渐变做 strokeStyle
+                    const g = _parseLinearGradient(layerStyle.backgroundGradient);
+                    if (g) {
+                        const rad = (g.angleDeg - 90) * Math.PI / 180;
+                        const cx = canvasW / 2, cy = canvasH / 2;
+                        const len = Math.abs(canvasW * Math.cos(rad)) + Math.abs(canvasH * Math.sin(rad));
+                        const grad2 = ctx.createLinearGradient(
+                            cx - Math.cos(rad) * len / 2, cy - Math.sin(rad) * len / 2,
+                            cx + Math.cos(rad) * len / 2, cy + Math.sin(rad) * len / 2
+                        );
+                        g.stops.forEach(s => grad2.addColorStop(s.pos, s.color));
+                        ctx.lineWidth = layerStyle.strokeWidth * 2;
+                        ctx.strokeStyle = grad2;
+                        ctx.lineJoin = 'round';
+                        ctx.strokeText(ch, charX, y);
+                    }
                 }
             }
-        }
 
-        ctx.fillStyle = fillStyle;
-        ctx.fillText(line, x, y);
+            ctx.fillStyle = fillStyle;
+            ctx.fillText(ch, charX, y);
+
+            charX += mctx.measureText(ch).width + (letterSpacing > 0 ? letterSpacing : 0);
+        });
 
 
 // 处理 text-decoration
@@ -350,20 +363,65 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
     if (document.fonts && document.fonts.ready) {
         try { await document.fonts.ready; } catch (e) {}
     }
-    const rect = originalNode.getBoundingClientRect();
-    const w = Math.max(1, Math.round(rect.width));
-    const h = Math.max(1, Math.round(rect.height));
+    // ✅ 若截图对象是 .canvas-layer（含底衬），尺寸必须用外层，否则底衬被裁成窄矩形
+    const measureNode = (originalNode.classList && originalNode.classList.contains('canvas-layer'))
+        ? originalNode
+        : (originalNode.closest('.canvas-layer') || originalNode);
+
+    // ✅ 修复：底衬（尤其 isMask 放大后）会溢出 .canvas-layer，截图前计算"含溢出的包围盒"
+    const baseRect = measureNode.getBoundingClientRect();
+    let boxLeft = baseRect.left, boxTop = baseRect.top;
+    let boxRight = baseRect.right, boxBottom = baseRect.bottom;
+    const backdrops = measureNode.querySelectorAll('.layer-backdrop');
+    const prevOverflows = [];
+    backdrops.forEach(bd => {
+        const bdRect = bd.getBoundingClientRect();
+        if (bdRect.width === 0 || bdRect.height === 0) return;
+        boxLeft = Math.min(boxLeft, bdRect.left);
+        boxTop = Math.min(boxTop, bdRect.top);
+        boxRight = Math.max(boxRight, bdRect.right);
+        boxBottom = Math.max(boxBottom, bdRect.bottom);
+        // 临时解除父层 overflow 裁切
+        prevOverflows.push({ el: bd.parentElement, old: bd.parentElement.style.overflow });
+        bd.parentElement.style.overflow = 'visible';
+    });
+    const w = Math.max(1, Math.round(boxRight - boxLeft));
+    const h = Math.max(1, Math.round(boxBottom - boxTop));
     let dataUrl = '';
+    // ✅ 导出前把 isMask 底衬的百分比 background-size 转成像素值，避免 html2canvas 渲染成窄条
+    const maskBackdrops = originalNode.querySelectorAll('.layer-backdrop');
+    const prevBgSizes = [];
+    maskBackdrops.forEach(bd => {
+        const bs = bd.style.backgroundSize;
+        if (bs && bs.includes('%')) {
+            const parts = bs.split(/\s+/);
+            const boxW = bd.offsetWidth;
+            const boxH = bd.offsetHeight;
+            const wPct = parseFloat(parts[0]) || 100;
+            const hPct = parts[1] ? (parseFloat(parts[1]) || 100) : 100;
+            prevBgSizes.push({ el: bd, old: bs });
+            bd.style.backgroundSize = (boxW * wPct / 100) + 'px ' + (boxH * hPct / 100) + 'px';
+        }
+    });
     try {
-        const c = await html2canvas(originalNode, {
+        const c = await html2canvas(measureNode, {
             scale: 2, backgroundColor: null, logging: false,
-            useCORS: true, allowTaint: true
+            useCORS: true, allowTaint: true,
+            x: boxLeft - baseRect.left,
+            y: boxTop - baseRect.top,
+            width: w,
+            height: h
         });
         dataUrl = c.toDataURL('image/png');
     } catch (e) {
         console.warn('离屏截图失败，退回原逻辑:', e);
+        prevBgSizes.forEach(({ el, old }) => { el.style.backgroundSize = old; });
+        prevOverflows.forEach(({ el, old }) => { el.style.overflow = old; });
         return;
     }
+    // ✅ 恢复原样
+    prevBgSizes.forEach(({ el, old }) => { el.style.backgroundSize = old; });
+    prevOverflows.forEach(({ el, old }) => { el.style.overflow = old; });
     if (!dataUrl) return;
 
     // ✅ 关键修复 1：截图的原节点如果是 .canvas-layer，把它的 left/top 也继承给 img
@@ -380,10 +438,13 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
 
     if (isLayerNode) {
         // ✅ 关键修复 2：原节点是绝对定位的 canvas-layer，要把 left/top/transform 照搬
+        //    截图含底衬溢出，img 的位置需扣除包围盒相对原节点的偏移
         const cs = window.getComputedStyle(originalNode);
+        const baseLeftPx = parseFloat(originalNode.style.left || cs.left) || 0;
+        const baseTopPx = parseFloat(originalNode.style.top || cs.top) || 0;
         img.style.position = 'absolute';
-        img.style.left = originalNode.style.left || cs.left;
-        img.style.top = originalNode.style.top || cs.top;
+        img.style.left = (baseLeftPx + (boxLeft - baseRect.left)) + 'px';
+        img.style.top = (baseTopPx + (boxTop - baseRect.top)) + 'px';
         img.style.transform = originalNode.style.transform || cs.transform;
         img.style.transformOrigin = originalNode.style.transformOrigin || cs.transformOrigin;
         img.style.opacity = originalNode.style.opacity || cs.opacity;
@@ -403,10 +464,36 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
 }
 
 
+// ✅ 新增：只把文字节点栅格化后塞进克隆层（不碰底衬），供"有底衬"时先处理文字
+//    抽自 _rasterizeRiskyText 里原有逻辑，保证底衬截图时文字已是位图
+function _rasterizeTextNodeIntoClone(originalNode, clonedNode, effectClass) {
+    if (!originalNode || !clonedNode) return;
+    // 富文本含 span 时交给 html2canvas 原生画
+    if (originalNode.querySelector('span, b, i, u, s, strong, em')) return;
+    try {
+        let styleNode = originalNode;
+        const innerSpan = originalNode.querySelector('span[data-effect-span], span[class*="eff"], span[class*="effect"]');
+        if (innerSpan) styleNode = innerSpan;
+        const computed = window.getComputedStyle(styleNode);
+        const layerStyle = _parseEffectStyle(effectClass, computed);
+        const dataUrl = _drawTextToDataUrl(originalNode, layerStyle);
+        if (!dataUrl) return;
 
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.style.width = originalNode.offsetWidth + 'px';
+        img.style.height = originalNode.offsetHeight + 'px';
+        img.style.display = 'block';
+        img.style.objectFit = 'contain';
+        img.crossOrigin = 'anonymous';
 
-
-
+        if (clonedNode.parentNode) {
+            clonedNode.parentNode.replaceChild(img, clonedNode);
+        }
+    } catch (e) {
+        console.warn('rasterize text into clone failed:', e);
+    }
+}
 
 
 // 核心：onclone 回调，把 risky 文字换成 img
@@ -417,10 +504,13 @@ function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
 
 
     // ✅ 新增：如果这个文字图层有底衬，就把截图对象换成外层 .canvas-layer（连底衬一起截）
+    // ⚠️ 但必须同时保证特效文字被栅格化：底衬截图完成后，仍要把文字节点替换成图片
     const layerEl = originalNode.closest('.canvas-layer');
     if (layerEl && layerEl.querySelector('.layer-backdrop')) {
         const clonedLayerEl = clonedNode.closest('.canvas-layer');
         if (clonedLayerEl) {
+            // 先把文字节点单独栅格化成 img 放进克隆层，再对外层整体截图
+            _rasterizeTextNodeIntoClone(originalNode, clonedNode, effectClass);
             return _rasterizeByOffscreenHtml2Canvas(layerEl, clonedLayerEl);
         }
     }
@@ -645,8 +735,12 @@ function exportElementToPNG(canvasDOMNode, filename, scale) {
         canvasDOMNode.style.boxShadow = 'none';
         canvasDOMNode.style.borderRadius = '0';
 
+        // ✅ 导出期间全局隐藏编辑辅助元素（配合 style.css）
+        document.body.classList.add('exporting');
+
         // 4. 不管成功失败都要恢复
         const cleanup = () => {
+            document.body.classList.remove('exporting');
             toHide.forEach((el, i) => { el.style.display = prevDisplays[i] || ''; });
             selectedLayers.forEach(el => el.classList.add('selected'));
             if (pageWrapper && hadActive) pageWrapper.classList.add('active-page');
@@ -955,25 +1049,23 @@ function createBackdropElement(layer) {
         const pad = (bd.padding !== undefined ? bd.padding : 12);
 
     if (bd.isMask) {
-        // 形状蒙版：正方形框 + 动态 shrink
+        // ✅ 形状蒙版：盒子跟随文字宽高比（编辑时不上下过肥），
+        //    同时保证盒子足够大以完整容纳 SVG（contain），不裁掉图形
         const w = layer.width || 0;
         const h = layer.height || 0;
-        const maxSide = Math.max(w, h);
-        const minSide = Math.min(w, h);
-        const ratio = maxSide > 0 ? minSide / maxSide : 1; // 1=方，接近0=极扁
-
-        // 方文字多缩，扁文字少缩
-        const dynamicShrink = 0.62 + (1 - ratio) * 0.25;
         const sizeScale = (bd.sizeScale != null && isFinite(bd.sizeScale))
-            ? Math.max(0.3, Math.min(1.5, bd.sizeScale))
-            : 0.85; // 全局默认
+            ? Math.max(0.3, Math.min(12, bd.sizeScale))
+            : 4;
 
-        const side = maxSide * dynamicShrink * sizeScale + pad * 2;
+        // 以较长边为基准等比放大盒子的两条边，保持文字宽高比
+        const baseSide = Math.max(w, h) || 1;
+        const maskW = (w / baseSide) * baseSide * sizeScale + pad * 2;
+        const maskH = (h / baseSide) * baseSide * sizeScale + pad * 2;
 
-        el.style.width = side + 'px';
-        el.style.height = side + 'px';
-        el.style.left = ((w - side) / 2) + 'px';
-        el.style.top = ((h - side) / 2) + 'px';
+        el.style.width = maskW + 'px';
+        el.style.height = maskH + 'px';
+       el.style.left = ((w - maskW) / 2 + 15) + 'px';
+        el.style.top = ((h - maskH) / 2) + 'px';
         el.style.right = 'auto';
         el.style.bottom = 'auto';
     } else {
@@ -1088,11 +1180,16 @@ function applyCustomBackdropStyle(el, dataUrl, bd) {
     }
 
     el.style.backgroundImage = `url(${finalUrl})`;
-        // ✅ 形状蒙版默认用 contain（不裁切），其它自定义底衬保持 cover
+    // ✅ 形状蒙版默认用 contain（不裁切），其它自定义底衬保持 cover
         // ✅ 形状蒙版一律用 contain（不裁切），忽略 bd.sizeMode；
     //    其它自定义底衬保持原逻辑
     const mode = (bd && bd.isMask) ? 'contain' : (bd.sizeMode || 'cover');
-    if (mode === 'cover') {
+    if (bd && bd.isMask) {
+        // ✅ 形状蒙版：横向拉伸 1.5 倍（箭头变长），高度仍 contain
+        el.style.backgroundSize = '30% 100%';
+        el.style.backgroundRepeat = 'no-repeat';
+        el.style.backgroundPosition = 'center';
+    } else if (mode === 'cover') {
         el.style.backgroundSize = 'cover';
         el.style.backgroundRepeat = 'no-repeat';
         el.style.backgroundPosition = 'center';

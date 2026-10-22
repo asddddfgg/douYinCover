@@ -13,7 +13,8 @@ class HistoryManager {
             background: this.state.background,
             pages: this.state.pages,
             currentPageId: this.state.currentPageId,
-            selectedLayerId: this.state.selectedLayerId
+            selectedLayerId: this.state.selectedLayerId,
+            selectedLayerIds: this.state.selectedLayerIds || []
         }));
 
         if (this.pointer < this.stack.length - 1) {
@@ -43,6 +44,12 @@ class HistoryManager {
         this.state.currentPageId = snapshot.currentPageId;
         this.state.selectedLayerId = snapshot.selectedLayerId;
         this.state.editingLayerId = null;
+        if (snapshot.selectedLayerId && this.state.pages.some(p =>
+            p.layers.some(l => l.id === snapshot.selectedLayerId))) {
+            this.state.selectedLayerIds = [snapshot.selectedLayerId];
+        } else {
+            this.state.selectedLayerIds = [];
+        }
     }
 }
 
