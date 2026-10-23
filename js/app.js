@@ -3165,11 +3165,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     slider.addEventListener('pointerup', () => {
                         window.__effectParamsDragging = false;
                     });
-                } else if (meta.type === 'color') {
+                               } else if (meta.type === 'color') {
+                    const _supportsEyeDropper = typeof window.EyeDropper !== 'undefined';
                     row.innerHTML = `
                         <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#8b949e; margin-bottom:2px;">
                             <span>${meta.label || key}</span>
-                            <span style="font-family:monospace;">${currentVal}</span>
+                            <span style="font-family:monospace; display:flex; align-items:center; gap:4px;">
+                                <span data-val-for="${key}">${currentVal}</span>
+                                ${_supportsEyeDropper ? `<button class="btn-eye-dropper" title="吸管取色（从屏幕任意位置吸取）" style="background:none;border:1px solid #30363d;border-radius:3px;color:#8b949e;cursor:pointer;padding:0 4px;font-size:11px;line-height:16px;"><i class="fa-solid fa-eye-dropper"></i></button>` : ''}
+                            </span>
                         </div>
                         <input type="color" value="${currentVal}" style="width:100%;height:28px;border:1px solid #30363d;border-radius:4px;background:none;cursor:pointer;" data-param-key="${key}">
                     `;
@@ -3188,9 +3192,29 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.__effectParamsDragging = false;
                         state.saveState();
                     });
-                    picker.addEventListener('pointerup', () => {
+                                        picker.addEventListener('pointerup', () => {
                         window.__effectParamsDragging = false;
                     });
+                    const eyeBtn = row.querySelector('.btn-eye-dropper');
+                    if (eyeBtn) {
+                        eyeBtn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            try {
+                                const eyeDropper = new EyeDropper();
+                                const result = await eyeDropper.open();
+                                const hex = result.sRGBHex;
+                                if (hex) {
+                                    picker.value = hex;
+                                    if (hexLabel) hexLabel.textContent = hex;
+                                    setLayerParam(layer, effectId, key, hex);
+                                    applyEffectLivePreview(layer, effectId);
+                                    state.saveState();
+                                }
+                            } catch (err) {
+                                // 用户按 Esc 取消，静默忽略
+                            }
+                        });
+                    }
                 }
 
                 groupEl.appendChild(row);
