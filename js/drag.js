@@ -30,7 +30,42 @@ let multiResizeLayers = null;  // 参与缩放的图层数组
 let multiResizeInit = null;    // 每个图层的初始几何快照
     let initPositionsMap = new Map();
 
-    container.addEventListener('mousedown', (e) => {
+        container.addEventListener('mousedown', (e) => {
+        // ✅ 右键 + 正在编辑文字 + 有选区：直接弹菜单，不走后面任何选中/清编辑逻辑
+        if (e.button === 2 && state.editingLayerId) {
+            const _ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
+            if (_ctx && !_ctx.collapsed) {
+                e.preventDefault();
+                e.stopPropagation();
+                const menu = document.getElementById('context-menu');
+                if (menu) {
+                    const inlineItem = document.getElementById('ctx-clear-inline-effect');
+                    const layerItem = document.getElementById('ctx-clear-layer-effect');
+                    if (inlineItem) inlineItem.style.display = '';
+                    const curLayer = state.getSelectedLayer();
+                    if (layerItem) layerItem.style.display = (curLayer && curLayer.type === 'text') ? '' : 'none';
+
+                    menu.style.display = 'block';
+                    menu.style.visibility = 'hidden';
+                    menu.style.left = '0px';
+                    menu.style.top = '0px';
+                    const rect = menu.getBoundingClientRect();
+                    const vw = window.innerWidth;
+                    const vh = window.innerHeight;
+                    let x = e.clientX;
+                    let y = e.clientY;
+                    if (x + rect.width > vw - 8) x = vw - rect.width - 8;
+                    if (y + rect.height > vh - 8) y = vh - rect.height - 8;
+                    if (x < 8) x = 8;
+                    if (y < 8) y = 8;
+                    menu.style.left = x + 'px';
+                    menu.style.top = y + 'px';
+                    menu.style.visibility = 'visible';
+                }
+                return;
+            }
+        }
+
         // ✅ 编辑态下：点击其它图层 → 先退出当前编辑再切换选中
 if (state.editingLayerId) {
     const clickedLayerEl = e.target.closest('.canvas-layer');
@@ -214,11 +249,25 @@ if (cornerHandle) {
             showStickerColorBar(dragLayer.type === 'sticker' && dragLayer.stickerType === 'svg');
         }
 
-        // ============ 右键菜单：智能定位，永不溢出屏幕 ============
+                // ============ 右键菜单：智能定位，永不溢出屏幕 ============
         if (e.button === 2) {
             e.preventDefault();
             const menu = document.getElementById('context-menu');
             if (menu) {
+                // ✅ 按语境显隐菜单项
+                const inlineItem = document.getElementById('ctx-clear-inline-effect');
+                const layerItem = document.getElementById('ctx-clear-layer-effect');
+                let hasTextSel = false;
+                try {
+                    if (state.editingLayerId && typeof getActiveSelectionRange === 'function') {
+                        const _ctx = getActiveSelectionRange();
+                        hasTextSel = !!(_ctx && !_ctx.collapsed);
+                    }
+                } catch (_err) { hasTextSel = false; }
+                const layerIsText = !!(dragLayer && dragLayer.type === 'text');
+                if (inlineItem) inlineItem.style.display = hasTextSel ? '' : 'none';
+                if (layerItem) layerItem.style.display = layerIsText ? '' : 'none';
+
                 menu.style.display = 'block';
                 menu.style.visibility = 'hidden';
                 menu.style.left = '0px';

@@ -529,7 +529,9 @@ function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
     // originalNode: 原 DOM 的 .text-content-editable
     // clonedNode:   clone 里的对应节点（会被替换）
     if (!originalNode || !clonedNode) return;
-
+    if (originalNode.querySelector('span[data-effect-span]')) {
+        return;
+    }
 
     // ✅ 新增：如果这个文字图层有底衬，就把截图对象换成外层 .canvas-layer（连底衬一起截）
     // ⚠️ 但必须同时保证特效文字被栅格化：底衬截图完成后，仍要把文字节点替换成图片
@@ -581,9 +583,105 @@ const computed = window.getComputedStyle(styleNode);
     }
 }
 
+
+
+// ✅ 把 CSS 颜色取反（用于手动烘入 filter: invert(100%) 的效果）
+function _invertCssColor(cssColor) {
+    if (!cssColor || cssColor === 'transparent' || cssColor === 'rgba(0, 0, 0, 0)') {
+        return cssColor || 'transparent';
+    }
+    const ctx = _invertCssColor._ctx || (_invertCssColor._ctx = (() => {
+        const c = document.createElement('canvas');
+        c.width = 1; c.height = 1;
+        return c.getContext('2d');
+    })());
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = '#000';
+    ctx.fillStyle = cssColor;
+    const resolved = ctx.fillStyle;
+    if (resolved.startsWith('#')) {
+        const r = parseInt(resolved.slice(1, 3), 16);
+        const g = parseInt(resolved.slice(3, 5), 16);
+        const b = parseInt(resolved.slice(5, 7), 16);
+        const to2 = n => (255 - n).toString(16).padStart(2, '0');
+        return '#' + to2(r) + to2(g) + to2(b);
+    }
+    const m = resolved.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?\s*\)/);
+    if (m) {
+        const r = 255 - parseInt(m[1], 10);
+        const g = 255 - parseInt(m[2], 10);
+        const b = 255 - parseInt(m[3], 10);
+        const a = m[4] !== undefined ? m[4] : 1;
+        return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+    return cssColor;
+}
+
+
+
+
+
+
 // 主入口：给 html2canvas 的 onclone 用
 function _buildOnCloneForExport(originalCanvasNode) {
     return async function (clonedDoc, clonedCanvasEl) {
+
+        console.log('🎯 onclone 开始，clone 里 effect-span 数量:', clonedCanvasEl.querySelectorAll('.text-content-editable span[data-effect-span]').length);
+
+
+        // ✅ 处理行内 span 的 filter: invert(100%)
+        //    html2canvas 不支持 invert 滤镜，会丢失反色 → 白底黑字变黑底白字
+        //    这里手动把 invert 烘进颜色（颜色取反、背景对调），并去掉 filter
+        try {
+            const origTextElsAll = originalCanvasNode.querySelectorAll('.text-content-editable');
+            origTextElsAll.forEach(origEl => {
+                const layerEl0 = origEl.closest('.canvas-layer');
+                if (!layerEl0) return;
+                const layerId0 = layerEl0.dataset.id;
+                const clonedLayer0 = clonedCanvasEl.querySelector(`.canvas-layer[data-id="${layerId0}"]`);
+                if (!clonedLayer0) return;
+                const clonedTextEl0 = clonedLayer0.querySelector('.text-content-editable');
+                if (!clonedTextEl0) return;
+
+                const origSpans = origEl.querySelectorAll('span[data-effect-span]');
+                const cloneSpans = clonedTextEl0.querySelectorAll('span[data-effect-span]');
+                const sn = Math.min(origSpans.length, cloneSpans.length);
+                for (let si = 0; si < sn; si++) {
+                    const osp = origSpans[si];
+                    const csp = cloneSpans[si];
+                    const inlineStyle = osp.getAttribute('style') || '';
+                    const cs = window.getComputedStyle(osp);
+                    const hasInvert = /filter\s*:\s*invert\s*\(/i.test(inlineStyle)
+                                    || /filter\s*:\s*invert\s*\(/i.test(cs.filter);
+
+
+                    console.log('🔍 span 检查: hasInvert=', hasInvert, 'inlineStyle=', inlineStyle, 'computedFilter=', cs.filter);
+
+                    if (!hasInvert) continue;
+
+                    const rawColor = osp.style.color || cs.color;
+                    const rawBg = osp.style.background || osp.style.backgroundColor || cs.backgroundColor;
+                    const invColor = _invertCssColor(rawColor);
+                    const invBg = _invertCssColor(rawBg);
+
+
+                    console.log('🎨 即将改色: invColor=', invColor, 'invBg=', invBg);
+
+
+                    csp.style.setProperty('color', invColor, 'important');
+                    csp.style.setProperty('-webkit-text-fill-color', invColor, 'important');
+                    csp.style.setProperty('background-color', invBg, 'important');
+                    csp.style.setProperty('background-image', 'none', 'important');
+                    csp.style.setProperty('background-clip', 'border-box', 'important');
+                    csp.style.setProperty('-webkit-background-clip', 'border-box', 'important');
+                    csp.style.setProperty('filter', 'none', 'important');
+                    csp.style.setProperty('padding', cs.padding, 'important');
+                }
+            });
+        } catch (e) {
+            console.warn('处理行内 invert 失败:', e);
+        }
+
         // 找出原始画布上所有带 effectClass 的文字节点
         const originalTextEls = originalCanvasNode.querySelectorAll('.text-content-editable');
         const tasks = [];
@@ -1199,6 +1297,20 @@ function createBackdropElement(layer) {
     return el;
 }
 
+
+
+
+// 把 #rrggbb 转 rgba(r,g,b,a)
+function hexToRgbaLocal(hex, alpha) {
+    if (!hex) return `rgba(0,0,0,${alpha})`;
+    let h = hex.replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    const r = parseInt(h.substring(0, 2), 16) || 0;
+    const g = parseInt(h.substring(2, 4), 16) || 0;
+    const b = parseInt(h.substring(4, 6), 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function applyCustomBackdropStyle(el, dataUrl, bd) {
     // ✅ 蒙版着色：如果这个底衬是"形状蒙版"，按 bd.color 着色
     let finalUrl = dataUrl;
@@ -1230,9 +1342,13 @@ function applyCustomBackdropStyle(el, dataUrl, bd) {
         el.style.backgroundRepeat = 'repeat';
         el.style.backgroundPosition = 'top left';
     }
-    if (bd.overlayColor) {
-        el.style.backgroundImage = `linear-gradient(${bd.overlayColor}, ${bd.overlayColor}), url(${finalUrl})`;
-        el.style.backgroundBlendMode = 'multiply';
+        if (bd.overlayColor) {
+        // ✅ 半透明遮罩，而不是不透明色 + multiply
+        //    避免 PNG 透明区被不透明色填满，导致底衬图形看不见
+        el.style.backgroundImage = `linear-gradient(${hexToRgbaLocal(bd.overlayColor, 0.35)}, ${hexToRgbaLocal(bd.overlayColor, 0.35)}), url(${finalUrl})`;
+        el.style.backgroundBlendMode = 'normal';
+    } else {
+        el.style.backgroundBlendMode = 'normal';
     }
 }
 

@@ -414,14 +414,37 @@ const ProjectManager = (function () {
         const btnNew = document.getElementById('btn-new-project');
         if (btnNew) btnNew.addEventListener('click', newProject);
 
-        const lastId = localStorage.getItem(AUTOSAVE_KEY);
+                const lastId = localStorage.getItem(AUTOSAVE_KEY);
         if (lastId) {
             ProjectDB.get(lastId).then(proj => {
-                if (proj) {
-                    currentProjectId = proj.id;
-                    currentProjectName = proj.name;
-                    updateProjectTitleUI();
+                if (!proj) return;
+                // ✅ 关键修复：读取项目后必须真正把数据载入 state（不只是记 id/名字）
+                currentProjectId = proj.id;
+                currentProjectName = proj.name;
+                localStorage.setItem(AUTOSAVE_KEY, proj.id);
+
+                if (proj.data) {
+                    suspendAutosave = true;
+                    try {
+                        state.background = normalizeBackground(JSON.parse(JSON.stringify(proj.data.background)));
+                        state.pages = JSON.parse(JSON.stringify(proj.data.pages));
+                        state.currentPageId = proj.data.currentPageId || state.pages[0]?.id;
+                        state.guides = JSON.parse(JSON.stringify(proj.data.guides || []));
+                        state.snapEnabled = proj.data.snapEnabled !== false;
+                        state.selectedLayerIds = [];
+                        state.selectedLayerId = null;
+                        state.editingLayerId = null;
+                        state.history.stack = [];
+                        state.history.pointer = -1;
+                        state.history.record();
+                    } catch (err) {
+                        console.warn('启动加载项目失败:', err);
+                    }
+                    if (typeof renderAll === 'function') renderAll();
+                    if (window.Guides) Guides.renderGuides();
+                    setTimeout(() => { suspendAutosave = false; }, 500);
                 }
+                updateProjectTitleUI();
             }).catch(() => {});
         }
         updateProjectTitleUI();

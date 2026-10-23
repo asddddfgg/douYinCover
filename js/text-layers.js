@@ -1,8 +1,5 @@
 // Canva Standard Rich Text Formatting on Selection & Top Toolbar Controls
 
-
-
-
 function initTextLayersModule() {
     setupTopToolbarEvents();
     setupContextMenuEvents();
@@ -13,8 +10,6 @@ function initTextLayersModule() {
 function applyFormattingToSelection(command, value = null) {
     document.execCommand(command, false, value);
 }
-
-
 
 /* ============================================================
    选区级特效 v3 —— 焦点保护 + 冻结 range + 手写 span
@@ -151,12 +146,8 @@ function wrapSelectionWithStyle(styleList, markAsEffect = false, passedCtx = nul
     return tasks.length > 0;
 }
 
-
 /* ============================================================
-   清除选区内的"特效 span"（只清 data-effect-span="1" 的）
-   - 只影响与选区相交的部分，不误伤未选中文字
-   - 从内到外拆，避免嵌套 span 拆解错位
-   - 只对强特效属性做清理，保留用户手动颜色/背景
+   清除选区内的"特效 span"（点特效时清旧特效）
    ============================================================ */
 function clearEffectSpansInSelection(ctx) {
     if (!ctx || !ctx.el || !ctx.range) return null;
@@ -167,17 +158,13 @@ function clearEffectSpansInSelection(ctx) {
     const endInfo = getTextOffsetInRoot(root, range.endContainer, range.endOffset);
     if (startInfo === null || endInfo === null) return null;
 
+    // 收集"任何带强特效样式的 span"或带 data-effect-span 的 span
     const effectSpans = [];
-    root.querySelectorAll('[data-effect-span="1"]').forEach(sp => {
-        if (range.intersectsNode(sp)) effectSpans.push(sp);
-    });
-
-    // 历史兼容：无标记、但内联 style 里含有"强特效属性"的 span 也打标
-    root.querySelectorAll('span[style]').forEach(sp => {
-        if (sp.dataset.effectSpan === '1') return;
+    root.querySelectorAll('span').forEach(sp => {
         if (!range.intersectsNode(sp)) return;
-        if (looksLikeEffectSpan(sp)) {
-            sp.dataset.effectSpan = '1';
+        const hasMarker = sp.dataset.effectSpan === '1';
+        if (hasMarker || looksLikeEffectSpan(sp)) {
+            if (!hasMarker) sp.dataset.effectSpan = '1';
             effectSpans.push(sp);
         }
     });
@@ -203,18 +190,23 @@ function clearEffectSpansInSelection(ctx) {
     return { root, start: startInfo, end: endInfo };
 }
 
-/* 判断一个 span 是不是"看起来像特效"（历史兼容用）
-   只认强特效属性，避免把"手动加粗+斜体"误判为特效 */
+// 判断一个 span 是不是"看起来像特效"
 function looksLikeEffectSpan(sp) {
     if (!sp.style) return false;
+    if (sp.dataset.effectSpan === '1') return true;
     const styleProps = Array.from(sp.style).map(p => p.toLowerCase());
     const strongEffectProps = [
+        'color',
         'text-shadow',
         '-webkit-text-stroke',
         '-webkit-text-fill-color',
         'background-clip',
         '-webkit-background-clip',
-        'filter'
+        'filter',
+        'background',
+        'background-color',
+        'padding',
+        'border'
     ];
     for (const p of styleProps) {
         if (strongEffectProps.includes(p)) return true;
@@ -222,7 +214,7 @@ function looksLikeEffectSpan(sp) {
     return false;
 }
 
-/* 记录 (node, offset) 在 root 里的纯文本偏移 */
+// 记录 (node, offset) 在 root 里的纯文本偏移
 function getTextOffsetInRoot(root, node, offset) {
     if (!root.contains(node)) return null;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
@@ -235,7 +227,7 @@ function getTextOffsetInRoot(root, node, offset) {
     return null;
 }
 
-/* 按文本偏移恢复 Selection */
+// 按文本偏移恢复 Selection
 function restoreSelectionByTextOffset(root, start, end) {
     if (!root || start === null || end === null) return;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
@@ -269,7 +261,6 @@ function restoreSelectionByTextOffset(root, start, end) {
      <span data-effect-span>before</span>
      <span>core</span>                      ← core 是 sp 的兄弟，不是后代
      <span data-effect-span>after</span>
-   中间层 <b>/<i>/<a> 原样保留；只去掉 sp 这一层的特效。
    ============================================================ */
 function splitAndClearEffectSpan(sp, root, range) {
     const parent = sp.parentNode;
@@ -301,7 +292,7 @@ function splitAndClearEffectSpan(sp, root, range) {
         let s = 0, e = text.length;
         const nr = document.createRange();
         nr.selectNodeContents(node);
-        const beforeSel = nr.compareBoundaryPoints(Range.END_TO_START, range) <= 0;
+        const beforeSel = nr.compareBoundaryPoints(Range.START_TO_START, range) < 0;
         const afterSel = nr.compareBoundaryPoints(Range.START_TO_END, range) >= 0;
         if (beforeSel || afterSel) {
             charMap.push({ node, text, startChar: 0, endChar: text.length, selected: false });
@@ -332,20 +323,47 @@ function splitAndClearEffectSpan(sp, root, range) {
     charMap.forEach(c => {
         if (!c.text) return;
         const path = pathFromSp(c.node);
-        if (c.selected) {
-            if (c.startChar > 0) {
-                appendTextWithPath(beforeFrag, path, c.text.slice(0, c.startChar));
+
+        // 用"节点与选区是否有交集"判断，不依赖 compareBoundaryPoints 的边界细节
+        let intersects = false;
+        try {
+            intersects = range.intersectsNode(c.node);
+        } catch (e) {
+            intersects = c.selected;
+        }
+
+        if (intersects) {
+            // 用逐字符 intersects 收集该节点在选区内的字符区间 [s, e)
+            let s = c.text.length;
+            let e = 0;
+            try {
+                for (let i = 0; i < c.text.length; i++) {
+                    const cr = document.createRange();
+                    cr.setStart(c.node, i);
+                    cr.setEnd(c.node, i + 1);
+                    const cmpStart = range.compareBoundaryPoints(Range.START_TO_START, cr);
+                    const cmpEnd = range.compareBoundaryPoints(Range.END_TO_END, cr);
+                    if (cmpStart <= 0 && cmpEnd >= 0) {
+                        if (i < s) s = i;
+                        if (i + 1 > e) e = i + 1;
+                    }
+                }
+                if (e <= s) { s = 0; e = c.text.length; }
+            } catch (err) {
+                s = 0;
+                e = c.text.length;
             }
-            if (c.endChar > c.startChar) {
-                appendTextWithPath(coreFrag, path, c.text.slice(c.startChar, c.endChar));
-            }
-            if (c.endChar < c.text.length) {
-                appendTextWithPath(afterFrag, path, c.text.slice(c.endChar));
-            }
+
+            s = Math.max(0, Math.min(s, c.text.length));
+            e = Math.max(0, Math.min(e, c.text.length));
+
+            if (s > 0) appendTextWithPath(beforeFrag, path, c.text.slice(0, s));
+            if (e > s) appendTextWithPath(coreFrag, path, c.text.slice(s, e));
+            if (e < c.text.length) appendTextWithPath(afterFrag, path, c.text.slice(e));
         } else {
             const nr = document.createRange();
             nr.selectNodeContents(c.node);
-            const beforeSel = nr.compareBoundaryPoints(Range.END_TO_START, range) <= 0;
+            const beforeSel = nr.compareBoundaryPoints(Range.START_TO_START, range) < 0;
             appendTextWithPath(beforeSel ? beforeFrag : afterFrag, path, c.text);
         }
     });
@@ -356,13 +374,11 @@ function splitAndClearEffectSpan(sp, root, range) {
     const hasAfter = afterFrag.textContent.length > 0;
 
     if (!hasBefore && !hasAfter && hasCore) {
-        stripEffectFromElement(sp);
-        if (!sp.attributes.length) {
-            const p = sp.parentNode;
-            if (p) {
-                while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
-                p.removeChild(sp);
-            }
+        // 完整覆盖：把所有子节点原样提到父层，直接删掉 span 本身
+        const p = sp.parentNode;
+        if (p) {
+            while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
+            p.removeChild(sp);
         }
         return;
     }
@@ -385,7 +401,7 @@ function splitAndClearEffectSpan(sp, root, range) {
     parent.removeChild(sp);
 }
 
-/* 沿原始祖先链（<b>/<i> 等）递归克隆，把一段文本塞进 frag */
+// 沿原始祖先链递归克隆，把一段文本塞进 frag
 function appendTextWithPath(frag, path, text) {
     if (!text) return;
     if (path.length === 0) {
@@ -402,7 +418,7 @@ function appendTextWithPath(frag, path, text) {
     frag.appendChild(inner);
 }
 
-/* 浅克隆 sp（含 class / 非特效样式），按 keepEffect 决定是否保留特效与标记 */
+// 浅克隆 sp（含 class / 非特效样式），按 keepEffect 决定是否保留特效与标记
 function cloneElementShallow(sp, keepEffect) {
     const clone = document.createElement(sp.tagName);
     if (sp.className) clone.className = sp.className;
@@ -436,7 +452,7 @@ function cloneElementShallow(sp, keepEffect) {
     return clone;
 }
 
-/* 去掉元素上的特效属性与标记 */
+// 去掉元素上的特效属性与标记
 function stripEffectFromElement(el) {
     el.removeAttribute('data-effect-span');
     if (el.style) {
@@ -448,48 +464,106 @@ function stripEffectFromElement(el) {
     }
 }
 
-
-
-
-
-
-// 清除选区内局部样式
+/* ============================================================
+   清除选区内所有特效（重建 innerHTML，按偏移量切三段）
+   ============================================================ */
 function clearLocalFormat() {
     const ctx = getActiveSelectionRange();
     if (!ctx || ctx.collapsed) {
-        const layer = state.getSelectedLayer();
-        if (layer && layer.type === 'text') {
-            const tmp = document.createElement('div');
-            tmp.innerHTML = layer.content || '';
-            tmp.querySelectorAll('span').forEach(sp => {
-                sp.removeAttribute('style');
-            });
-            layer.content = tmp.innerHTML;
-            state.saveState();
-            renderCanvas();
+        if (typeof showBgToast === 'function') {
+            showBgToast('请先在文本中选中要清除特效的文字');
         }
         return;
     }
-    ensureStyleWithCSS();
-    try { document.execCommand('removeFormat'); } catch (e) {}
-    const spans = ctx.el.querySelectorAll('span');
-    const sel = ctx.sel;
-    if (sel) {
-        spans.forEach(sp => {
-            if (sel.containsNode(sp, true)) {
-                sp.style.backgroundColor = '';
-                sp.style.color = '';
-                if (!sp.getAttribute('style')) {
-                    const parent = sp.parentNode;
-                    while (sp.firstChild) parent.insertBefore(sp.firstChild, sp);
-                    parent.removeChild(sp);
-                }
+
+    const rootEl = ctx.el;
+    const range = ctx.range;
+
+    const startOffset = getTextOffsetInRoot(rootEl, range.startContainer, range.startOffset);
+    const endOffset = getTextOffsetInRoot(rootEl, range.endContainer, range.endOffset);
+    if (startOffset === null || endOffset === null) return;
+
+    const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null, false);
+    let total = 0;
+    const segBefore = [];
+    const segMiddle = [];
+    const segAfter = [];
+
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const text = node.nodeValue;
+        if (!text) continue;
+        const nodeStart = total;
+        const nodeEnd = total + text.length;
+        total = nodeEnd;
+
+        const ancestors = [];
+        let p = node.parentNode;
+        while (p && p !== rootEl) {
+            ancestors.unshift(p);
+            p = p.parentNode;
+        }
+
+        const s = Math.max(nodeStart, startOffset);
+        const e = Math.min(nodeEnd, endOffset);
+
+        if (nodeEnd <= startOffset) {
+            segBefore.push({ text, ancestors });
+        } else if (nodeStart >= endOffset) {
+            segAfter.push({ text, ancestors });
+        } else {
+            if (nodeStart < startOffset) {
+                segBefore.push({ text: text.slice(0, startOffset - nodeStart), ancestors });
             }
-        });
+            if (e > s) {
+                segMiddle.push({ text: text.slice(s - nodeStart, e - nodeStart), ancestors });
+            }
+            if (nodeEnd > endOffset) {
+                segAfter.push({ text: text.slice(endOffset - nodeStart), ancestors });
+            }
+        }
     }
+
+    const buildHtml = (segments) => {
+        let html = '';
+        segments.forEach(seg => {
+            let inner = escapeHtml(seg.text);
+            for (let i = seg.ancestors.length - 1; i >= 0; i--) {
+                const a = seg.ancestors[i];
+                const tag = a.tagName.toLowerCase();
+                if (tag !== 'span' && tag !== 'b' && tag !== 'i' && tag !== 'u' && tag !== 's' && tag !== 'em' && tag !== 'strong') {
+                    continue;
+                }
+                let attrs = '';
+                if (a.className) attrs += ` class="${a.className}"`;
+                const style = a.getAttribute('style');
+                if (style) attrs += ` style="${style}"`;
+                inner = `<${tag}${attrs}>${inner}</${tag}>`;
+            }
+            html += inner;
+        });
+        return html;
+    };
+
+    const middleHtml = segMiddle.map(s => escapeHtml(s.text)).join('');
+    const beforeHtml = buildHtml(segBefore);
+    const afterHtml = buildHtml(segAfter);
+
+    rootEl.innerHTML = beforeHtml + middleHtml + afterHtml;
+
     const layer = state.layers.find(l => l.id === state.editingLayerId);
-    if (layer) layer.content = ctx.el.innerHTML;
+    if (layer) layer.content = rootEl.innerHTML;
+
+    _savedSelectionContext = null;
     updateTopToolbarUI(state.getSelectedLayer());
+    state.saveState();
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
 // 把单个特效应用到当前选区
@@ -497,15 +571,29 @@ function applyEffectToSelection(eff) {
     if (!eff || !eff.css) return;
     const ctx = getActiveSelectionRange();
     if (!ctx || ctx.collapsed) return;
-    // 先清掉选区里"上一次特效"的 span（只动带 data-effect-span 的），
-    // 保留前后未选中部分；清理后 DOM 会变，必须重新取选区再 wrap。
+
     const layerId = state.editingLayerId;
+    const rootEl = ctx.el;
     const saved = clearEffectSpansInSelection(ctx);
     if (saved) {
         restoreSelectionByTextOffset(saved.root, saved.start, saved.end);
     }
-    const newCtx = getActiveSelectionRange();
-    if (!newCtx || newCtx.collapsed) return;
+
+    let newCtx = getActiveSelectionRange();
+    if ((!newCtx || newCtx.collapsed) && saved && saved.root) {
+        restoreSelectionByTextOffset(saved.root, saved.start, saved.end);
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+            const r = sel.getRangeAt(0);
+            if (saved.root.contains(r.commonAncestorContainer) && !r.collapsed) {
+                newCtx = { el: saved.root, range: r, sel, collapsed: r.collapsed };
+            }
+        }
+    }
+    if (!newCtx || newCtx.collapsed) {
+        console.warn('套新特效失败：清理后选区丢失');
+        return;
+    }
 
     const rules = [];
     eff.css.split(';').forEach(rule => {
@@ -539,7 +627,10 @@ function applyEffectToSelection(eff) {
     });
 
     if (manualList.length > 0) {
-        wrapSelectionWithStyle(manualList, true, newCtx);
+        const wrapped = wrapSelectionWithStyle(manualList, true, newCtx);
+        if (!wrapped) {
+            console.warn('套新特效失败：wrapSelectionWithStyle 返回 false');
+        }
     }
 
     const layer = state.layers.find(l => l.id === layerId);
@@ -568,7 +659,6 @@ function handleEffectClick(eff) {
         return;
     }
 
-    // 有选区，但这特效只支持整层 → 弹提示后再整层套
     if (hasSelection && !canEffectApplyToSelection(eff.css)) {
         if (typeof showBgToast === 'function') {
             showBgToast(`「${eff.name}」只能作用于整个图层，已为你整层套用`);
@@ -582,7 +672,9 @@ function handleEffectClick(eff) {
     if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
 }
 
-// ============ 顶部工具栏（新版：编辑态自动走选区） ============
+/* ============================================================
+   顶部工具栏
+   ============================================================ */
 function setupTopToolbarEvents() {
     const fontSelect = document.getElementById('tb-font');
     if (fontSelect) {
@@ -744,7 +836,7 @@ function setupTopToolbarEvents() {
     }
 }
 
-// ============ 顶部工具栏状态同步（编辑态回显选区样式） ============
+// 顶部工具栏状态同步
 function updateTopToolbarUI(layer) {
     const toolbar = document.getElementById('text-toolbar');
     if (!toolbar) return;
@@ -806,9 +898,9 @@ document.addEventListener('selectionchange', () => {
     if (layer) updateTopToolbarUI(layer);
 });
 
-
-
-
+/* ============================================================
+   右键菜单
+   ============================================================ */
 function setupContextMenuEvents() {
     const menu = document.getElementById('context-menu');
     document.addEventListener('click', () => { menu.style.display = 'none'; });
@@ -847,25 +939,18 @@ function setupContextMenuEvents() {
         }
     });
 
-        const doMoveLayer = (direction) => {
-        // 优先用多选里的"主选中"，没有再退回 selectedLayerId
+    const doMoveLayer = (direction) => {
         let id = state.selectedLayerId;
         if (window.MultiSelect && state.selectedLayerIds && state.selectedLayerIds.length === 1) {
             id = state.selectedLayerIds[0];
         }
         if (!id) return;
-
-        // 先确认这一层确实存在于当前页，避免"点了没反应"
         const exists = state.layers.some(l => l.id === id);
         if (!exists) return;
-
         const moved = state.moveLayer(id, direction);
-        if (!moved) return; // 已经在最顶/最底，什么都不用做
-
-        // 挪完保持选中
+        if (!moved) return;
         state.selectedLayerId = id;
         if (window.MultiSelect) state.selectedLayerIds = [id];
-
         renderCanvas();
         renderLayerList();
         updateTopToolbarUI(state.getSelectedLayer());
@@ -876,8 +961,6 @@ function setupContextMenuEvents() {
 
     document.getElementById('ctx-flip-h').addEventListener('click', () => {
         const layer = state.getSelectedLayer();
-
-
         if (layer) { layer.flipH = !layer.flipH; state.saveState(); renderCanvas(); }
     });
 
@@ -903,6 +986,72 @@ function setupContextMenuEvents() {
             if (typeof showStickerColorBar === 'function') showStickerColorBar(false);
         }
     });
+
+    // 清除所选文字特效（行内）
+    const clearInlineItem = document.getElementById('ctx-clear-inline-effect');
+    if (clearInlineItem) {
+        let _inlineClearCtx = null;
+        clearInlineItem.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+                const c = getActiveSelectionRange();
+                if (c && !c.collapsed) {
+                    _inlineClearCtx = {
+                        el: c.el,
+                        range: c.range.cloneRange(),
+                        collapsed: false
+                    };
+                }
+            } catch (err) {}
+        }, true);
+        clearInlineItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (_inlineClearCtx && _inlineClearCtx.el && _inlineClearCtx.range) {
+                const prevCtx = _savedSelectionContext;
+                _savedSelectionContext = {
+                    layerId: state.editingLayerId || '',
+                    el: _inlineClearCtx.el,
+                    range: _inlineClearCtx.range
+                };
+                clearLocalFormat();
+                _savedSelectionContext = prevCtx;
+            } else {
+                clearLocalFormat();
+            }
+            _inlineClearCtx = null;
+            const m = document.getElementById('context-menu');
+            if (m) m.style.display = 'none';
+        });
+    }
+
+    // 清除整层特效
+    const clearLayerItem = document.getElementById('ctx-clear-layer-effect');
+    if (clearLayerItem) {
+        clearLayerItem.addEventListener('click', () => {
+            const layer = state.getSelectedLayer();
+            if (!layer || layer.type !== 'text') return;
+            layer.effectClass = null;
+            const tmp = document.createElement('div');
+            tmp.innerHTML = layer.content || '';
+            tmp.querySelectorAll('span').forEach(sp => {
+                sp.removeAttribute('data-effect-span');
+                sp.removeAttribute('style');
+                if (!sp.attributes.length && !sp.className) {
+                    const p = sp.parentNode;
+                    while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
+                    p.removeChild(sp);
+                }
+            });
+            tmp.normalize();
+            layer.content = tmp.innerHTML;
+            state.saveState();
+            renderCanvas();
+            renderLayerList();
+            if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
+        });
+    }
 }
 
 /* ============================================================
@@ -931,20 +1080,17 @@ const BACKDROP_PRESETS = [
     { type: 'linen', name: '亚麻布', cat: 'texture' },
     // 装饰
     { type: 'glass', name: '毛玻璃', cat: 'decor' },
-
     { type: 'polaroid', name: '拍立得', cat: 'decor' },
     { type: 'ticket', name: '车票/电影票', cat: 'decor' },
     { type: 'washi', name: '日式和纸', cat: 'decor' }
 ];
 
 let currentBackdropCategory = 'paper';
-let backdropCache = {};   // custom id -> dataUrl
+let backdropCache = {};
 
 function setupBackdropPanel() {
-    // ✅ 绑定"批量导入形状"按钮
     setupBackdropImport();
 
-    // 分类切换
     const tabsEl = document.getElementById('backdrop-tabs');
     if (tabsEl) {
         tabsEl.querySelectorAll('.backdrop-tab').forEach(tab => {
@@ -959,7 +1105,6 @@ function setupBackdropPanel() {
 
     renderBackdropGrid();
 
-    // 上传
     const btnUpload = document.getElementById('btn-backdrop-upload');
     const fileInput = document.getElementById('backdrop-file-input');
     if (btnUpload && fileInput) {
@@ -975,13 +1120,11 @@ function setupBackdropPanel() {
         });
     }
 
-    // 查看格式
     const btnFormat = document.getElementById('btn-backdrop-format');
     if (btnFormat) {
         btnFormat.addEventListener('click', showBackdropFormatModal);
     }
 
-    // 通用控制
     const colorInput = document.getElementById('backdrop-color');
     const padInput = document.getElementById('backdrop-padding');
     const rotInput = document.getElementById('backdrop-rotate');
@@ -1020,7 +1163,6 @@ function setupBackdropPanel() {
         updateLayerBackdrop(bd => bd.opacity = parseInt(e.target.value, 10) / 100);
     });
 
-    // 自定义专用控件
     const sizeModeSel = document.getElementById('backdrop-sizemode');
     if (sizeModeSel) sizeModeSel.addEventListener('change', (e) => {
         updateLayerBackdrop(bd => bd.sizeMode = e.target.value);
@@ -1034,7 +1176,6 @@ function setupBackdropPanel() {
         updateLayerBackdrop(bd => bd.overlayColor = null);
     });
 
-    // 初始化自定义底衬缓存
     refreshCustomBackdropCache().then(() => renderBackdropGrid());
 }
 
@@ -1079,7 +1220,6 @@ function createBackdropCard(preset) {
     } else if (preset.type === 'custom') {
         // 由 renderCustomBackdropGrid 处理
     } else if (window.BackdropTextures && BackdropTextures.isCanvasTexture(preset.type)) {
-        // Canvas 纹理预览：显式用 backgroundImage
         const dataUrl = BackdropTextures.get(preset.type, null);
         if (dataUrl) {
             preview.style.background = 'transparent';
@@ -1089,7 +1229,6 @@ function createBackdropCard(preset) {
             preview.style.background = '#30363d';
         }
     } else {
-        // CSS 底衬预览：使用 CSS 类
         preview.classList.add(`backdrop-${preset.type}`);
         if (preset.type === 'brush') {
             preview.style.background = 'rgba(255,235,59,0.55)';
@@ -1115,10 +1254,8 @@ function createBackdropCard(preset) {
         layer.backdrop.type = preset.type;
         if (preset.type === 'custom') return;
 
-        // Canvas 纹理的默认颜色（如果用户没设过）
         if (window.BackdropTextures && BackdropTextures.isCanvasTexture(preset.type)) {
             if (!layer.backdrop.color || layer.backdrop.color === '#fff8dc') {
-                // 给个更接近材质本身的默认色
                 const defaults = {
                     kraft: '#d2b48c', fiber: '#f5efe0', watercolor: '#f0f4f8',
                     xuan: '#faf6ec', parchment: '#f4e4c1', newspaper: '#e8e4d8',
@@ -1130,7 +1267,6 @@ function createBackdropCard(preset) {
         }
         state.saveState();
         renderCanvas();
-        // 禁止整表重建，否则侧栏滚动/布局跳动，看起来像光标回弹
         syncBackdropPanelToLayer(layer);
     });
 
@@ -1203,26 +1339,16 @@ async function renderCustomBackdropGrid(grid) {
                 layer.backdrop.type = 'custom';
                 layer.backdrop.customId = item.id;
                 layer.backdrop.sizeMode = layer.backdrop.sizeMode || 'cover';
-                // ✅ 根据库里记录的 isMask 决定：是形状蒙版才标记，上传图片不标
-                               // ✅ 兼容：从"形状导入"进来的蒙版底衬，标记 isMask + 白色默认色
-               // ✅ 严格按 BackdropDB 记录里的 isMask 决定，不再靠 name 猜测
-if (item.isMask) {
-    layer.backdrop.isMask = true;
-    if (!layer.backdrop.color || layer.backdrop.color === '#fff8dc') {
-        layer.backdrop.color = '#ffffff';
-    }
-} else {
-    // 普通图片底衬：明确不染色
-    layer.backdrop.isMask = false;
-    // color 可以保留，但 UI 会隐藏，不影响渲染
-}
-
-
-
-
+                if (item.isMask) {
+                    layer.backdrop.isMask = true;
+                    if (!layer.backdrop.color || layer.backdrop.color === '#fff8dc') {
+                        layer.backdrop.color = '#ffffff';
+                    }
+                } else {
+                    layer.backdrop.isMask = false;
+                }
                 state.saveState();
                 renderCanvas();
-                // 同上：不要 rebuild
                 syncBackdropPanelToLayer(layer);
             });
 
@@ -1241,7 +1367,7 @@ async function uploadBackdropImage(file) {
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });
-        await BackdropDB.addBackdrop(file.name, dataUrl, false);   // ⭐ 加 false，表示普通图片
+        await BackdropDB.addBackdrop(file.name, dataUrl, false);
         alert(`底衬图片 "${file.name}" 上传成功！已保存到"自定义"分类。`);
     } catch (err) {
         console.error('上传底衬失败:', err);
@@ -1277,7 +1403,6 @@ function syncBackdropPanelToLayer(layer) {
     if (opInput) opInput.value = Math.round((bd.opacity !== undefined ? bd.opacity : 1) * 100);
     if (opVal) opVal.textContent = Math.round((bd.opacity !== undefined ? bd.opacity : 1) * 100);
 
-    // 自定义控件显隐
     const customCtrl = document.getElementById('backdrop-custom-controls');
     if (customCtrl) {
         customCtrl.style.display = (bd.type === 'custom') ? 'block' : 'none';
@@ -1287,7 +1412,6 @@ function syncBackdropPanelToLayer(layer) {
     const overlayInput = document.getElementById('backdrop-overlay-color');
     if (overlayInput && bd.overlayColor) overlayInput.value = bd.overlayColor;
 
-    // 刷新网格 active 状态
     document.querySelectorAll('.backdrop-card').forEach(card => {
         const t = card.dataset.backdropType;
         const cid = card.dataset.customId;
@@ -1299,10 +1423,9 @@ function syncBackdropPanelToLayer(layer) {
             card.classList.remove('active');
         }
     });
-      // ✅ 按 isMask 显隐"底衬颜色"控制组
+
     const colorGroup = document.getElementById('backdrop-color-group');
     if (colorGroup) {
-        // 仅「自定义 + 形状蒙版」显示颜色选择器
         const showColor = (bd.type === 'custom' && bd.isMask === true);
         colorGroup.style.display = showColor ? 'block' : 'none';
     }
@@ -1388,7 +1511,6 @@ function showBackdropFormatModal() {
     modal.appendChild(box);
     document.body.appendChild(modal);
 
-    // 复制按钮
     box.querySelectorAll('[data-copy-sample]').forEach(btn => {
         btn.addEventListener('click', () => {
             const which = btn.dataset.copySample;
@@ -1410,7 +1532,6 @@ function showBackdropFormatModal() {
     document.getElementById('btn-close-backdrop-modal').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 
-    // 全选方便复制
     box.querySelectorAll('textarea').forEach(ta => {
         ta.addEventListener('focus', () => ta.select());
     });
@@ -1433,17 +1554,8 @@ function fallbackCopy(text) {
     document.body.removeChild(ta);
 }
 
-
-
-
-
 /* ============================================================
-   底衬形状批量导入（A 方案：白色透明蒙版 + 每图层独立着色）
-   - 支持 { "shapes": [ { name, svg?, path?, viewBox? } ] }
-   - 也兼容直接数组 [ { name, svg?, path? } ]
-   - 支持 .svg 文件一次性拖入
-   - 严格白名单校验，拒绝 script / on* / 外链
-   - 所有形状统一转成白色透明蒙版 PNG 存进 BackdropDB
+   底衬形状批量导入
    ============================================================ */
 
 const SHAPE_FORMAT = 'douyin-backdrop-shapes';
@@ -1497,16 +1609,10 @@ function _sanitizeSvg(rawSvg) {
     return svg;
 }
 
-
 // 把任意 SVG 统一成：白色填充、无描边、透明底，然后转 PNG 蒙版
-// 把任意 SVG 统一成：白色填充、无描边、透明底，然后转 PNG 蒙版
-// 把任意 SVG 统一成：白色填充、无描边、透明底，然后转 PNG 蒙版
-// 核心：强制 SVG 的 width/height = 256，用 data:image/svg+xml 加载，
-//       直接 drawImage(img,0,0,256,256)，完全不依赖 naturalWidth/Height
 function _svgToWhiteMaskDataUrl(svgString) {
     const svg = _sanitizeSvg(svgString);
 
-    // ---------- 1. 保证有合法的 viewBox ----------
     let vb = svg.getAttribute('viewBox') || svg.getAttribute('viewbox');
     if (!vb) {
         const w = parseFloat(svg.getAttribute('width')) || 0;
@@ -1518,11 +1624,8 @@ function _svgToWhiteMaskDataUrl(svgString) {
     const safeVb = (parts.length === 4 && vw > 0 && vh > 0)
         ? `${vx} ${vy} ${vw} ${vh}`
         : '0 0 100 100';
-      svg.setAttribute('viewBox', safeVb);
+    svg.setAttribute('viewBox', safeVb);
 
-    // 关键修复：先把 SVG 的 viewBox 扩展为正方形坐标范围，再栅格化为正方形 PNG。
-    // 仅设置 preserveAspectRatio 在部分输入/渲染链路中不足以避免宽高比被压缩；
-    // 扩展较短的一边而不是拉伸图形，因此圆仍是圆、三角形仍保持原有角度。
     const viewBoxParts = safeVb.split(/\s+/).map(Number);
     const [viewX, viewY, viewWidth, viewHeight] = viewBoxParts;
     const squareSide = Math.max(viewWidth, viewHeight);
@@ -1534,17 +1637,14 @@ function _svgToWhiteMaskDataUrl(svgString) {
     ].join(' ');
     svg.setAttribute('viewBox', squareViewBox);
 
-    // ---------- 2. 强制 intrinsic size = 目标尺寸（关键） ----------
     svg.setAttribute('width', String(SHAPE_MASK_SIZE));
     svg.setAttribute('height', String(SHAPE_MASK_SIZE));
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
-    // 确保 xmlns（sanitize 后有时会丢）
     if (!svg.getAttribute('xmlns')) {
         svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     }
 
-    // ---------- 3. 所有图形 → 白色填充、无描边 ----------
     const walker = document.createTreeWalker(svg, NodeFilter.SHOW_ELEMENT, null);
     const all = [svg];
     while (walker.nextNode()) all.push(walker.currentNode);
@@ -1564,7 +1664,6 @@ function _svgToWhiteMaskDataUrl(svgString) {
         if (node.hasAttribute('style')) node.removeAttribute('style');
     });
 
-    // ---------- 4. 序列化 → data:image/svg+xml → 绘制 ----------
     const serialized = new XMLSerializer().serializeToString(svg);
     const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serialized);
 
@@ -1579,7 +1678,6 @@ function _svgToWhiteMaskDataUrl(svgString) {
                 canvas.height = SHAPE_MASK_SIZE;
                 const ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, SHAPE_MASK_SIZE, SHAPE_MASK_SIZE);
-                // 直接 1:1 画，SVG 已经是 256×256，绝不依赖 naturalWidth
                 ctx.drawImage(img, 0, 0, SHAPE_MASK_SIZE, SHAPE_MASK_SIZE);
                 resolve(canvas.toDataURL('image/png'));
             } catch (e) {
@@ -1590,11 +1688,6 @@ function _svgToWhiteMaskDataUrl(svgString) {
         img.src = svgDataUrl;
     });
 }
-
-
-
-
-
 
 // 从"只有 path"的简写生成 SVG
 function _pathToSvg(pathD, viewBox, fill) {
@@ -1608,12 +1701,10 @@ async function _parseShapeInput(text) {
     const trimmed = (text || '').trim();
     if (!trimmed) throw new Error('输入为空');
 
-    // 情况 1：单个 SVG 文本
     if (trimmed.startsWith('<svg')) {
         return [{ name: 'SVG 形状 ' + Date.now(), svg: trimmed }];
     }
 
-    // 情况 2：JSON
     let data;
     try { data = JSON.parse(trimmed); }
     catch (e) { throw new Error('JSON 解析失败：' + e.message); }
@@ -1646,7 +1737,7 @@ async function _importShapesFromText(text) {
         const s = shapes[i];
         try {
             const dataUrl = await _svgToWhiteMaskDataUrl(s.svg);
-            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl, true);   // ⭐ 加 true，表示形状蒙版
+            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl, true);
             results.push({ name: s.name, ok: true, id });
             ok++;
             if (status) status.innerHTML = `处理中 ${i + 1}/${shapes.length}：${s.name} ✔`;
@@ -1658,7 +1749,6 @@ async function _importShapesFromText(text) {
     }
 
     await refreshCustomBackdropCache();
-    // 切到"自定义"分类，让用户立刻看到
     currentBackdropCategory = 'custom';
     const tabsEl = document.getElementById('backdrop-tabs');
     if (tabsEl) {
@@ -1723,27 +1813,16 @@ function setupBackdropImport() {
     }
 }
 
-
-
 function setupExternalPasteEntry() {
-    // 粘贴绑定用的是立即执行函数，这里只是占位，保证 init 时能调用到
     if (typeof bindExternalPaste === 'function') bindExternalPaste();
 }
 
-
-
 /* ============================================================
-   外部剪贴板粘贴 → 新建文字图层（Canva 风格）
-   - 只在"非编辑焦点"时生效：当前没在编辑任何文字框
-   - 原有输入框内粘贴逻辑完全不动（见守卫函数）
-   - 位置 = 鼠标最后停在画布上的位置，否则画布中心
-   - 新图层：align:'left'，fontSize:'24px'，heightMode:'auto'
+   外部剪贴板粘贴 → 新建文字图层
    ============================================================ */
 
-// 记录鼠标最后停在画布上的坐标（画布坐标系）
 window.__lastCanvasMouse = null;
 
-// 判断事件目标是否处于"文字编辑态"（input / textarea / contenteditable）
 function _isEditingTextTarget(el) {
     if (!el) return false;
     const tag = (el.tagName || '').toLowerCase();
@@ -1756,7 +1835,6 @@ function _isEditingTextTarget(el) {
     return false;
 }
 
-// 把纯文本转成安全的 HTML（转义 + 换行变 <br>）
 function _textToHtmlContent(text) {
     const esc = String(text)
         .replace(/&/g, '&amp;')
@@ -1765,7 +1843,6 @@ function _textToHtmlContent(text) {
     return esc.split(/\r?\n/).map(line => line || '&nbsp;').join('<br>');
 }
 
-// 从剪贴板事件里取纯文本（优先 text/plain，最稳）
 function _extractPastedText(e) {
     const cd = e.clipboardData;
     if (!cd) return '';
@@ -1782,25 +1859,22 @@ function _extractPastedText(e) {
     return raw ? raw.replace(/\r\n/g, '\n').trim() : '';
 }
 
-// 主处理器：非编辑态粘贴 → 新建文字图层
 function handleExternalPaste(e) {
     const text = _extractPastedText(e);
-    if (!text) return;              // 没有文本（如粘贴图片）→ 不拦，放行
+    if (!text) return;
     if (!state || !state.pages) return;
 
     const page = state.pages.find(p => p.id === state.currentPageId);
     if (!page) return;
 
-    e.preventDefault();             // 只在自己的分支阻止默认行为
+    e.preventDefault();
 
-    // 落点：优先用最后的鼠标位置，否则画布中心（360×640）
     let x = 180, y = 320;
     const m = window.__lastCanvasMouse;
     if (m && m.pageId === page.id) {
         x = m.x;
         y = m.y;
     }
-    // 稍微左上偏移，避免文字正好压在鼠标下
     x = Math.max(0, Math.min(x - 10, 360 - 40));
     y = Math.max(0, Math.min(y - 10, 640 - 40));
 
@@ -1837,12 +1911,10 @@ function handleExternalPaste(e) {
 }
 window.handleExternalPaste = handleExternalPaste;
 
-// 绑定：捕获阶段监听 paste，先做守卫，编辑态直接放行
 (function bindExternalPaste() {
     if (window.__externalPasteBound) return;
     window.__externalPasteBound = true;
 
-    // 1) 记录鼠标在画布上的最后坐标
     document.addEventListener('mousemove', (e) => {
         const canvas = e.target.closest && e.target.closest('.cover-canvas');
         if (!canvas) return;
@@ -1859,15 +1931,10 @@ window.handleExternalPaste = handleExternalPaste;
         };
     }, true);
 
-    // 2) 粘贴守卫：编辑态放行，非编辑态走新逻辑
     document.addEventListener('paste', (e) => {
         if (_isEditingTextTarget(e.target) || _isEditingTextTarget(document.activeElement)) {
-            return; // ⚠️ 原有输入框粘贴逻辑，完全不动
+            return;
         }
         handleExternalPaste(e);
     }, true);
 })();
-
-
-
-
