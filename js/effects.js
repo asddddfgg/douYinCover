@@ -1,7 +1,10 @@
-// Art Effects Library (Supports pin, hide, delete, batch upload with auto-rename duplicate protection, hidden bin, reordering & selectable copy modal)
+// Art Effects Library v2 — 统一参数化格式
+// 所有特效 = { id, name, params, template }
+// template 用 {key} 占位符，渲染时替换成参数值
+// 老数据（{id,name,css}）自动迁移成新格式
 
 /* ============================================================
-   特效栏位分类 v1：文字 / 整层 × 置顶 / 普通
+   特效栏位分类 / 排序 / 置顶 / 隐藏
    ============================================================ */
 const EFFECT_STATE_KEY = 'douyin_effects_states_v3';
 const EFFECT_PINNED_TEXT_KEY = 'douyin_effects_pinned_order_text';
@@ -16,11 +19,12 @@ function getEffectCategory(eff) {
     try { overrides = JSON.parse(localStorage.getItem(EFFECT_CATEGORY_OVERRIDES_KEY) || '{}'); } catch (e) {}
     if (overrides[eff.id]) return overrides[eff.id];
 
+    // 用渲染出的 CSS 判断（兼容新格式）
+    const css = eff.template ? renderTemplate(eff.template, getDefaultParams(eff)) : (eff.css || '');
     if (typeof canEffectApplyToSelection === 'function') {
-        return canEffectApplyToSelection(eff.css) ? 'text' : 'whole';
+        return canEffectApplyToSelection(css) ? 'text' : 'whole';
     }
-
-    const c = (eff.css || '').toLowerCase();
+    const c = css.toLowerCase();
     if (/(^|;|\s)border\s*:/.test(c)) return 'whole';
     if (c.includes('border-radius')) return 'whole';
     if (/(^|;|\s)padding\s*:/.test(c)) return 'whole';
@@ -61,21 +65,15 @@ function moveEffectToCategory(id, targetCat) {
             saveEffectOrder(cat, area, ids);
         });
     });
-
     if (isPinned) {
-        const arr = getEffectOrder(targetCat, 'pinned');
-        arr.unshift(id);
+        const arr = getEffectOrder(targetCat, 'pinned'); arr.unshift(id);
         saveEffectOrder(targetCat, 'pinned', arr);
     } else {
-        const arr = getEffectOrder(targetCat, 'normal');
-        arr.unshift(id);
+        const arr = getEffectOrder(targetCat, 'normal'); arr.unshift(id);
         saveEffectOrder(targetCat, 'normal', arr);
     }
-
     if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
-    if (typeof showBgToast === 'function') {
-        showBgToast(`已移到${targetCat === 'text' ? '文字特效' : '整层特效'}栏`);
-    }
+    if (typeof showBgToast === 'function') showBgToast(`已移到${targetCat === 'text' ? '文字特效' : '整层特效'}栏`);
 }
 
 function restoreEffectCategory(id) {
@@ -84,14 +82,12 @@ function restoreEffectCategory(id) {
     if (!overrides[id]) return;
     delete overrides[id];
     try { localStorage.setItem(EFFECT_CATEGORY_OVERRIDES_KEY, JSON.stringify(overrides)); } catch (e) {}
-
     ['text', 'whole'].forEach(cat => {
         ['pinned', 'normal'].forEach(area => {
             const ids = getEffectOrder(cat, area).filter(x => x !== id);
             saveEffectOrder(cat, area, ids);
         });
     });
-
     if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
 }
 
@@ -99,7 +95,6 @@ function migrateEffectOrdersIfNeeded() {
     const hasText = localStorage.getItem(EFFECT_PINNED_TEXT_KEY) !== null;
     const hasWhole = localStorage.getItem(EFFECT_PINNED_WHOLE_KEY) !== null;
     if (hasText || hasWhole) return;
-
     let oldPinned = [];
     try { oldPinned = JSON.parse(localStorage.getItem('douyin_effects_pinned_order') || '[]'); } catch (e) { return; }
     if (!Array.isArray(oldPinned) || oldPinned.length === 0) {
@@ -108,10 +103,8 @@ function migrateEffectOrdersIfNeeded() {
         try { localStorage.removeItem('douyin_effects_pinned_order'); } catch (e) {}
         return;
     }
-
     const all = (typeof getAllEffectsMaster === 'function') ? getAllEffectsMaster() : [];
     const map = new Map(all.map(e => [e.id, e]));
-
     const textPinned = [];
     const wholePinned = [];
     oldPinned.forEach(id => {
@@ -121,35 +114,253 @@ function migrateEffectOrdersIfNeeded() {
         if (cat === 'whole') wholePinned.push(id);
         else textPinned.push(id);
     });
-
     saveEffectOrder('text', 'pinned', textPinned);
     saveEffectOrder('whole', 'pinned', wholePinned);
     try { localStorage.removeItem('douyin_effects_pinned_order'); } catch (e) {}
 }
 
+/* ============================================================
+   统一格式核心：template + params → CSS
+   ============================================================ */
+
+// 渲染 template：{key} 替换成 params[key] ?? default
+function renderTemplate(template, params) {
+    if (!template) return '';
+    return String(template).replace(/\{(\w+)\}/g, (match, key) => {
+        const v = params && params[key] !== undefined ? params[key] : '';
+        return v !== undefined && v !== null ? v : '';
+    });
+}
+
+// 从特效定义里拿默认参数对象
+function getDefaultParams(eff) {
+    const out = {};
+    if (eff && eff.params) {
+        Object.entries(eff.params).forEach(([k, meta]) => {
+            out[k] = meta.default;
+        });
+    }
+    return out;
+}
+
+// 根据特效 id + 用户参数生成 CSS（统一入口）
+function renderEffectCss(effectId, userParams) {
+    if (!effectId) return '';
+    try {
+        const all = window.getAllEffectsMaster ? window.getAllEffectsMaster() : [];
+        const eff = all.find(e => e.id === effectId);
+        if (!eff) return '';
+        // 合并：default + 用户覆盖
+        const merged = Object.assign({}, getDefaultParams(eff), userParams || {});
+        if (eff.template) return renderTemplate(eff.template, merged);
+        if (eff.css) return eff.css;   // 兼容万一还有老格式
+        return '';
+    } catch (e) { return ''; }
+}
+
+// 获取特效的参数定义（用于右侧面板渲染）
+function getEffectParamsDef(effectId) {
+    try {
+        const all = window.getAllEffectsMaster ? window.getAllEffectsMaster() : [];
+        const eff = all.find(e => e.id === effectId);
+        return eff && eff.params ? eff.params : null;
+    } catch (e) { return null; }
+}
+
+// 是否是"可调"特效（有 params）
+function isParametricEffect(effectId) {
+    const def = getEffectParamsDef(effectId);
+    return !!(def && Object.keys(def).length > 0);
+}
+
+window.renderTemplate = renderTemplate;
+window.getDefaultParams = getDefaultParams;
+window.renderEffectCss = renderEffectCss;
+window.getEffectParamsDef = getEffectParamsDef;
+window.isParametricEffect = isParametricEffect;
+
+/* ============================================================
+   内置 20 款 → 全部改成新格式 {id, name, params, template}
+   id 保持不变，老图层零迁移
+   ============================================================ */
 const DEFAULT_ART_EFFECTS = [
-    { id: 'effect-gradient', name: '双色渐变', css: 'background: linear-gradient(135deg, #ff7e5f, #feb47b); -webkit-background-clip: text; -webkit-text-fill-color: transparent;' },
-    { id: 'effect-neon', name: '霓虹发光', css: 'color: #fff; text-shadow: 0 0 5px #ff00de, 0 0 10px #ff00de, 0 0 20px #ff00de, 0 0 40px #ff00de;' },
-    { id: 'effect-3d', name: '3D立体', css: 'color: #f0f0f0; text-shadow: 1px 1px 0 #ccc, 2px 2px 0 #c9c9c9, 3px 3px 0 #bbb, 4px 4px 0 #b9b9b9, 5px 5px 0 #aaa, 6px 6px 7px rgba(0,0,0,0.6);' },
-    { id: 'effect-cyber', name: '赛博机甲', css: 'color: #00ffff; text-shadow: 2px 0 #ff0055, -2px 0 #00ffff;' },
-    { id: 'effect-glitch', name: '故障艺术', css: 'color: #fff; position: relative; text-shadow: 2px -2px 0 rgba(255,0,0,0.7), -2px 2px 0 rgba(0,255,255,0.7);' },
-    { id: 'effect-hk', name: '复古港风', css: 'color: #ffeb3b; text-shadow: 0 0 8px rgba(255,235,59,0.8), 2px 2px 5px #000;' },
-    { id: 'effect-gold', name: '暗金奢华', css: 'background: linear-gradient(to bottom, #d4af37 0%, #aa771c 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8));' },
-    { id: 'effect-fire', name: '烈火熔岩', css: 'background: linear-gradient(to bottom, #ff4500 0%, #ff8c00 50%, #ffff00 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 10px rgba(255,69,0,0.6);' },
-    { id: 'effect-ice', name: '寒冰霜冻', css: 'color: #e0f7fa; text-shadow: 0 0 5px #00bcd4, 0 0 10px #00bcd4, 0 0 20px #00e5ff;' },
-    { id: 'effect-black-stroke', name: '黑描边粗重', css: 'color: #fff; text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0 3px 5px rgba(0,0,0,0.8);' },
-    { id: 'effect-purple-mist', name: '紫雾梦幻', css: 'color: #e1bee7; text-shadow: 0 0 10px #ab47bc, 0 0 20px #7b1fa2;' },
-    { id: 'effect-sunset', name: '日落晚霞', css: 'background: linear-gradient(135deg, #ff512f 0%, #dd2476 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;' },
-    { id: 'effect-deep-sea', name: '深海湛蓝', css: 'background: linear-gradient(135deg, #2b5876 0%, #4e4376 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;' },
-    { id: 'effect-jade', name: '翡翠绿光', css: 'background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;' },
-    { id: 'effect-candy', name: '梦幻糖果', css: 'background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;' },
-    { id: 'effect-metal', name: '重金属风', css: 'color: #b0bec5; text-shadow: 0 1px 0 #cfd8dc, 0 2px 0 #b0bec5, 0 3px 0 #90a4ae, 0 4px 0 #607d8b, 0 5px 10px rgba(0,0,0,0.8);' },
-    { id: 'effect-chalk', name: '粉笔手绘', css: 'color: #fff; font-family: cursive; text-shadow: 0 0 2px rgba(255,255,255,0.8), 1px 1px 2px rgba(0,0,0,0.5);' },
-    { id: 'effect-lightning', name: '闪电高压', css: 'color: #fff; text-shadow: 0 0 5px #fff, 0 0 10px #ffeb3b, 0 0 20px #ff9800;' },
-    { id: 'effect-red-stroke', name: '红描边爆款', css: 'color: #ffeb3b; text-shadow: -2px -2px 0 #ff2442, 2px -2px 0 #ff2442, -2px 2px 0 #ff2442, 2px 2px 0 #ff2442;' },
-    { id: 'effect-viral', name: '王牌爆款', css: 'color: #ffff00; text-shadow: 0 0 10px #ff2442, 0 0 20px #ff2442, 0 0 30px #ff2442; font-weight: 900;' }
+    {
+        id: 'effect-gradient', name: '双色渐变',
+        params: {
+            color1: { type: 'color', label: '颜色1', default: '#ff7e5f' },
+            color2: { type: 'color', label: '颜色2', default: '#feb47b' },
+            angle:  { type: 'range', label: '角度', min: 0, max: 360, default: 135, step: 5 }
+        },
+        template: 'background: linear-gradient({angle}deg, {color1}, {color2}); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+    },
+    {
+        id: 'effect-neon', name: '霓虹发光',
+        params: {
+            color: { type: 'color', label: '发光色', default: '#ff00de' },
+            blur:  { type: 'range', label: '强度', min: 1, max: 40, default: 5, step: 1 }
+        },
+        template: 'color: #fff; text-shadow: 0 0 {blur}px {color}, 0 0 calc({blur}px * 2) {color}, 0 0 calc({blur}px * 4) {color}, 0 0 calc({blur}px * 8) {color};'
+    },
+    {
+        id: 'effect-3d', name: '3D立体',
+        params: {
+            depth:  { type: 'range', label: '立体深度', min: 1, max: 10, default: 5, step: 1 },
+            shadow: { type: 'color', label: '阴影色', default: 'rgba(0,0,0,0.6)' }
+        },
+        template: 'color: #f0f0f0; text-shadow: 1px 1px 0 #ccc, 2px 2px 0 #c9c9c9, 3px 3px 0 #bbb, calc({depth}px) calc({depth}px) 7px {shadow};'
+    },
+    {
+        id: 'effect-cyber', name: '赛博机甲',
+        params: {
+            color1: { type: 'color', label: '主色', default: '#00ffff' },
+            color2: { type: 'color', label: '辅色', default: '#ff0055' }
+        },
+        template: 'color: {color1}; text-shadow: 2px 0 {color2}, -2px 0 {color1};'
+    },
+    {
+        id: 'effect-glitch', name: '故障艺术',
+        params: {
+            shift: { type: 'range', label: '偏移', min: 1, max: 8, default: 2, step: 1 }
+        },
+        template: 'color: #fff; position: relative; text-shadow: {shift}px -{shift}px 0 rgba(255,0,0,0.7), -{shift}px {shift}px 0 rgba(0,255,255,0.7);'
+    },
+    {
+        id: 'effect-hk', name: '复古港风',
+        params: {
+            color: { type: 'color', label: '主色', default: '#ffeb3b' },
+            glow:  { type: 'range', label: '光晕', min: 1, max: 20, default: 8, step: 1 }
+        },
+        template: 'color: {color}; text-shadow: 0 0 {glow}px rgba(255,235,59,0.8), 2px 2px 5px #000;'
+    },
+    {
+        id: 'effect-gold', name: '暗金奢华',
+        params: {
+            color1: { type: 'color', label: '亮金', default: '#d4af37' },
+            color2: { type: 'color', label: '暗金', default: '#aa771c' }
+        },
+        template: 'background: linear-gradient(to bottom, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8));'
+    },
+    {
+        id: 'effect-fire', name: '烈火熔岩',
+        params: {
+            c1: { type: 'color', label: '红', default: '#ff4500' },
+            c2: { type: 'color', label: '橙', default: '#ff8c00' },
+            c3: { type: 'color', label: '黄', default: '#ffff00' }
+        },
+        template: 'background: linear-gradient(to bottom, {c1} 0%, {c2} 50%, {c3} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 10px rgba(255,69,0,0.6);'
+    },
+    {
+        id: 'effect-ice', name: '寒冰霜冻',
+        params: {
+            color: { type: 'color', label: '冰蓝', default: '#e0f7fa' },
+            blur:  { type: 'range', label: '霜冻强度', min: 1, max: 20, default: 5, step: 1 }
+        },
+        template: 'color: {color}; text-shadow: 0 0 {blur}px #00bcd4, 0 0 calc({blur}px*2) #00bcd4, 0 0 calc({blur}px*4) #00e5ff;'
+    },
+    {
+        id: 'effect-black-stroke', name: '黑描边粗重',
+        params: {
+            fill: { type: 'color', label: '文字色', default: '#ffffff' },
+            stroke: { type: 'color', label: '描边色', default: '#000000' },
+            width: { type: 'range', label: '描边粗细', min: 1, max: 8, default: 2, step: 1 }
+        },
+        template: 'color: {fill}; text-shadow: -{width}px -{width}px 0 {stroke}, {width}px -{width}px 0 {stroke}, -{width}px {width}px 0 {stroke}, {width}px {width}px 0 {stroke}, 0 3px 5px rgba(0,0,0,0.8);'
+    },
+    {
+        id: 'effect-purple-mist', name: '紫雾梦幻',
+        params: {
+            color: { type: 'color', label: '紫雾色', default: '#e1bee7' },
+            blur:  { type: 'range', label: '朦胧度', min: 1, max: 30, default: 10, step: 1 }
+        },
+        template: 'color: {color}; text-shadow: 0 0 {blur}px #ab47bc, 0 0 calc({blur}px*2) #7b1fa2;'
+    },
+    {
+        id: 'effect-sunset', name: '日落晚霞',
+        params: {
+            color1: { type: 'color', label: '橙色', default: '#ff512f' },
+            color2: { type: 'color', label: '玫红', default: '#dd2476' }
+        },
+        template: 'background: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+    },
+    {
+        id: 'effect-deep-sea', name: '深海湛蓝',
+        params: {
+            color1: { type: 'color', label: '深蓝', default: '#2b5876' },
+            color2: { type: 'color', label: '紫蓝', default: '#4e4376' }
+        },
+        template: 'background: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+    },
+    {
+        id: 'effect-jade', name: '翡翠绿光',
+        params: {
+            color1: { type: 'color', label: '翠绿', default: '#11998e' },
+            color2: { type: 'color', label: '荧光绿', default: '#38ef7d' }
+        },
+        template: 'background: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+    },
+    {
+        id: 'effect-candy', name: '梦幻糖果',
+        params: {
+            color1: { type: 'color', label: '粉', default: '#ff9a9e' },
+            color2: { type: 'color', label: '奶白', default: '#fecfef' }
+        },
+        template: 'background: linear-gradient(135deg, {color1} 0%, {color2} 50%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+    },
+    {
+        id: 'effect-metal', name: '重金属风',
+        params: {
+            base: { type: 'color', label: '金属色', default: '#b0bec5' }
+        },
+        template: 'color: {base}; text-shadow: 0 1px 0 #cfd8dc, 0 2px 0 {base}, 0 3px 0 #90a4ae, 0 4px 0 #607d8b, 0 5px 10px rgba(0,0,0,0.8);'
+    },
+    {
+        id: 'effect-chalk', name: '粉笔手绘',
+        params: {
+            color: { type: 'color', label: '粉笔色', default: '#ffffff' }
+        },
+        template: 'color: {color}; font-family: cursive; text-shadow: 0 0 2px rgba(255,255,255,0.8), 1px 1px 2px rgba(0,0,0,0.5);'
+    },
+    {
+        id: 'effect-lightning', name: '闪电高压',
+        params: {
+            c1: { type: 'color', label: '中心', default: '#ffffff' },
+            c2: { type: 'color', label: '光晕', default: '#ffeb3b' }
+        },
+        template: 'color: {c1}; text-shadow: 0 0 5px {c1}, 0 0 10px {c2}, 0 0 20px #ff9800;'
+    },
+    {
+        id: 'effect-red-stroke', name: '红描边爆款',
+        params: {
+            fill: { type: 'color', label: '文字色', default: '#ffeb3b' },
+            stroke: { type: 'color', label: '描边色', default: '#ff2442' },
+            width: { type: 'range', label: '描边粗细', min: 1, max: 8, default: 2, step: 1 }
+        },
+        template: 'color: {fill}; text-shadow: -{width}px -{width}px 0 {stroke}, {width}px -{width}px 0 {stroke}, -{width}px {width}px 0 {stroke}, {width}px {width}px 0 {stroke};'
+    },
+    {
+        id: 'effect-viral', name: '王牌爆款',
+        params: {
+            color: { type: 'color', label: '主色', default: '#ffff00' },
+            glow:  { type: 'range', label: '爆闪强度', min: 1, max: 40, default: 10, step: 1 }
+        },
+        template: 'color: {color}; text-shadow: 0 0 {glow}px #ff2442, 0 0 calc({glow}px*2) #ff2442, 0 0 calc({glow}px*3) #ff2442; font-weight: 900;'
+    }
 ];
 
+/* ============================================================
+   兼容层：把 template 转成 css（供老代码读取 eff.css 的地方用）
+   ============================================================ */
+function augmentEffectWithCss(eff) {
+    if (!eff) return eff;
+    if (!eff.css && eff.template) {
+        try { eff.css = renderTemplate(eff.template, getDefaultParams(eff)); } catch (e) { eff.css = ''; }
+    }
+    return eff;
+}
+
+/* ============================================================
+   特效库读取 + 自动迁移你上传的几十种
+   ============================================================ */
 function initEffectsLibrary() {
     migrateEffectOrdersIfNeeded();
     initEffectsManagerPanel();
@@ -159,13 +370,9 @@ function initEffectsLibrary() {
 function getAllEffectsMaster() {
     let userOverrides = {};
     try { userOverrides = JSON.parse(localStorage.getItem('douyin_effects_states_v3') || '{}'); } catch(e) {}
+    let customList = window.__effectsCustomListCache || [];
 
-    let customList = [];
-if (window.__effectsCustomListCache) {
-    customList = window.__effectsCustomListCache;
-}
-
-    let defaults = DEFAULT_ART_EFFECTS.map(eff => ({
+    let defaults = DEFAULT_ART_EFFECTS.map(eff => augmentEffectWithCss({
         ...eff,
         hidden: userOverrides[eff.id] ? !!userOverrides[eff.id].hidden : false,
         deleted: userOverrides[eff.id] ? !!userOverrides[eff.id].deleted : false,
@@ -173,7 +380,7 @@ if (window.__effectsCustomListCache) {
         isCustom: false
     })).filter(eff => !eff.deleted);
 
-    let customs = customList.map(eff => ({
+    let customs = customList.map(eff => augmentEffectWithCss({
         ...eff,
         hidden: userOverrides[eff.id] ? !!userOverrides[eff.id].hidden : (eff.hidden || false),
         deleted: userOverrides[eff.id] ? !!userOverrides[eff.id].deleted : false,
@@ -184,24 +391,113 @@ if (window.__effectsCustomListCache) {
     return [...defaults, ...customs];
 }
 
+async function loadEffectsFromDB() {
+    try {
+        const list = await EffectsDB.getAllEffects();
+        window.__effectsCustomListCache = list;
+        // ✅ 启动时自动迁移老格式（{css} → {params, template}）
+        await migrateLegacyEffectsToParametric();
+        // 重新读一遍（迁移后的）
+        const list2 = await EffectsDB.getAllEffects();
+        window.__effectsCustomListCache = list2;
+        renderEffectsGrid();
+    } catch (e) {
+        console.error('读取特效库失败:', e);
+        renderEffectsGrid();
+    }
+}
+
+/* ============================================================
+   🔑 核心：自动迁移你上传的几十种老特效
+   规则：css 里扫颜色 + px → 抽成 params + template
+   ============================================================ */
+async function migrateLegacyEffectsToParametric() {
+    if (!window.EffectsDB) return { migrated: 0 };
+    const all = await EffectsDB.getAllEffects();
+    const needMigrate = all.filter(e => !e.template && e.css);
+    if (needMigrate.length === 0) return { migrated: 0 };
+
+    let okCount = 0;
+    for (const eff of needMigrate) {
+        try {
+            const { params, template } = autoExtractParamsFromCss(eff.css);
+            eff.params = params;
+            eff.template = template;
+            eff.legacyCss = eff.css;
+            eff.migratedFrom = 'v1';
+            delete eff.css;
+            await EffectsDB.putEffect(eff);
+            okCount++;
+        } catch (err) {
+            console.warn('迁移失败:', eff.id, err);
+        }
+    }
+    console.log(`[特效迁移] 已自动迁移 ${okCount} 条自定义特效到参数化格式`);
+    return { migrated: okCount };
+}
+
+// 智能从 CSS 里提取颜色/px → params + template
+function autoExtractParamsFromCss(css) {
+    if (!css) return { params: {}, template: '' };
+    const params = {};
+    const replacement = {};
+    let template = String(css);
+
+    // 1. 提取颜色（去重，按出现顺序）
+    const colorRegex = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]+\)/g;
+    const colors = [];
+    const seenColors = new Set();
+    let m;
+    while ((m = colorRegex.exec(css)) !== null) {
+        const c = m[0];
+        if (!seenColors.has(c)) { seenColors.add(c); colors.push(c); }
+    }
+    colors.forEach((c, i) => {
+        const key = 'color' + (i + 1);
+        params[key] = { type: 'color', label: '颜色' + (i + 1), default: c };
+        replacement[c] = `{${key}}`;
+    });
+
+    // 2. 提取 px 数值（去重，排除 0px/1px 太小）
+    const pxRegex = /(\d+(?:\.\d+)?)px/g;
+    const pxs = [];
+    const seenPx = new Set();
+    while ((m = pxRegex.exec(css)) !== null) {
+        const v = parseFloat(m[1]);
+        if (v > 1 && v < 200 && !seenPx.has(v)) { seenPx.add(v); pxs.push(v); }
+    }
+    pxs.forEach((v, i) => {
+        const key = i === 0 ? 'blur' : ('size' + (i + 1));
+        params[key] = { type: 'range', label: i === 0 ? '强度' : ('尺寸' + (i + 1)), min: 1, max: 80, default: v, step: 1 };
+        replacement[`${v}px`] = `{${key}}px`;
+    });
+
+    // 3. 生成 template（把原值替换成占位符）
+    Object.entries(replacement).forEach(([orig, ph]) => {
+        template = template.split(orig).join(ph);
+    });
+
+    return { params, template };
+}
+
+window.migrateLegacyEffectsToParametric = migrateLegacyEffectsToParametric;
+window.autoExtractParamsFromCss = autoExtractParamsFromCss;
+
+/* ============================================================
+   以下 UI 部分保持原逻辑（渲染卡片、上传、隐藏、置顶…）
+   唯一改动：上传校验新格式
+   ============================================================ */
+
 function getPinnedEffectsList() {
     let all = getAllEffectsMaster();
     let pinnedIds = [];
     try { pinnedIds = JSON.parse(localStorage.getItem('douyin_effects_pinned_order') || '[]'); } catch(e) {}
-
     let pinnedMap = new Map(all.map(e => [e.id, e]));
     let orderedPinned = [];
-    
     pinnedIds.forEach(id => {
-        if (pinnedMap.has(id)) {
-            orderedPinned.push(pinnedMap.get(id));
-            pinnedMap.delete(id);
-        }
+        if (pinnedMap.has(id)) { orderedPinned.push(pinnedMap.get(id)); pinnedMap.delete(id); }
     });
-    pinnedMap.forEach(eff => {
-        if (eff.pinned) orderedPinned.push(eff);
-    });
-
+    pinnedMap.forEach(eff => { if (eff.pinned) orderedPinned.push(eff); });
     return orderedPinned;
 }
 
@@ -220,7 +516,6 @@ function renderEffectsGrid() {
 
     let allEffects = getAllEffectsMaster();
     let cssRules = '';
-
     allEffects.forEach(eff => {
         if (eff.css) cssRules += `.${eff.id} { ${eff.css} }\n`;
     });
@@ -230,11 +525,8 @@ function renderEffectsGrid() {
     const textEffects = visible.filter(eff => getEffectCategory(eff) === 'text');
     const wholeEffects = visible.filter(eff => getEffectCategory(eff) === 'whole');
 
-
-
     function renderSection(cat, catTitle, catEffects) {
         if (catEffects.length === 0) return;
-
         const pinned = catEffects.filter(eff => eff.pinned);
         const normal = catEffects.filter(eff => !eff.pinned);
         const pinnedSorted = sortByOrder(pinned, cat, 'pinned');
@@ -243,32 +535,22 @@ function renderEffectsGrid() {
         const section = document.createElement('div');
         section.className = 'effects-section effects-section-' + cat;
         section.style.gridColumn = 'span 2';
-
         const catHeader = document.createElement('div');
         catHeader.className = 'effects-section-header';
         catHeader.innerHTML = cat === 'text'
             ? '<i class="fa-solid fa-font"></i> 文字特效'
             : '<i class="fa-solid fa-square-full"></i> 整层特效';
         section.appendChild(catHeader);
-
         const body = document.createElement('div');
         body.className = 'effects-section-body';
-
-        pinnedSorted.forEach((eff, idx) => {
-            body.appendChild(createEffectCardDOM(eff, idx, pinnedSorted.length, true));
-        });
-
+        pinnedSorted.forEach((eff, idx) => body.appendChild(createEffectCardDOM(eff, idx, pinnedSorted.length, true)));
         if (pinnedSorted.length > 0 && normalSorted.length > 0) {
             const divider = document.createElement('div');
             divider.className = 'effects-section-divider';
             divider.style.gridColumn = 'span 2';
             body.appendChild(divider);
         }
-
-        normalSorted.forEach((eff, idx) => {
-            body.appendChild(createEffectCardDOM(eff, idx, normalSorted.length, false));
-        });
-
+        normalSorted.forEach((eff, idx) => body.appendChild(createEffectCardDOM(eff, idx, normalSorted.length, false)));
         section.appendChild(body);
         grid.appendChild(section);
     }
@@ -277,24 +559,6 @@ function renderEffectsGrid() {
     renderSection('whole', '整层特效', wholeEffects);
 }
 
-
-async function loadEffectsFromDB() {
-    try {
-        const list = await EffectsDB.getAllEffects();
-        window.__effectsCustomListCache = list;
-        renderEffectsGrid();
-    } catch (e) {
-        console.error('读取特效库失败:', e);
-        renderEffectsGrid();
-    }
-}
-
-
-
-
-
-
-
 function createEffectCardDOM(eff, pinIndex, pinTotal, isPinnedSection) {
     const card = document.createElement('div');
     card.className = `effect-card ${eff.id}`;
@@ -302,7 +566,8 @@ function createEffectCardDOM(eff, pinIndex, pinTotal, isPinnedSection) {
     card.dataset.effectId = eff.id;
 
     const currentLayer = state.getSelectedLayer();
-    if (currentLayer && currentLayer.effectClass === eff.id) {
+    if (currentLayer && (currentLayer.effectClass === eff.id ||
+        (Array.isArray(currentLayer.effectClasses) && currentLayer.effectClasses.includes(eff.id)))) {
         card.classList.add('active');
     }
 
@@ -310,75 +575,48 @@ function createEffectCardDOM(eff, pinIndex, pinTotal, isPinnedSection) {
         handleEffectClick(eff);
         document.querySelectorAll('.effect-card').forEach(c => c.classList.remove('active'));
         const layer = state.getSelectedLayer();
-        if (layer && layer.effectClass === eff.id) {
+        if (layer && (layer.effectClass === eff.id ||
+            (Array.isArray(layer.effectClasses) && layer.effectClasses.includes(eff.id)))) {
             card.classList.add('active');
         }
     });
 
     card.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         showEffectContextMenu(e, eff);
     });
 
     const delBtn = document.createElement('div');
     delBtn.className = 'effect-action-btn btn-del';
-    delBtn.innerHTML = '&times;';
-    delBtn.title = '删除此特效';
-    delBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteEffect(eff.id, eff.isCustom);
-    });
+    delBtn.innerHTML = '&times;'; delBtn.title = '删除此特效';
+    delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteEffect(eff.id, eff.isCustom); });
     card.appendChild(delBtn);
 
     const toggleBtn = document.createElement('div');
     toggleBtn.className = 'effect-action-btn btn-toggle';
-    toggleBtn.innerHTML = '👁️';
-    toggleBtn.title = '隐藏此特效';
-    toggleBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleEffectHidden(eff.id);
-    });
+    toggleBtn.innerHTML = '👁️'; toggleBtn.title = '隐藏此特效';
+    toggleBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleEffectHidden(eff.id); });
     card.appendChild(toggleBtn);
 
     const pinBtn = document.createElement('div');
     pinBtn.className = 'effect-action-btn btn-pin';
     pinBtn.innerHTML = eff.pinned ? '📍' : '📌';
     pinBtn.title = eff.pinned ? '取消置顶' : '置顶到本栏顶部';
-    pinBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleEffectPinned(eff.id);
-    });
+    pinBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleEffectPinned(eff.id); });
     card.appendChild(pinBtn);
 
     const moveUp = document.createElement('div');
     moveUp.className = 'effect-action-btn btn-move-left';
-    moveUp.innerHTML = '◀';
-    moveUp.title = '向前移动（同区内）';
-    if (pinIndex <= 0) {
-        moveUp.style.opacity = '0.3';
-        moveUp.style.pointerEvents = 'none';
-    } else {
-        moveUp.addEventListener('click', (e) => {
-            e.stopPropagation();
-            movePinnedOrder(eff.id, -1);
-        });
-    }
+    moveUp.innerHTML = '◀'; moveUp.title = '向前移动（同区内）';
+    if (pinIndex <= 0) { moveUp.style.opacity = '0.3'; moveUp.style.pointerEvents = 'none'; }
+    else { moveUp.addEventListener('click', (e) => { e.stopPropagation(); movePinnedOrder(eff.id, -1); }); }
     card.appendChild(moveUp);
 
     const moveDown = document.createElement('div');
     moveDown.className = 'effect-action-btn btn-move-right';
-    moveDown.innerHTML = '▶';
-    moveDown.title = '向后移动（同区内）';
-    if (pinIndex >= pinTotal - 1) {
-        moveDown.style.opacity = '0.3';
-        moveDown.style.pointerEvents = 'none';
-    } else {
-        moveDown.addEventListener('click', (e) => {
-            e.stopPropagation();
-            movePinnedOrder(eff.id, 1);
-        });
-    }
+    moveDown.innerHTML = '▶'; moveDown.title = '向后移动（同区内）';
+    if (pinIndex >= pinTotal - 1) { moveDown.style.opacity = '0.3'; moveDown.style.pointerEvents = 'none'; }
+    else { moveDown.addEventListener('click', (e) => { e.stopPropagation(); movePinnedOrder(eff.id, 1); }); }
     card.appendChild(moveDown);
 
     return card;
@@ -386,74 +624,50 @@ function createEffectCardDOM(eff, pinIndex, pinTotal, isPinnedSection) {
 
 function showEffectContextMenu(e, eff) {
     document.querySelectorAll('.effect-context-menu').forEach(m => m.remove());
-
     const cat = getEffectCategory(eff);
     const targetCat = cat === 'text' ? 'whole' : 'text';
     const targetLabel = targetCat === 'text' ? '文字特效' : '整层特效';
-
     let overrides = {};
     try { overrides = JSON.parse(localStorage.getItem(EFFECT_CATEGORY_OVERRIDES_KEY) || '{}'); } catch (err) {}
     const hasOverride = !!overrides[eff.id];
-
     const menu = document.createElement('div');
     menu.className = 'effect-context-menu';
     menu.style.cssText = 'position:fixed;z-index:99999;background:#161b22;border:1px solid #30363d;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.8);padding:4px 0;min-width:160px;font-size:12px;';
-
     function addItem(label, onClick, danger) {
         const item = document.createElement('div');
         item.style.cssText = 'padding:6px 14px;cursor:pointer;color:' + (danger ? '#f85149' : '#c9d1d9') + ';';
         item.textContent = label;
         item.addEventListener('mouseenter', () => { item.style.background = '#30363d'; });
         item.addEventListener('mouseleave', () => { item.style.background = ''; });
-        item.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            menu.remove();
-            onClick();
-        });
+        item.addEventListener('click', (ev) => { ev.stopPropagation(); menu.remove(); onClick(); });
         menu.appendChild(item);
     }
-
-    addItem('移到' + targetLabel, () => {
-        moveEffectToCategory(eff.id, targetCat);
-    });
-
+    addItem('移到' + targetLabel, () => { moveEffectToCategory(eff.id, targetCat); });
     if (hasOverride) {
         addItem('恢复默认分类', () => {
             restoreEffectCategory(eff.id);
-            if (typeof showBgToast === 'function') {
-                showBgToast('已恢复默认分类');
-            }
+            if (typeof showBgToast === 'function') showBgToast('已恢复默认分类');
         }, true);
     }
-
     document.body.appendChild(menu);
-
     const rect = menu.getBoundingClientRect();
-    let x = e.clientX;
-    let y = e.clientY;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    let x = e.clientX, y = e.clientY;
+    const vw = window.innerWidth, vh = window.innerHeight;
     if (x + rect.width > vw - 8) x = vw - rect.width - 8;
     if (y + rect.height > vh - 8) y = vh - rect.height - 8;
-    if (x < 8) x = 8;
-    if (y < 8) y = 8;
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
-
+    if (x < 8) x = 8; if (y < 8) y = 8;
+    menu.style.left = x + 'px'; menu.style.top = y + 'px';
     const closeHandler = (ev) => {
         if (menu.contains(ev.target)) return;
         menu.remove();
         document.removeEventListener('mousedown', closeHandler, true);
     };
-    setTimeout(() => {
-        document.addEventListener('mousedown', closeHandler, true);
-    }, 0);
+    setTimeout(() => document.addEventListener('mousedown', closeHandler, true), 0);
 }
 
 function initEffectsManagerPanel() {
     const sidebar = document.querySelector('.sidebar-left .panel-section');
     if (!sidebar || document.getElementById('effects-control-panel')) return;
-
     const panelDiv = document.createElement('div');
     panelDiv.id = 'effects-control-panel';
     panelDiv.className = 'effects-control-panel';
@@ -464,83 +678,78 @@ function initEffectsManagerPanel() {
         </div>
         <textarea id="ce-batch-json" rows="3" placeholder="在此粘贴 JSON 代码批量上传（智能防误覆盖，自动生成新版本）..."></textarea>
         <button id="btn-batch-upload" class="btn btn-primary" style="justify-content:center; font-size:11px; padding:5px;"><i class="fa-solid fa-cloud-arrow-up"></i> 批量上传特效</button>
-        
         <div id="hidden-bin-container" style="display:none;" class="sub-panel-box"></div>
     `;
     sidebar.appendChild(panelDiv);
 
-    document.getElementById('btn-show-format').addEventListener('click', () => {
-        showCopyableFormatModal();
-    });
+    document.getElementById('btn-show-format').addEventListener('click', () => { showCopyableFormatModal(); });
 
     document.getElementById('btn-show-hidden-bin').addEventListener('click', () => {
         const binBox = document.getElementById('hidden-bin-container');
-        if (binBox.style.display === 'none') {
-            binBox.style.display = 'block';
-            renderHiddenBinList();
-        } else {
-            binBox.style.display = 'none';
-        }
+        if (binBox.style.display === 'none') { binBox.style.display = 'block'; renderHiddenBinList(); }
+        else { binBox.style.display = 'none'; }
     });
-
-
-
-
-
 
     document.getElementById('btn-batch-upload').addEventListener('click', async () => {
         const rawText = document.getElementById('ce-batch-json').value.trim();
-        if (!rawText) {
-            alert('请先粘贴符合格式的 JSON 代码！');
-            return;
-        }
-
+        if (!rawText) { alert('请先粘贴符合格式的 JSON 代码！'); return; }
         const btn = document.getElementById('btn-batch-upload');
         const oldText = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中…';
-
         try {
             const newItems = JSON.parse(rawText);
             if (!Array.isArray(newItems)) throw new Error('导入的数据必须是数组 [...] 格式');
-
             let customList = window.__effectsCustomListCache || [];
-            let countAdded = 0;
-            let countRenamed = 0;
+            let countAdded = 0, countRenamed = 0;
 
             newItems.forEach(item => {
-                if (item.id && item.name && item.css) {
-                    let existing = customList.find(ex => ex.id === item.id);
-                    if (existing) {
-                        if (existing.css.trim() === item.css.trim()) return;
-                        let ver = 2;
-                        let newId = `${item.id}_v${ver}`;
-                        let newName = `${item.name} (v${ver})`;
-                        while (customList.some(ex => ex.id === newId)) {
-                            ver++;
-                            newId = `${item.id}_v${ver}`;
-                            newName = `${item.name} (v${ver})`;
-                        }
-                        customList.push({ id: newId, name: newName, css: item.css, hidden: false, deleted: false });
-                        countRenamed++;
-                    } else {
-                        customList.push({ id: item.id, name: item.name, css: item.css, hidden: false, deleted: false });
-                        countAdded++;
+                if (!item.id || !item.name) return;
+                // ✅ 新格式：必须二选一
+                //    - { params, template }（推荐）
+                //    - { css }（兼容，自动迁移成新格式）
+                let normalized = { id: item.id, name: item.name, hidden: false, deleted: false };
+                if (item.template) {
+                    normalized.params = item.params || {};
+                    normalized.template = item.template;
+                } else if (item.css) {
+                    // 自动迁移
+                    const migrated = autoExtractParamsFromCss(item.css);
+                    normalized.params = migrated.params;
+                    normalized.template = migrated.template;
+                    normalized.legacyCss = item.css;
+                    normalized.migratedFrom = 'v1-upload';
+                } else {
+                    return; // 两个都没有，跳过
+                }
+                let existing = customList.find(ex => ex.id === item.id);
+                if (existing) {
+                    const sameTemplate = (existing.template || existing.css || '').trim() ===
+                                        (normalized.template || normalized.css || '').trim();
+                    if (sameTemplate) return;
+                    let ver = 2;
+                    let newId = `${item.id}_v${ver}`;
+                    let newName = `${item.name} (v${ver})`;
+                    while (customList.some(ex => ex.id === newId)) {
+                        ver++; newId = `${item.id}_v${ver}`; newName = `${item.name} (v${ver})`;
                     }
+                    normalized.id = newId;
+                    normalized.name = newName;
+                    customList.push(normalized);
+                    countRenamed++;
+                } else {
+                    customList.push(normalized);
+                    countAdded++;
                 }
             });
 
-            // ✅ 关键：等所有写入完成，再更新缓存和 UI
             for (const item of customList) {
                 try { await EffectsDB.putEffect(item); } catch (e) { console.error('写入失败', item.id, e); }
             }
-
             window.__effectsCustomListCache = customList;
             document.getElementById('ce-batch-json').value = '';
             renderEffectsGrid();
-            if (document.getElementById('hidden-bin-container').style.display === 'block') {
-                renderHiddenBinList();
-            }
+            if (document.getElementById('hidden-bin-container').style.display === 'block') renderHiddenBinList();
             alert(`批量上传成功！新增 ${countAdded} 款特效` + (countRenamed > 0 ? `，为 ${countRenamed} 款存在重名但内容不同的特效自动创建了新版本。` : '。'));
         } catch (err) {
             alert('上传失败：' + err.message);
@@ -554,65 +763,66 @@ function initEffectsManagerPanel() {
 function showCopyableFormatModal() {
     let existingModal = document.getElementById('copyable-format-modal');
     if (existingModal) existingModal.remove();
-
     const modal = document.createElement('div');
     modal.id = 'copyable-format-modal';
     modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; align-items: center; justify-content: center;';
-
     const contentBox = document.createElement('div');
-    contentBox.style.cssText = 'background: #161b22; border: 1px solid #30363d; border-radius: 8px; width: 450px; padding: 20px; color: #c9d1d9; box-shadow: 0 8px 24px rgba(0,0,0,0.8); font-size: 12px;';
+    contentBox.style.cssText = 'background: #161b22; border: 1px solid #30363d; border-radius: 8px; width: 560px; max-width:94vw; max-height:90vh; overflow-y:auto; padding: 20px; color: #c9d1d9; box-shadow: 0 8px 24px rgba(0,0,0,0.8); font-size: 12px;';
 
-    const sampleJson = `[\n  {\n    "id": "my_custom_eff_1",\n    "name": "炫彩霓虹",\n    "css": "color: #fff; text-shadow: 0 0 10px #ff00de, 0 0 20px #ff00de;"\n  }\n]`;
+    const sampleJson = `[
+  {
+    "id": "my_custom_eff_1",
+    "name": "炫彩霓虹",
+    "params": {
+      "color": { "type": "color", "label": "颜色", "default": "#ff00de" },
+      "blur":  { "type": "range", "label": "强度", "min": 1, "max": 40, "default": 5 }
+    },
+    "template": "color: #fff; text-shadow: 0 0 {blur}px {color}, 0 0 {blur}px {color};"
+  }
+]`;
 
     contentBox.innerHTML = `
-        <h3 style="margin-bottom: 10px; color: #f1e05a; font-size: 14px;"><i class="fa-solid fa-code"></i> AI 批量生成特效格式说明</h3>
-        <p style="margin-bottom: 8px; line-height: 1.4; color: #8b949e;">请将下方文本框中的格式复制后发给 AI，让其按此 JSON 数组格式批量生成。框内文字可直接用鼠标任意选中并复制：</p>
-        <textarea readonly style="width: 100%; height: 120px; background: #0d1117; border: 1px solid #30363d; color: #58a6ff; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 11px; resize: none; outline: none; user-select: text;">${sampleJson}</textarea>
-        <div style="margin-top: 10px; font-size: 11px; color: #8b949e; line-height: 1.4;">
-            <b>防覆盖说明：</b><br>
-            上传时系统已开启<b>防误覆盖保护</b>！若上传了重复 ID 但 CSS 不同的代码，系统会自动追加新版本后缀（例如：<code>炫彩霓虹 (v2)</code>），同时完美保留您原先喜欢的旧代码。满意的保留，不喜欢的点 ❌ 删除，两可的点 👁️ 隐藏。
+        <h3 style="margin-bottom: 10px; color: #f1e05a; font-size: 14px;"><i class="fa-solid fa-code"></i> AI 批量生成特效格式（统一参数化）</h3>
+        <p style="margin-bottom: 8px; line-height: 1.4; color: #8b949e;">复制下面格式发给 AI，让它按此生成。<b>所有特效都可以有参数，都可以让用户拖滑块调！</b></p>
+        <textarea readonly style="width: 100%; height: 160px; background: #0d1117; border: 1px solid #30363d; color: #58a6ff; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 11px; resize: none; outline: none; user-select: text;">${sampleJson}</textarea>
+        <div style="margin-top: 10px; font-size: 11px; color: #8b949e; line-height: 1.6;">
+            <b>字段说明：</b><br>
+            <code style="color:#58a6ff;">id</code> 唯一标识（英文数字下划线）<br>
+            <code style="color:#58a6ff;">name</code> 显示名<br>
+            <code style="color:#58a6ff;">params</code> 参数声明对象，key 是变量名，值声明 type/min/max/default/label<br>
+            <code style="color:#58a6ff;">template</code> CSS 模板字符串，用 <code>{key}</code> 引用 params 里的变量<br>
+            渲染时 <code>{blur}</code> 会被自动替换成用户滑块的值
+        </div>
+        <div style="margin-top:10px;padding:8px;background:#0d1117;border:1px dashed #30363d;border-radius:6px;font-size:11px;line-height:1.6;">
+            <b style="color:#7ee787;">兼容说明：</b>如果你上传老格式 <code>{"css":"..."}</code>，系统会自动扫描 CSS 里的颜色和 px 值，智能提取成参数（颜色→色块、px→滑块），让你上传的每一款特效也变可调！
         </div>
         <div style="margin-top: 15px; text-align: right;">
             <button id="btn-close-modal" class="btn btn-primary" style="padding: 4px 14px; font-size: 11px;">关闭窗口</button>
         </div>
     `;
-
     modal.appendChild(contentBox);
     document.body.appendChild(modal);
-
     contentBox.querySelector('textarea').select();
-
-    document.getElementById('btn-close-modal').addEventListener('click', () => {
-        modal.remove();
-    });
-
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-    });
+    document.getElementById('btn-close-modal').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 function renderHiddenBinList() {
     const binBox = document.getElementById('hidden-bin-container');
     if (!binBox) return;
     binBox.innerHTML = '';
-
     let all = getAllEffectsMaster();
     let hiddenItems = all.filter(e => e.hidden);
-
     if (hiddenItems.length === 0) {
         binBox.innerHTML = '<div style="color: #8b949e; text-align: center; padding: 4px;">当前没有被隐藏的特效</div>';
         return;
     }
-
     binBox.innerHTML = '<div style="font-weight:bold; margin-bottom:4px; color:#f1e05a;">已隐藏特效列表 (点击恢复显示)：</div>';
-
     hiddenItems.forEach(eff => {
         const row = document.createElement('div');
         row.className = 'sub-item-row';
-        row.innerHTML = `
-            <span>${eff.name} <small style="color:#8b949e;">(${eff.id})</small></span>
-            <button class="btn" style="padding: 1px 6px; font-size:10px;"><i class="fa-solid fa-eye"></i> 显示</button>
-        `;
+        row.innerHTML = `<span>${eff.name} <small style="color:#8b949e;">(${eff.id})</small></span>
+            <button class="btn" style="padding: 1px 6px; font-size:10px;"><i class="fa-solid fa-eye"></i> 显示</button>`;
         row.querySelector('button').addEventListener('click', () => {
             toggleEffectHidden(eff.id);
             renderEffectsGrid();
@@ -639,106 +849,67 @@ function toggleEffectPinned(id) {
         const willPin = !userOverrides[id].pinned;
         userOverrides[id].pinned = willPin;
         localStorage.setItem(EFFECT_STATE_KEY, JSON.stringify(userOverrides));
-
         const all = getAllEffectsMaster();
         const eff = all.find(e => e.id === id);
         if (!eff) { renderEffectsGrid(); return; }
         const cat = getEffectCategory(eff);
-
         ['text', 'whole'].forEach(c => {
             ['pinned', 'normal'].forEach(area => {
                 const ids = getEffectOrder(c, area).filter(x => x !== id);
                 saveEffectOrder(c, area, ids);
             });
         });
-
         if (willPin) {
-            const arr = getEffectOrder(cat, 'pinned');
-            arr.unshift(id);
+            const arr = getEffectOrder(cat, 'pinned'); arr.unshift(id);
             saveEffectOrder(cat, 'pinned', arr);
         } else {
-            const arr = getEffectOrder(cat, 'normal');
-            arr.unshift(id);
+            const arr = getEffectOrder(cat, 'normal'); arr.unshift(id);
             saveEffectOrder(cat, 'normal', arr);
         }
-
         renderEffectsGrid();
     } catch (e) { console.error(e); }
 }
 
-
-
-    // sortByOrder 已提升为模块级函数（见下方定义），此处直接使用
 function movePinnedOrder(id, direction) {
     try {
         const all = getAllEffectsMaster();
         const eff = all.find(e => e.id === id);
         if (!eff) return;
         const cat = getEffectCategory(eff);
-
         const states = JSON.parse(localStorage.getItem(EFFECT_STATE_KEY) || '{}');
         const isPinned = !!(states[id] && states[id].pinned);
         const area = isPinned ? 'pinned' : 'normal';
-
-        // ✅ 修复：以「当前区内完整可见顺序」为基准，确保后导入的特效也在数组里
         const visibleInArea = all.filter(e =>
-            !e.hidden &&
-            getEffectCategory(e) === cat &&
-            (!!e.pinned === isPinned)
+            !e.hidden && getEffectCategory(e) === cat && (!!e.pinned === isPinned)
         );
         const ids = sortByOrder(visibleInArea, cat, area).map(e => e.id);
-
         const idx = ids.indexOf(id);
         if (idx === -1) return;
-
         const targetIdx = idx + direction;
         if (targetIdx < 0 || targetIdx >= ids.length) return;
-
-        const temp = ids[idx];
-        ids[idx] = ids[targetIdx];
-        ids[targetIdx] = temp;
+        const temp = ids[idx]; ids[idx] = ids[targetIdx]; ids[targetIdx] = temp;
         saveEffectOrder(cat, area, ids);
-
         renderEffectsGrid();
-     } catch (e) { console.error(e); }
- }
+    } catch (e) { console.error(e); }
+}
 
-// ✅ 顶层 sortByOrder：renderEffectsGrid 与 movePinnedOrder 共用，
-//    保证 UI 顺序与排序数组完全同源
 function sortByOrder(list, cat, area) {
     const orderIds = getEffectOrder(cat, area);
     const map = new Map(list.map(e => [e.id, e]));
     const sorted = [];
-    orderIds.forEach(id => {
-        if (map.has(id)) {
-            sorted.push(map.get(id));
-            map.delete(id);
-        }
-    });
-    list.forEach(eff => {
-        if (map.has(eff.id)) {
-            sorted.push(eff);
-            map.delete(eff.id);
-        }
-    });
+    orderIds.forEach(id => { if (map.has(id)) { sorted.push(map.get(id)); map.delete(id); } });
+    list.forEach(eff => { if (map.has(eff.id)) { sorted.push(eff); map.delete(eff.id); } });
     return sorted;
-}      
-
-
+}
 
 function deleteEffect(id, isCustom) {
     if (!confirm('确定要删除这款特效吗？')) return;
     try {
         if (isCustom) {
-            // 从 IndexedDB 删除
-            if (window.EffectsDB) {
-                EffectsDB.deleteEffect(id).catch(() => {});
-            }
-            // 同步内存缓存
+            if (window.EffectsDB) EffectsDB.deleteEffect(id).catch(() => {});
             if (window.__effectsCustomListCache) {
                 window.__effectsCustomListCache = window.__effectsCustomListCache.filter(item => item.id !== id);
             }
-            // 兼容：万一还有旧 localStorage 数据，一并删掉
             try {
                 const raw = localStorage.getItem('douyin_custom_effects_v3');
                 if (raw) {
@@ -753,20 +924,17 @@ function deleteEffect(id, isCustom) {
             userOverrides[id].deleted = true;
             userOverrides[id].pinned = false;
             localStorage.setItem('douyin_effects_states_v3', JSON.stringify(userOverrides));
-
             let pinnedIds = [];
             try { pinnedIds = JSON.parse(localStorage.getItem('douyin_effects_pinned_order') || '[]'); } catch(e) {}
             pinnedIds = pinnedIds.filter(pid => pid !== id);
             localStorage.setItem('douyin_effects_pinned_order', JSON.stringify(pinnedIds));
         }
-
         ['text', 'whole'].forEach(c => {
             ['pinned', 'normal'].forEach(area => {
                 const ids = getEffectOrder(c, area).filter(x => x !== id);
                 saveEffectOrder(c, area, ids);
             });
         });
-
         renderEffectsGrid();
         const binBox = document.getElementById('hidden-bin-container');
         if (binBox && binBox.style.display === 'block') renderHiddenBinList();

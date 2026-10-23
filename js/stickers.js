@@ -1,11 +1,17 @@
-// ========== 贴纸系统 v3：位图/SVG/Emoji + 旋转翻转 + 拖拽入画布 + 上传 + 频次 + 改色 + 面板拖动记忆 ==========
+// ========== 贴纸系统 v4：AssetRegistry 国际化架构 ==========
+// 改动说明：
+//   1. 所有素材统一进 AssetRegistry（IndexedDB: douyin_assets_db）
+//   2. 图层只存 assetId，content 仅作兼容兜底
+//   3. 支持 emoji / svg / png / url / upload 五种类型
+//   4. 暴露 window.DouyinCover.registerSticker API
 
-const STICKER_RECENT_KEY = 'douyin_sticker_recent_v3';
-const STICKER_FREQ_KEY = 'douyin_sticker_freq_v3';
+const STICKER_RECENT_KEY = 'douyin_sticker_recent_ids_v4';
+const STICKER_FREQ_KEY = 'douyin_sticker_freq_v4';
 const STICKER_MAX_RECENT = 24;
 const STICKER_PANEL_POS_KEY = 'douyin_sticker_panel_pos_v1';
+const STICKER_BUILTIN_SEED_KEY = 'douyin_sticker_builtin_seeded_v1';
 
-// ---------- 内置贴纸库 ----------
+// ---------- 内置贴纸库（保留原结构，作为"分类元数据"） ----------
 function svg(inner, viewBox = '0 0 24 24') {
     const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="currentColor">${inner}</svg>`;
     return 'data:image/svg+xml;utf8,' + encodeURIComponent(svgStr);
@@ -182,17 +188,197 @@ let currentStickerCategory = 'all';
 let currentStickerSearch = '';
 let draggedStickerData = null;
 
-// ---------- 初始化 ----------
-function initStickersModule() {
+// ============================================================
+// AssetRegistry —— 统一资产注册中心
+// ============================================================
+const AssetDB = (function () {
+    const DB_NAME = 'douyin_assets_db';
+    const STORE = 'assets';
+    const DB_VER = 1;
+    let dbPromise = null;
+
+    function open() {
+        if (dbPromise) return dbPromise;
+        dbPromise = new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, DB_VER);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE)) {
+                    const store = db.createObjectStore(STORE, { keyPath: 'id' });
+                    store.createIndex('type', 'type', { unique: false });
+                    store.createIndex('tags', 'tags', { unique: false, multiEntry: true });
+                    store.createIndex('source', 'source', { unique: false });
+                    store.createIndex('createdAt', 'createdAt', { unique: false });
+                }
+            };
+            req.onsuccess = (e) => resolve(e.target.result);
+            req.onerror = (e) => reject(e);
+        });
+        return dbPromise;
+    }
+
+    async function put(asset) {
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            tx.objectStore(STORE).put(asset);
+            tx.oncomplete = () => resolve(asset.id);
+            tx.onerror = (e) => reject(e);
+        });
+    }
+
+    async function get(id) {
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readonly');
+            const req = tx.objectStore(STORE).get(id);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = (e) => reject(e);
+        });
+    }
+
+    async function getAll() {
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readonly');
+            const req = tx.objectStore(STORE).getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = (e) => reject(e);
+        });
+    }
+
+    async function remove(id) {
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            tx.objectStore(STORE).delete(id);
+            tx.oncomplete = () => resolve();
+            tx.onerror = (e) => reject(e);
+        });
+    }
+
+    return { put, get, getAll, remove };
+})();
+
+const AssetRegistry = (function () {
+    const memoryCache = new Map();
+    let ready = false;
+    let readyPromise = null;
+
+    async function init() {
+        if (ready) return;
+        if (readyPromise) return readyPromise;
+        readyPromise = (async () => {
+            try {
+                const all = await AssetDB.getAll();
+                all.forEach(a => memoryCache.set(a.id, a));
+            } catch (e) {
+                console.warn('[AssetRegistry] 加载失败:', e);
+            }
+            ready = true;
+        })();
+        return readyPromise;
+    }
+
+    function genId(prefix) {
+        return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    }
+
+    async function register(asset) {
+        if (!asset || !asset.type) throw new Error('asset.type 必填');
+        const record = {
+            id: asset.id || genId(asset.type),
+            type: asset.type,
+            name: asset.name || '',
+            data: asset.data || '',
+            tags: Array.isArray(asset.tags) ? asset.tags : [],
+            source: asset.source || 'user',
+            colorable: !!asset.colorable,
+            createdAt: asset.createdAt || Date.now()
+        };
+        for (const [id, a] of memoryCache) {
+            if (a.type === record.type && a.data === record.data) {
+                return id;
+            }
+        }
+        memoryCache.set(record.id, record);
+        await AssetDB.put(record);
+        return record.id;
+    }
+
+    async function registerBatch(list) {
+        const ids = [];
+        for (const a of list) ids.push(await register(a));
+        return ids;
+    }
+
+    async function get(id) {
+        if (!id) return null;
+        if (memoryCache.has(id)) return memoryCache.get(id);
+        const a = await AssetDB.get(id);
+        if (a) memoryCache.set(id, a);
+        return a;
+    }
+
+    async function list({ type, source, tag, keyword } = {}) {
+        await init();
+        let arr = Array.from(memoryCache.values());
+        if (type) arr = arr.filter(a => a.type === type);
+        if (source) arr = arr.filter(a => a.source === source);
+        if (tag) arr = arr.filter(a => a.tags.includes(tag));
+        if (keyword) {
+            const kw = keyword.toLowerCase();
+            arr = arr.filter(a =>
+                (a.name || '').toLowerCase().includes(kw) ||
+                a.tags.some(t => t.toLowerCase().includes(kw))
+            );
+        }
+        return arr;
+    }
+
+    async function remove(id) {
+        memoryCache.delete(id);
+        await AssetDB.remove(id);
+    }
+
+    function toSrc(asset, color) {
+        if (!asset) return '';
+        if (asset.type === 'emoji') return asset.data;
+        if (asset.type === 'svg') {
+            if (color && asset.colorable) {
+                try {
+                    const decoded = decodeURIComponent(
+                        (asset.data.split('utf8,')[1] || '')
+                    );
+                    const tinted = decoded.replace(/fill="currentColor"/g, `fill="${color}"`);
+                    return 'data:image/svg+xml;utf8,' + encodeURIComponent(tinted);
+                } catch (e) { return asset.data; }
+            }
+            return asset.data;
+        }
+        return asset.data;
+    }
+
+    return { init, register, registerBatch, get, list, remove, toSrc, isReady: () => ready };
+})();
+
+window.AssetRegistry = AssetRegistry;
+
+// ============================================================
+// 初始化
+// ============================================================
+async function initStickersModule() {
     const btn = document.getElementById('btn-add-sticker');
     if (!btn) return;
 
+    await AssetRegistry.init();
+    await seedBuiltinStickers();
+
     buildStickerPanel();
     buildStickerColorBar();
-    restoreStickerPanelPosition();  // 恢复上次拖动位置
-    initStickerPanelDrag();          // 启用面板拖动
+    restoreStickerPanelPosition();
+    initStickerPanelDrag();
 
-    // 打开面板（不再自动关闭）
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const panel = document.getElementById('sticker-panel');
@@ -201,12 +387,9 @@ function initStickersModule() {
         }
     });
 
-    // 只有点 X 才关闭
     document.getElementById('sticker-panel-close').addEventListener('click', () => {
         document.getElementById('sticker-panel').style.display = 'none';
     });
-
-    // ★ 删除了"点击空白关闭"的 document.addEventListener('click', ...) 逻辑 ★
 
     const searchInput = document.getElementById('sticker-search');
     if (searchInput) {
@@ -236,7 +419,33 @@ function initStickersModule() {
     buildStickerDragDrop();
 }
 
-// ---------- 面板拖动 + 位置记忆 ----------
+// ---------- 内置素材 → AssetRegistry（只做一次） ----------
+async function seedBuiltinStickers() {
+    if (localStorage.getItem(STICKER_BUILTIN_SEED_KEY) === 'done') return;
+
+    const list = [];
+    Object.keys(STICKER_LIBRARY).forEach(catKey => {
+        const lib = STICKER_LIBRARY[catKey];
+        lib.items.forEach(it => {
+            list.push({
+                type: lib.type === 'image' ? 'png' : lib.type,
+                name: it.k || '',
+                data: it.c,
+                tags: [catKey, ...(it.k || '').split(/\s+/)].filter(Boolean),
+                source: 'builtin',
+                colorable: lib.type === 'svg'
+            });
+        });
+    });
+    try {
+        await AssetRegistry.registerBatch(list);
+        localStorage.setItem(STICKER_BUILTIN_SEED_KEY, 'done');
+    } catch (e) {
+        console.warn('内置贴纸初始化失败:', e);
+    }
+}
+
+// ---------- 面板拖动 ----------
 function initStickerPanelDrag() {
     const panel = document.getElementById('sticker-panel');
     const handle = document.getElementById('sticker-panel-drag-handle');
@@ -247,7 +456,6 @@ function initStickerPanelDrag() {
     let startLeft = 0, startTop = 0;
 
     handle.addEventListener('mousedown', (e) => {
-        // 点击 关闭/上传 按钮时不触发拖拽
         if (e.target.closest('#sticker-panel-close') || e.target.closest('#btn-upload-sticker')) return;
         e.preventDefault();
         e.stopPropagation();
@@ -279,7 +487,6 @@ function initStickerPanelDrag() {
         let newLeft = startLeft + dx;
         let newTop = startTop + dy;
 
-        // 边界限制：不让面板完全跑出屏幕
         const panelW = panel.offsetWidth;
         const panelH = panel.offsetHeight;
         const maxLeft = window.innerWidth - 60;
@@ -297,7 +504,6 @@ function initStickerPanelDrag() {
         document.removeEventListener('mousemove', onPanelDragMove);
         document.removeEventListener('mouseup', onPanelDragEnd);
 
-        // 记住位置
         try {
             localStorage.setItem(STICKER_PANEL_POS_KEY, JSON.stringify({
                 left: panel.style.left,
@@ -360,78 +566,56 @@ function buildStickerPanel() {
     renderStickerGrid();
 }
 
-// ---------- 频次 & 最近 ----------
-function getRecentStickers() {
+// ---------- 最近 / 频次（改存 assetId） ----------
+function getRecentStickerIds() {
     try { return JSON.parse(localStorage.getItem(STICKER_RECENT_KEY) || '[]'); }
     catch (e) { return []; }
 }
-function addToRecentStickers(content) {
-    let recent = getRecentStickers();
-    recent = recent.filter(c => c !== content);
-    recent.unshift(content);
-    if (recent.length > STICKER_MAX_RECENT) recent = recent.slice(0, STICKER_MAX_RECENT);
-    try { localStorage.setItem(STICKER_RECENT_KEY, JSON.stringify(recent)); } catch (e) {}
+function addToRecentStickers(assetId) {
+    let list = getRecentStickerIds();
+    list = list.filter(x => x !== assetId);
+    list.unshift(assetId);
+    if (list.length > STICKER_MAX_RECENT) list = list.slice(0, STICKER_MAX_RECENT);
+    try { localStorage.setItem(STICKER_RECENT_KEY, JSON.stringify(list)); } catch (e) {}
 }
 function getStickerFreq() {
     try { return JSON.parse(localStorage.getItem(STICKER_FREQ_KEY) || '{}'); }
     catch (e) { return {}; }
 }
-function bumpStickerFreq(content) {
+function bumpStickerFreq(assetId) {
     const freq = getStickerFreq();
-    freq[content] = (freq[content] || 0) + 1;
+    freq[assetId] = (freq[assetId] || 0) + 1;
     try { localStorage.setItem(STICKER_FREQ_KEY, JSON.stringify(freq)); } catch (e) {}
 }
 
-// ---------- 网格渲染 ----------
-function renderStickerGrid() {
+// ---------- 网格渲染（全部从 AssetRegistry 拉） ----------
+async function renderStickerGrid() {
     const grid = document.getElementById('sticker-grid');
     if (!grid) return;
     grid.innerHTML = '';
+    await AssetRegistry.init();
 
     let items = [];
-    const freq = getStickerFreq();
 
     if (currentStickerSearch) {
-        Object.keys(STICKER_LIBRARY).forEach(catKey => {
-            STICKER_LIBRARY[catKey].items.forEach(item => {
-                const t = STICKER_LIBRARY[catKey].type;
-                if (item.c.toLowerCase().includes(currentStickerSearch) ||
-                    item.k.toLowerCase().includes(currentStickerSearch)) {
-                    items.push({ ...item, type: t });
-                }
-            });
-        });
+        items = await AssetRegistry.list({ keyword: currentStickerSearch });
     } else if (currentStickerCategory === 'all') {
-        Object.keys(STICKER_LIBRARY).forEach(catKey => {
-            STICKER_LIBRARY[catKey].items.forEach(item => {
-                items.push({ ...item, type: STICKER_LIBRARY[catKey].type });
-            });
-        });
+        items = await AssetRegistry.list({});
     } else if (currentStickerCategory === 'freq') {
-        const all = [];
-        Object.keys(STICKER_LIBRARY).forEach(catKey => {
-            STICKER_LIBRARY[catKey].items.forEach(item => {
-                all.push({ ...item, type: STICKER_LIBRARY[catKey].type });
-            });
-        });
-        items = all.filter(it => freq[it.c] > 0)
-                   .sort((a, b) => (freq[b.c] || 0) - (freq[a.c] || 0))
-                   .slice(0, 40);
+        const freq = getStickerFreq();
+        const all = await AssetRegistry.list({});
+        items = all
+            .filter(a => freq[a.id] > 0)
+            .sort((a, b) => (freq[b.id] || 0) - (freq[a.id] || 0))
+            .slice(0, 40);
     } else if (currentStickerCategory === 'recent') {
-        const recent = getRecentStickers();
-        items = recent.map(c => {
-            for (const ck of Object.keys(STICKER_LIBRARY)) {
-                const found = STICKER_LIBRARY[ck].items.find(it => it.c === c);
-                if (found) return { ...found, type: STICKER_LIBRARY[ck].type, recent: true };
-            }
-            return { c, k: '最近使用', type: 'image', recent: true };
-        });
+        const recent = getRecentStickerIds();
+        const map = new Map((await AssetRegistry.list({})).map(a => [a.id, a]));
+        items = recent.map(id => map.get(id)).filter(Boolean);
     } else if (currentStickerCategory === 'uploaded') {
-        renderUploadedStickers(grid);
-        return;
-    } else if (STICKER_LIBRARY[currentStickerCategory]) {
-        const lib = STICKER_LIBRARY[currentStickerCategory];
-        items = lib.items.map(it => ({ ...it, type: lib.type }));
+        items = await AssetRegistry.list({ source: 'user' });
+    } else {
+        items = await AssetRegistry.list({ tag: currentStickerCategory });
     }
 
     if (items.length === 0) {
@@ -445,48 +629,45 @@ function renderStickerGrid() {
         return;
     }
 
-    const seen = new Set();
-    items.forEach(item => {
-        if (seen.has(item.c)) return;
-        seen.add(item.c);
-        grid.appendChild(createStickerItemEl(item));
+    items.forEach(asset => {
+        grid.appendChild(createStickerItemEl(asset));
     });
 }
 
-function createStickerItemEl(item) {
+function createStickerItemEl(asset) {
     const el = document.createElement('div');
     el.className = 'sticker-item';
-    el.dataset.content = item.c;
-    el.dataset.type = item.type || 'emoji';
+    el.dataset.assetId = asset.id;
+    el.dataset.type = asset.type;
 
-    if (item.recent) el.classList.add('recent-flag');
+    if (currentStickerCategory === 'recent') el.classList.add('recent-flag');
     const freq = getStickerFreq();
-    if (freq[item.c] > 0 && currentStickerCategory !== 'freq') {
+    if (freq[asset.id] > 0 && currentStickerCategory !== 'freq') {
         el.classList.add('freq-flag');
-        el.dataset.freq = freq[item.c];
+        el.dataset.freq = freq[asset.id];
     }
 
-    el.title = (item.k || '') + '  ·  单击添加到画布中央，或拖拽到指定位置';
+    el.title = (asset.name || '') + '  ·  单击添加，或拖拽到画布';
 
-    if (item.type === 'svg' || item.type === 'image') {
+    if (asset.type === 'emoji') {
+        el.innerText = asset.data;
+    } else {
         const img = document.createElement('img');
-        img.src = item.c;
+        img.src = AssetRegistry.toSrc(asset, asset.colorable ? '#ffffff' : null);
         img.draggable = false;
         el.appendChild(img);
-    } else {
-        el.innerText = item.c;
     }
 
     el.addEventListener('click', () => {
-        addStickerToCanvas(item.c, item.type, null, null);
+        addStickerToCanvas(asset.id, null, null);
     });
 
     el.setAttribute('draggable', 'true');
     el.addEventListener('dragstart', (e) => {
-        draggedStickerData = { c: item.c, type: item.type };
+        draggedStickerData = { assetId: asset.id };
         el.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'copy';
-        try { e.dataTransfer.setData('text/plain', item.c); } catch (err) {}
+        try { e.dataTransfer.setData('text/plain', asset.id); } catch (err) {}
     });
     el.addEventListener('dragend', () => {
         el.classList.remove('dragging');
@@ -531,21 +712,28 @@ function buildStickerDragDrop() {
         }
 
         const w = 80, h = 80;
-        addStickerToCanvas(draggedStickerData.c, draggedStickerData.type, x - w / 2, y - h / 2);
+        addStickerToCanvas(draggedStickerData.assetId, x - w / 2, y - h / 2);
         draggedStickerData = null;
     });
 }
 
-// ---------- 添加到画布 ----------
-function addStickerToCanvas(content, type, xOverride, yOverride) {
+// ---------- 添加到画布（核心：存 assetId） ----------
+async function addStickerToCanvas(assetId, xOverride, yOverride) {
+    const asset = await AssetRegistry.get(assetId);
+    if (!asset) {
+        alert('素材不存在，请刷新后重试');
+        return;
+    }
+
     const w = 80, h = 80;
     const newLayer = {
         id: 'sticker-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
         type: 'sticker',
-        stickerType: type || 'emoji',
-        content: content,
-        fontSize: '64px',
+        assetId: asset.id,
+        stickerType: asset.type === 'png' ? 'image' : asset.type,
         stickerColor: null,
+        content: asset.data,
+        fontSize: '64px',
         flipH: false,
         flipV: false,
         rotation: 0,
@@ -560,125 +748,45 @@ function addStickerToCanvas(content, type, xOverride, yOverride) {
     renderCanvas();
     renderLayerList();
 
-    addToRecentStickers(content);
-    bumpStickerFreq(content);
+    addToRecentStickers(asset.id);
+    bumpStickerFreq(asset.id);
 
     if (currentStickerCategory === 'recent' || currentStickerCategory === 'freq') {
         renderStickerGrid();
     }
 }
 
-// ---------- 用户上传贴纸（IndexedDB） ----------
-let stickerDB = null;
-function openStickerDB() {
-    return new Promise((resolve, reject) => {
-        if (stickerDB) return resolve(stickerDB);
-        const req = indexedDB.open('douyin_stickers_db', 1);
-        req.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains('stickers')) {
-                db.createObjectStore('stickers', { keyPath: 'id', autoIncrement: true });
-            }
-        };
-        req.onsuccess = (e) => { stickerDB = e.target.result; resolve(stickerDB); };
-        req.onerror = (e) => reject(e);
-    });
-}
-
+// ---------- 用户上传（走 AssetRegistry） ----------
 async function saveUploadedSticker(file) {
     try {
-        const db = await openStickerDB();
         const dataUrl = await new Promise((res, rej) => {
             const r = new FileReader();
             r.onload = e => res(e.target.result);
             r.onerror = rej;
             r.readAsDataURL(file);
         });
-        const tx = db.transaction('stickers', 'readwrite');
-        tx.objectStore('stickers').add({
+        await AssetRegistry.register({
+            type: 'upload',
             name: file.name,
-            dataUrl: dataUrl,
-            createdAt: Date.now()
+            data: dataUrl,
+            tags: ['uploaded', file.name.replace(/\.[^.]+$/, '')],
+            source: 'user',
+            colorable: false
         });
-        await new Promise(r => tx.oncomplete = r);
-        alert(`贴纸 "${file.name}" 上传成功！已保存到"我的"贴纸库。`);
+        alert(`贴纸 "${file.name}" 已加入素材库`);
     } catch (err) {
         console.error('上传贴纸失败:', err);
         alert('上传失败：' + err.message);
     }
 }
 
-async function getAllUploadedStickers() {
-    try {
-        const db = await openStickerDB();
-        const tx = db.transaction('stickers', 'readonly');
-        const req = tx.objectStore('stickers').getAll();
-        return await new Promise((res, rej) => {
-            req.onsuccess = () => res(req.result || []);
-            req.onerror = rej;
-        });
-    } catch (e) {
-        return [];
-    }
-}
-
-async function deleteUploadedSticker(id) {
-    const db = await openStickerDB();
-    const tx = db.transaction('stickers', 'readwrite');
-    tx.objectStore('stickers').delete(id);
-    await new Promise(r => tx.oncomplete = r);
-}
-
-async function renderUploadedStickers(grid) {
-    const uploaded = await getAllUploadedStickers();
-    if (uploaded.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'sticker-empty';
-        empty.innerText = '还没有上传过贴纸，点击右上角"上传"按钮添加本地图片';
-        grid.appendChild(empty);
-        return;
-    }
-    uploaded.forEach(item => {
-        const el = document.createElement('div');
-        el.className = 'sticker-item';
-        el.dataset.content = item.dataUrl;
-        el.dataset.type = 'image';
-        el.title = item.name;
-
-        const img = document.createElement('img');
-        img.src = item.dataUrl;
-        img.draggable = false;
-        el.appendChild(img);
-
-        const del = document.createElement('div');
-        del.className = 'del-uploaded';
-        del.innerHTML = '×';
-        del.title = '删除此贴纸';
-        del.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (!confirm(`确定删除贴纸 "${item.name}" 吗？`)) return;
-            await deleteUploadedSticker(item.id);
-            renderStickerGrid();
-        });
-        el.appendChild(del);
-
-        el.addEventListener('click', () => {
-            addStickerToCanvas(item.dataUrl, 'image', null, null);
-        });
-
-        el.setAttribute('draggable', 'true');
-        el.addEventListener('dragstart', (e) => {
-            draggedStickerData = { c: item.dataUrl, type: 'image' };
-            el.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'copy';
-        });
-        el.addEventListener('dragend', () => {
-            el.classList.remove('dragging');
-            draggedStickerData = null;
-        });
-
-        grid.appendChild(el);
-    });
+async function deleteUploadedSticker(assetId) {
+    await AssetRegistry.remove(assetId);
+    let recent = getRecentStickerIds().filter(x => x !== assetId);
+    try { localStorage.setItem(STICKER_RECENT_KEY, JSON.stringify(recent)); } catch (e) {}
+    const freq = getStickerFreq();
+    delete freq[assetId];
+    try { localStorage.setItem(STICKER_FREQ_KEY, JSON.stringify(freq)); } catch (e) {}
 }
 
 // ---------- 贴纸改色（仅 SVG） ----------
@@ -703,13 +811,15 @@ function buildStickerColorBar() {
     }
 }
 
-function applyStickerColor(color) {
+async function applyStickerColor(color) {
     const layer = state.getSelectedLayer();
     if (!layer || layer.type !== 'sticker') {
         alert('请先在画布中选中一个【矢量贴纸】！');
         return;
     }
-    if (layer.stickerType !== 'svg') {
+    const asset = layer.assetId ? await AssetRegistry.get(layer.assetId) : null;
+    const isSvg = (asset && asset.type === 'svg') || layer.stickerType === 'svg';
+    if (!isSvg) {
         alert('只有"矢量"分类的 SVG 贴纸支持改色。位图/emoji 贴纸不能改色。');
         return;
     }
@@ -722,3 +832,172 @@ function showStickerColorBar(show) {
     const bar = document.getElementById('sticker-color-bar');
     if (bar) bar.style.display = show ? 'flex' : 'none';
 }
+
+// ============================================================
+// 对外 API（国际化对齐）
+// ============================================================
+window.DouyinCover = window.DouyinCover || {};
+window.DouyinCover.registerSticker = async function (def) {
+    return AssetRegistry.register({
+        ...def,
+        source: 'api',
+        colorable: def.colorable !== undefined ? def.colorable : (def.type === 'svg')
+    });
+};
+window.DouyinCover.listStickers = (opts) => AssetRegistry.list(opts);
+window.DouyinCover.addStickerToCanvas = addStickerToCanvas;
+window.DouyinCover.getStickerAsset = (id) => AssetRegistry.get(id);
+
+
+
+
+// ============================================================
+// 国际版扩展：让底衬 / 字体 / 背景图 也走 AssetRegistry
+// 本段由 stickers.js 末尾追加，不改动上方任何贴纸代码
+// ============================================================
+
+// 注册"底衬"资产（type:'backdrop'）
+AssetRegistry.registerBackdrop = async function(def) {
+    return AssetRegistry.register({
+        ...def,
+        type: 'backdrop',
+        source: def.source || 'user',
+        colorable: def.colorable !== undefined ? def.colorable : (def.svg ? true : false)
+    });
+};
+
+// 注册"字体"资产（type:'font'）
+AssetRegistry.registerFont = async function(def) {
+    return AssetRegistry.register({
+        ...def,
+        type: 'font',
+        source: def.source || 'user',
+        colorable: false
+    });
+};
+
+// 注册"背景图"资产（type:'bgImage'）
+AssetRegistry.registerBgImage = async function(def) {
+    return AssetRegistry.register({
+        ...def,
+        type: 'bgImage',
+        source: def.source || 'user',
+        colorable: false
+    });
+};
+
+// 列出某类型资产
+AssetRegistry.listByType = async function(type, opts) {
+    return AssetRegistry.list(Object.assign({ type }, opts || {}));
+};
+
+// 把对外 API 扩展一下
+window.DouyinCover.registerBackdrop = AssetRegistry.registerBackdrop;
+window.DouyinCover.registerFont = AssetRegistry.registerFont;
+window.DouyinCover.registerBgImage = AssetRegistry.registerBgImage;
+window.DouyinCover.listByType = AssetRegistry.listByType;
+
+
+// ============================================================
+// 国际版扩展：字体上传时同步写 AssetRegistry（不修改 app.js）
+// 原理：monkey-patch app.js 的 fileInput change 事件，在它处理完后补写一份
+// ============================================================
+(function patchFontUploadToRegistry() {
+    document.addEventListener('DOMContentLoaded', () => {
+        const fileInput = document.getElementById('local-font-file');
+        if (!fileInput) return;
+        // 用 capture 阶段在 app.js 的 handler 之前拿到文件，
+        // 但真正的写 AssetRegistry 放在 setTimeout 里等 app.js 处理完
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const fileName = file.name;
+            // 延迟执行，让 app.js 的 handler 先跑完（它会把字体写 localStorage）
+            setTimeout(() => {
+                try {
+                    const savedFonts = JSON.parse(localStorage.getItem('douyin_cover_custom_fonts') || '[]');
+                    // 找到刚存进去的那条（按 displayName 匹配）
+                    const displayName = fileName.replace(/\.[^/.]+$/, "");
+                    const justSaved = savedFonts.find(f => f.displayName === displayName);
+                    if (!justSaved) return;
+                    if (window.AssetRegistry && AssetRegistry.registerFont) {
+                        AssetRegistry.registerFont({
+                            name: displayName,
+                            data: justSaved.fontDataUrl,
+                            tags: ['font', 'custom', displayName],
+                            source: 'user'
+                        }).then(id => {
+                            console.log('[AssetRegistry] 字体已入库:', displayName, id);
+                        }).catch(err => {
+                            console.warn('[AssetRegistry] 字体入库失败:', err);
+                        });
+                    }
+                } catch (err) {}
+            }, 300);
+        }, true);
+    });
+})();
+
+
+
+
+// ============================================================
+// 国际版扩展：字体持久化保险（每次页面加载时，从 AssetRegistry 反查一遍）
+// 原理：localStorage 被清 / 写入失败时，只要 IndexedDB 有 font 资产就能恢复
+// ============================================================
+(function fontPersistenceGuard() {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(async () => {
+            try {
+                if (!window.AssetRegistry) return;
+                await AssetRegistry.init();
+                const fontAssets = await AssetRegistry.list({ type: 'font' });
+                if (!fontAssets || fontAssets.length === 0) return;
+
+                const fontSelect = document.getElementById('tb-font');
+                if (!fontSelect) return;
+
+                const savedFonts = JSON.parse(localStorage.getItem('douyin_cover_custom_fonts') || '[]');
+                const savedNames = new Set(savedFonts.map(f => f.displayName));
+
+                for (const asset of fontAssets) {
+                    if (savedNames.has(asset.name)) continue;
+
+                    console.log('[FontGuard] 从 AssetRegistry 恢复字体:', asset.name);
+                    const fontName = 'CustomFont_recovered_' + asset.id.replace(/[^a-zA-Z0-9]/g, '_');
+                    const displayName = asset.name;
+                    const fontDataUrl = asset.data;
+
+                    try {
+                        const res = await fetch(fontDataUrl);
+                        const buffer = await res.arrayBuffer();
+                        const fontFace = new FontFace(fontName, buffer);
+                        const loaded = await fontFace.load();
+                        document.fonts.add(loaded);
+                    } catch (e) {
+                        console.warn('[FontGuard] 字体加载失败:', displayName, e);
+                        continue;
+                    }
+
+                    let exists = Array.from(fontSelect.options).some(opt => opt.value === fontName);
+                    if (!exists) {
+                        const option = document.createElement('option');
+                        option.value = fontName;
+                        option.innerText = '✍️ ' + displayName;
+                        fontSelect.appendChild(option);
+                    }
+
+                    try {
+                        const list = JSON.parse(localStorage.getItem('douyin_cover_custom_fonts') || '[]');
+                        if (!list.some(f => f.displayName === displayName)) {
+                            list.push({ fontName, displayName, assetId: asset.id });
+                            localStorage.setItem('douyin_cover_custom_fonts', JSON.stringify(list));
+                        }
+                    } catch (e) {}
+                }
+            } catch (err) {
+                console.warn('[FontGuard] 字体恢复流程出错:', err);
+            }
+        }, 1500);
+    });
+})();

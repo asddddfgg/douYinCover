@@ -659,13 +659,15 @@ function handleEffectClick(eff) {
         return;
     }
 
-    if (hasSelection && !canEffectApplyToSelection(eff.css)) {
+       if (hasSelection && !canEffectApplyToSelection(eff.css || '')) {
         if (typeof showBgToast === 'function') {
             showBgToast(`「${eff.name}」只能作用于整个图层，已为你整层套用`);
         }
     }
 
     layer.effectClass = eff.id;
+    // 清空叠加数组（单选语义）
+    if (layer.effectClasses) delete layer.effectClasses;
     state.saveState();
     if (typeof renderCanvas === 'function') renderCanvas();
     if (typeof renderLayerList === 'function') renderLayerList();
@@ -1318,6 +1320,16 @@ async function renderCustomBackdropGrid(grid) {
             del.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (!confirm(`确定删除底衬 "${item.name}" 吗？`)) return;
+                // ✅ 国际版：从 AssetRegistry 一起删
+                try {
+                    const map = JSON.parse(localStorage.getItem('douyin_backdrop_asset_map') || '{}');
+                    const assetId = map[item.id];
+                    if (assetId && window.AssetRegistry) {
+                        await AssetRegistry.remove(assetId);
+                    }
+                    delete map[item.id];
+                    localStorage.setItem('douyin_backdrop_asset_map', JSON.stringify(map));
+                } catch (err) {}
                 await BackdropDB.deleteBackdrop(item.id);
                 delete backdropCache[item.id];
                 renderBackdropGrid();
@@ -1367,7 +1379,25 @@ async function uploadBackdropImage(file) {
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });
-        await BackdropDB.addBackdrop(file.name, dataUrl, false);
+        // ✅ 国际版：先写 AssetRegistry（统一资产库），再写 BackdropDB（兼容老逻辑）
+        let assetId = null;
+        if (window.AssetRegistry && AssetRegistry.registerBackdrop) {
+            assetId = await AssetRegistry.registerBackdrop({
+                name: file.name,
+                data: dataUrl,
+                tags: ['backdrop', 'uploaded'],
+                source: 'user'
+            });
+        }
+        const legacyId = await BackdropDB.addBackdrop(file.name, dataUrl, false);
+        // 把 assetId 映射关系记下来，供后续"替换素材"能力用（不影响现有渲染）
+        if (assetId && legacyId != null) {
+            try {
+                const map = JSON.parse(localStorage.getItem('douyin_backdrop_asset_map') || '{}');
+                map[legacyId] = assetId;
+                localStorage.setItem('douyin_backdrop_asset_map', JSON.stringify(map));
+            } catch (e) {}
+        }
         alert(`底衬图片 "${file.name}" 上传成功！已保存到"自定义"分类。`);
     } catch (err) {
         console.error('上传底衬失败:', err);
@@ -1610,6 +1640,9 @@ function _sanitizeSvg(rawSvg) {
 }
 
 // 把任意 SVG 统一成：白色填充、无描边、透明底，然后转 PNG 蒙版
+// ✅ P1：SVG 直接存字符串（矢量，放大不失真、改色不糊边）
+// 返回值为 data:image/svg+xml;utf8,... 而不是 PNG 蒙版
+// 兼容：调用方期望 Promise<string>，这里保持 Promise 接口，内部同步返回
 function _svgToWhiteMaskDataUrl(svgString) {
     const svg = _sanitizeSvg(svgString);
 
@@ -1626,6 +1659,7 @@ function _svgToWhiteMaskDataUrl(svgString) {
         : '0 0 100 100';
     svg.setAttribute('viewBox', safeVb);
 
+    // 扩为正方形 viewBox（保持原图形居中不拉伸）
     const viewBoxParts = safeVb.split(/\s+/).map(Number);
     const [viewX, viewY, viewWidth, viewHeight] = viewBoxParts;
     const squareSide = Math.max(viewWidth, viewHeight);
@@ -1637,14 +1671,13 @@ function _svgToWhiteMaskDataUrl(svgString) {
     ].join(' ');
     svg.setAttribute('viewBox', squareViewBox);
 
-    svg.setAttribute('width', String(SHAPE_MASK_SIZE));
-    svg.setAttribute('height', String(SHAPE_MASK_SIZE));
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
     if (!svg.getAttribute('xmlns')) {
         svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     }
 
+    // 统一填充成 currentColor（可着色），去掉描边/透明度干扰
     const walker = document.createTreeWalker(svg, NodeFilter.SHOW_ELEMENT, null);
     const all = [svg];
     while (walker.nextNode()) all.push(walker.currentNode);
@@ -1652,7 +1685,7 @@ function _svgToWhiteMaskDataUrl(svgString) {
     all.forEach(node => {
         const tag = node.tagName.toLowerCase();
         if (['path', 'circle', 'ellipse', 'rect', 'polygon', 'polyline', 'line'].includes(tag)) {
-            node.setAttribute('fill', '#ffffff');
+            node.setAttribute('fill', 'currentColor');
             node.removeAttribute('stroke');
             node.removeAttribute('stroke-width');
             node.removeAttribute('stroke-linejoin');
@@ -1665,28 +1698,8 @@ function _svgToWhiteMaskDataUrl(svgString) {
     });
 
     const serialized = new XMLSerializer().serializeToString(svg);
-    const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serialized);
-
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-
-        img.onload = () => {
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = SHAPE_MASK_SIZE;
-                canvas.height = SHAPE_MASK_SIZE;
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, SHAPE_MASK_SIZE, SHAPE_MASK_SIZE);
-                ctx.drawImage(img, 0, 0, SHAPE_MASK_SIZE, SHAPE_MASK_SIZE);
-                resolve(canvas.toDataURL('image/png'));
-            } catch (e) {
-                reject(e);
-            }
-        };
-        img.onerror = () => reject(new Error('SVG 转 PNG 失败（img onerror）'));
-        img.src = svgDataUrl;
-    });
+    const svgDataUrl = 'data:image/svg+xml;utf8,' + encodeURIComponent(serialized);
+    return Promise.resolve(svgDataUrl);
 }
 
 // 从"只有 path"的简写生成 SVG
@@ -1726,7 +1739,6 @@ async function _parseShapeInput(text) {
     });
 }
 
-// 主流程：解析 → 转蒙版 → 存 BackdropDB（同名覆盖）
 async function _importShapesFromText(text) {
     const shapes = await _parseShapeInput(text);
     const status = document.getElementById('backdrop-import-status');
@@ -1737,8 +1749,27 @@ async function _importShapesFromText(text) {
         const s = shapes[i];
         try {
             const dataUrl = await _svgToWhiteMaskDataUrl(s.svg);
-            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl, true);
-            results.push({ name: s.name, ok: true, id });
+            // ✅ 国际版：形状蒙版进 AssetRegistry（type:'backdrop', colorable:true）
+            let assetId = null;
+            if (window.AssetRegistry && AssetRegistry.registerBackdrop) {
+                assetId = await AssetRegistry.registerBackdrop({
+                    name: s.name,
+                    data: dataUrl,
+                    tags: ['backdrop', 'shape', 'mask'],
+                    colorable: true,
+                    source: 'user'
+                });
+            }
+            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl, true);   // ⭐ 加 true，表示形状蒙版
+            // 记录映射关系
+            if (assetId && id != null) {
+                try {
+                    const map = JSON.parse(localStorage.getItem('douyin_backdrop_asset_map') || '{}');
+                    map[id] = assetId;
+                    localStorage.setItem('douyin_backdrop_asset_map', JSON.stringify(map));
+                } catch (e) {}
+            }
+            results.push({ name: s.name, ok: true, id, assetId });
             ok++;
             if (status) status.innerHTML = `处理中 ${i + 1}/${shapes.length}：${s.name} ✔`;
         } catch (e) {
@@ -1749,6 +1780,7 @@ async function _importShapesFromText(text) {
     }
 
     await refreshCustomBackdropCache();
+    // 切到"自定义"分类，让用户立刻看到
     currentBackdropCategory = 'custom';
     const tabsEl = document.getElementById('backdrop-tabs');
     if (tabsEl) {

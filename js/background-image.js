@@ -412,9 +412,27 @@ function handleUploadBgImageFile(file, opts) {
     reader.onload = async (evt) => {
         const dataUrl = evt.target.result;
         try {
+            // ✅ 国际版：先写 AssetRegistry（type:'bgImage'）
+            let assetId = null;
+            if (window.AssetRegistry && AssetRegistry.registerBgImage) {
+                assetId = await AssetRegistry.registerBgImage({
+                    name: file.name || '背景图片',
+                    data: dataUrl,
+                    tags: ['bgImage', 'uploaded'],
+                    source: 'user'
+                });
+            }
             const id = await BGImageDB.addImage(file.name || '背景图片', dataUrl);
             bgImageCache[id] = dataUrl;
             pushBgImageRecentId(id);
+            // 记录 legacy id → assetId 映射
+            if (assetId && id != null) {
+                try {
+                    const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
+                    map[id] = assetId;
+                    localStorage.setItem('douyin_bgimage_asset_map', JSON.stringify(map));
+                } catch (e) {}
+            }
 
             if (opts.applyAsBackground !== false) {
                 applyUploadedImageAsBackground(id, dataUrl);
@@ -733,10 +751,20 @@ async function renderBgPresetGridWithUploads() {
         del.style.color = '#fff';
         del.innerHTML = '×';
         del.title = '删除此图片';
-        del.addEventListener('click', async (e) => {
+                del.addEventListener('click', async (e) => {
             e.stopPropagation();
             if (!confirm(`确定删除 "${item.name}" 吗？`)) return;
             try {
+                // ✅ 国际版：从 AssetRegistry 一起删
+                try {
+                    const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
+                    const assetId = map[item.id];
+                    if (assetId && window.AssetRegistry) {
+                        await AssetRegistry.remove(assetId);
+                    }
+                    delete map[item.id];
+                    localStorage.setItem('douyin_bgimage_asset_map', JSON.stringify(map));
+                } catch (err) {}
                 await BGImageDB.deleteImage(item.id);
                 delete bgImageCache[item.id];
                 let recent = getBgImageRecentIds().filter(x => x !== item.id);
@@ -792,3 +820,7 @@ window.applyBackgroundToCanvasesWithImage = applyBackgroundToCanvasesWithImage;
 window.syncImagePanelVisibility = syncImagePanelVisibility;
 window.syncImageControlsToState = syncImageControlsToState;
 window.renderUploadedBgImages = renderUploadedBgImages;
+// ✅ 国际版：暴露 BGImageDB 供 AssetRegistry 统一管理时反查
+window.BGImageDB = BGImageDB;
+window.getBgImageRecentIds = getBgImageRecentIds;
+window.saveBgImageRecentIds = saveBgImageRecentIds;
