@@ -820,11 +820,21 @@ function setupTopToolbarEvents() {
         });
     }
 
-    const opacity = document.getElementById('tb-opacity');
+        const opacity = document.getElementById('tb-opacity');
     if (opacity) {
         opacity.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { layer.opacity = parseFloat(e.target.value); state.saveState(); renderCanvas(); }
+            if (!layer) return;
+            layer.opacity = parseFloat(e.target.value);
+            // draw 图层：只重绘 canvas，不重建 DOM，拖动滑块才顺
+            if (layer.type === 'draw' && window.Doodle) {
+                Doodle.redrawDrawLayers();
+            } else {
+                renderCanvas();
+            }
+        });
+        opacity.addEventListener('change', () => {
+            state.saveState();
         });
     }
 
@@ -838,10 +848,53 @@ function setupTopToolbarEvents() {
     }
 }
 
+
+// 安全地把颜色值写入 <input type="color">（只接受 #rrggbb，其余归一化或跳过）
+function safeSetColorInput(id, value, fallback) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let v = (value || '').trim();
+    if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+        v = '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
+    }
+    if (!/^#[0-9a-fA-F]{6}$/.test(v)) {
+        v = fallback;
+    }
+    try { el.value = v; } catch (e) { /* 忽略 */ }
+}
+
+
+
+
+
 // 顶部工具栏状态同步
 function updateTopToolbarUI(layer) {
     const toolbar = document.getElementById('text-toolbar');
     if (!toolbar) return;
+
+    // draw 图层：允许调透明度，其它文字按钮全部禁用
+    if (layer && layer.type === 'draw') {
+        toolbar.classList.remove('is-inactive');
+        // 只让透明度滑块可用
+        toolbar.querySelectorAll('select, button, input[type="range"]').forEach(el => {
+            if (el.id === 'tb-opacity') {
+                el.disabled = false;
+                el.style.opacity = '';
+            } else {
+                el.disabled = true;
+                el.style.opacity = '0.35';
+            }
+        });
+        const opacityEl = document.getElementById('tb-opacity');
+        if (opacityEl) opacityEl.value = layer.opacity !== undefined ? layer.opacity : 1;
+        return;
+    }
+
+    // 其它类型（text / 无选中）：恢复所有控件可用
+    toolbar.querySelectorAll('select, button, input[type="range"]').forEach(el => {
+        el.disabled = false;
+        el.style.opacity = '';
+    });
 
     if (!layer || layer.type !== 'text') {
         toolbar.classList.add('is-inactive');
@@ -873,8 +926,10 @@ function updateTopToolbarUI(layer) {
 
     document.getElementById('tb-font').value = layer.fontFamily || 'sans-serif';
     document.getElementById('tb-fontsize').value = layer.fontSize || '28px';
-    document.getElementById('tb-color').value = layer.color || '#ffffff';
-    document.getElementById('tb-bgcolor').value = layer.bgColor === 'transparent' ? '#000000' : (layer.bgColor || '#000000');
+        // 安全地把颜色值写入 <input type="color">（只接受 #rrggbb，其余归一化或跳过）
+
+    safeSetColorInput('tb-color', layer.color, '#ffffff');
+    safeSetColorInput('tb-bgcolor', layer.bgColor === 'transparent' ? '#000000' : layer.bgColor, '#000000');
     document.getElementById('tb-bold').classList.toggle('active', !!curBold);
     document.getElementById('tb-italic').classList.toggle('active', !!curItalic);
     document.getElementById('tb-underline').classList.toggle('active', !!curUnderline);

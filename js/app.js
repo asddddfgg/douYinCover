@@ -754,6 +754,8 @@ document.addEventListener('DOMContentLoaded', () => {
     try { MultiSelect.init(); } catch (err) { console.warn('MultiSelect init failed:', err); }
     try { Guides.init(); } catch (err) { console.warn('Guides init failed:', err); }
     try { ProjectManager.init(); } catch (err) { console.warn('ProjectManager init failed:', err); }
+    try { Doodle.init(); } catch (err) { console.warn('Doodle init failed:', err); }
+    try { Features.init(); } catch (err) { console.warn('Features init failed:', err); }
 });
 
 function initCustomFontUpload() {
@@ -981,6 +983,12 @@ onclone: async (clonedDoc, clonedEl) => {
     ).forEach(el => el.style.display = 'none');
     clonedEl.querySelectorAll('.canvas-layer.selected')
         .forEach(el => el.classList.remove('selected'));
+    // 导出时移除所有 <input type="color">，避免浏览器解析非法颜色值抛 NotFoundError
+    clonedDoc.querySelectorAll('input[type="color"]').forEach(el => {
+        const span = clonedDoc.createElement('span');
+        span.style.cssText = el.style.cssText;
+        if (el.parentNode) el.parentNode.replaceChild(span, el);
+    });
 
     // 接回 _buildOnCloneForExport，让"文字预渲染"生效
     const fn = _buildOnCloneForExport(canvasDOMNode);
@@ -1294,6 +1302,22 @@ function createBackdropElement(layer) {
     el.style.backgroundPosition = 'center';
     el.style.backgroundRepeat = 'no-repeat';
 
+
+    if (bd.type === 'mark') {
+        el.classList.add('backdrop-mark');
+        el.dataset.markKind = bd.markKind || 'box';
+        el.style.setProperty('--mark-c', bd.markColor || '#ff2442');
+        el.style.setProperty('--mark-w', (bd.markWidth || 4) + 'px');
+        const pad = bd.padding !== undefined ? bd.padding : 12;
+        el.style.left = (-pad) + 'px';
+        el.style.top = (-pad) + 'px';
+        el.style.right = (-pad) + 'px';
+        el.style.bottom = (-pad) + 'px';
+        el.style.opacity = bd.opacity !== undefined ? bd.opacity : 1;
+        return el;
+    }
+
+
        if (bd.type === 'custom') {
         const cid = bd.customId;
         if (cid !== undefined && cid !== null) {
@@ -1587,6 +1611,34 @@ function renderCanvas() {
             el.style.width = layer.width + 'px';
 
             // ✅ 文本图层高度模式：auto 则交给 CSS 自适应，fixed 则用固定 px
+
+            // draw 图层不需要 DOM 内容，由 canvas 层统一绘制
+            if (layer.type === 'draw') {
+                // 仍然创建包裹层以便选中/拖拽/缩放
+                el.style.background = 'transparent';
+                el.style.border = 'none';
+                // 添加缩放手柄
+                ['nw', 'ne', 'sw', 'se'].forEach(dir => {
+                    const handle = document.createElement('div');
+                    handle.className = `resize-handle ${dir}`;
+                    handle.dataset.direction = dir;
+                    el.appendChild(handle);
+                });
+                ['left', 'right', 'top', 'bottom'].forEach(dir => {
+                    const handle = document.createElement('div');
+                    handle.className = `edge-handle ${dir}`;
+                    handle.dataset.direction = dir;
+                    el.appendChild(handle);
+                });
+                const rotateHandle = document.createElement('div');
+                rotateHandle.className = 'rotate-handle';
+                el.appendChild(rotateHandle);
+                layersWrapper.appendChild(el);
+                return;
+            }
+
+
+
             if (layer.type === 'text') {
                 const isFixed = layer.heightMode === 'fixed';
                 el.classList.add(isFixed ? 'fixed-height' : 'auto-height');
@@ -1882,19 +1934,19 @@ if (bgBoxEffectId) {
         applyBackgroundToCanvases(state.background);
     }
 
-        // 重绘参考线
-    if (window.Guides) Guides.renderGuides();
-
-        // ✅ 刷新右侧参数面板（如果当前图层是参数化特效）
-    //    拖动参数时不重建面板（防止正在拖的滑块被销毁）
-    if (typeof refreshEffectParamsPanel === 'function' && !window.__effectParamsDragging) {
-        refreshEffectParamsPanel();
+            // 拖动/缩放/旋转进行中：跳过参考线重绘和特效面板刷新，避免每帧重开销
+    if (!window.__layerDragging) {
+        if (window.Guides) Guides.renderGuides();
+        if (typeof refreshEffectParamsPanel === 'function' && !window.__effectParamsDragging) {
+            refreshEffectParamsPanel();
+        }
     }
 
     // 恢复滚动位置（见函数开头注释）
     container.scrollTop = _prevScrollTop;
     container.scrollLeft = _prevScrollLeft;
-
+    // 重建 DOM 后重绘涂鸦画布
+    if (window.Doodle) Doodle.redrawDrawLayers();
 
 }
 
@@ -1909,8 +1961,10 @@ function renderLayerList() {
             ? MultiSelect.isSelected(layer.id)
             : (layer.id === state.selectedLayerId);
         item.className = `layer-item ${isSel ? 'active' : ''}`;
-        const cleanContent = (layer.content || '').replace(/<[^>]*>/g, '').substring(0, 10);
-        const iconName = layer.type === 'text' ? 'fa-font' : 'fa-face-smile';
+                const cleanContent = layer.type === 'draw'
+            ? `${layer.mode === 'eraser' ? '橡皮' : (layer.mode === 'highlighter' ? '高亮' : '笔迹')}`
+            : (layer.content || '').replace(/<[^>]*>/g, '').substring(0, 10);
+                const iconName = layer.type === 'text' ? 'fa-font' : (layer.type === 'draw' ? 'fa-paintbrush' : 'fa-face-smile');
         const typeLabel = layer.type === 'sticker' ? `[${layer.stickerType || 'emoji'}]` : '';
         item.innerHTML = `
             <span><i class="fa-solid ${iconName}"></i> ${typeLabel}${cleanContent || '图层'}</span>
@@ -3165,17 +3219,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     slider.addEventListener('pointerup', () => {
                         window.__effectParamsDragging = false;
                     });
-                               } else if (meta.type === 'color') {
+                                                              } else if (meta.type === 'color') {
                     const _supportsEyeDropper = typeof window.EyeDropper !== 'undefined';
+                    // 归一化颜色值：只允许 #rrggbb，其它一律回退到默认色
+                    const _safeColor = (function(v, fallback) {
+                        let s = String(v == null ? '' : v).trim();
+                        if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+                            s = '#' + s[1]+s[1]+s[2]+s[2]+s[3]+s[3];
+                        }
+                        if (!/^#[0-9a-fA-F]{6}$/.test(s)) {
+                            s = fallback || '#000000';
+                        }
+                        return s;
+                    })(currentVal, meta.default || '#000000');
                     row.innerHTML = `
                         <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#8b949e; margin-bottom:2px;">
                             <span>${meta.label || key}</span>
                             <span style="font-family:monospace; display:flex; align-items:center; gap:4px;">
-                                <span data-val-for="${key}">${currentVal}</span>
+                                <span data-val-for="${key}">${_safeColor}</span>
                                 ${_supportsEyeDropper ? `<button class="btn-eye-dropper" title="吸管取色（从屏幕任意位置吸取）" style="background:none;border:1px solid #30363d;border-radius:3px;color:#8b949e;cursor:pointer;padding:0 4px;font-size:11px;line-height:16px;"><i class="fa-solid fa-eye-dropper"></i></button>` : ''}
                             </span>
                         </div>
-                        <input type="color" value="${currentVal}" style="width:100%;height:28px;border:1px solid #30363d;border-radius:4px;background:none;cursor:pointer;" data-param-key="${key}">
+                        <input type="color" value="${_safeColor}" style="width:100%;height:28px;border:1px solid #30363d;border-radius:4px;background:none;cursor:pointer;" data-param-key="${key}">
                     `;
                     const picker = row.querySelector('input[type="color"]');
                     const hexLabel = row.querySelector('span[style*="monospace"]');

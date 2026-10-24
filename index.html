@@ -51,6 +51,8 @@
 
     <!-- 组 2：样式 -->
     <div class="toolbar-group">
+        <button id="tb-mark" class="tool-btn" title="文字强调标记（选中文字时只标记选区，未选中时标记整层）"><i class="fa-solid fa-circle-notch"></i></button>
+        <button id="tb-mark-clear" class="tool-btn" title="清除标记"><i class="fa-solid fa-eraser"></i></button>
         <button id="tb-bold" class="tool-btn" title="粗体"><i class="fa-solid fa-bold"></i></button>
         <button id="tb-italic" class="tool-btn" title="斜体"><i class="fa-solid fa-italic"></i></button>
         <button id="tb-underline" class="tool-btn" title="下划线"><i class="fa-solid fa-underline"></i></button>
@@ -62,6 +64,11 @@
         <button id="tb-bullet" class="tool-btn" title="项目符号"><i class="fa-solid fa-list-ul"></i></button>
 
         <button id="tb-vertical" class="tool-btn" title="竖排文字"><i class="fa-solid fa-grip-lines-vertical"></i></button>
+
+        <button id="btn-doodle" class="tool-btn" title="涂鸦画笔"><i class="fa-solid fa-paintbrush"></i></button>
+        
+        <button id="btn-theme" class="tool-btn" title="一键换主题"><i class="fa-solid fa-palette"></i></button>
+        <button id="btn-layout" class="tool-btn" title="智能排版模板"><i class="fa-solid fa-table-cells-large"></i></button>
 
         <div class="slider-group" title="字间距">
             <span>字距</span>
@@ -271,7 +278,58 @@
                 <input type="file" id="bg-extract-file" accept="image/*" style="display:none;">
 
                 <div class="panel-section">
+
+
+
+                <div class="panel-section" id="theme-panel-section">
+                    <h3><i class="fa-solid fa-palette"></i> 一键换主题</h3>
+                    <p class="hint">背景 + 文字色 + 描边 + 高亮一起换</p>
+                    <div id="theme-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;"></div>
+                </div>
+
+                <div class="panel-section" id="layout-panel-section">
+                    <h3><i class="fa-solid fa-table-cells-large"></i> 智能排版模板</h3>
+                    <p class="hint">点一下，自动把当前页图层排成对应布局</p>
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
+                        <button class="btn layout-btn" data-layout="title-center" style="justify-content:center;font-size:11px;">上标题+中图+下副标</button>
+                        <button class="btn layout-btn" data-layout="left-right" style="justify-content:center;font-size:11px;">左文字+右内容</button>
+                        <button class="btn layout-btn" data-layout="big-center" style="justify-content:center;font-size:11px;">全屏大字</button>
+                        <button class="btn layout-btn" data-layout="three-col" style="justify-content:center;font-size:11px;">三栏对比</button>
+                    </div>
+                </div>
+
+
+                <div class="panel-section" id="doodle-panel-section">
+                    <h3><i class="fa-solid fa-paintbrush"></i> 涂鸦画笔</h3>
+                    <p class="hint">点顶部画笔按钮进入绘制模式，在画布上拖动即可绘制</p>
+                    <div class="control-group">
+                        <label>笔刷颜色</label>
+                        <input type="color" id="doodle-color" value="#ff2442" style="width:100%;height:32px;border:1px solid #30363d;border-radius:4px;background:none;cursor:pointer;">
+                    </div>
+                    <div class="control-group">
+                        <label>笔刷粗细 <span id="doodle-size-val">6</span>px</label>
+                        <input type="range" id="doodle-size" min="1" max="30" value="6" style="width:100%;accent-color:#ff2442;">
+                    </div>
+                    <div class="control-group">
+                        <label>笔刷模式</label>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn doodle-mode-btn active" data-mode="pen" style="flex:1;justify-content:center;font-size:11px;"><i class="fa-solid fa-pen"></i> 画笔</button>
+                            <button class="btn doodle-mode-btn" data-mode="highlighter" style="flex:1;justify-content:center;font-size:11px;"><i class="fa-solid fa-highlighter"></i> 高亮</button>
+                            <button class="btn doodle-mode-btn" data-mode="eraser" style="flex:1;justify-content:center;font-size:11px;"><i class="fa-solid fa-eraser"></i> 橡皮</button>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                            <input type="checkbox" id="doodle-autoclose" checked style="accent-color:#ff2442;"> 自动闭合形状
+                        </label>
+                    </div>
+                </div>
+
                     <h3><i class="fa-solid fa-note-sticky"></i> 文字底衬特效</h3>
+
+
+
+
                     <p class="hint">选中文字图层后，点击底衬卡片即可叠加到文字背后</p>
 
                     <div class="backdrop-tabs" id="backdrop-tabs">
@@ -365,6 +423,32 @@
         </div>
     </div>
 
+
+    <div id="mark-popover" class="mark-popover" style="display:none;">
+        <div class="mark-popover-title">文字强调标记</div>
+        <div class="mark-popover-hint">选中文字 = 只标记选区；未选中 = 标记整层</div>
+                <div class="mark-popover-grid">
+            <button class="mark-kind-btn" data-mark="circle">圆圈</button>
+            <button class="mark-kind-btn" data-mark="box">方框</button>
+            <button class="mark-kind-btn" data-mark="underline">下划线</button>
+            <button class="mark-kind-btn" data-mark="highlight">荧光高亮</button>
+            <button class="mark-kind-btn" data-mark="wavy">波浪下划线</button>
+            <button class="mark-kind-btn" data-mark="strike">删除线</button>
+            <button class="mark-kind-btn" data-mark="block">关键词底色</button>
+            <button class="mark-kind-btn" data-mark="marker">马克笔荧光</button>
+            <button class="mark-kind-btn" data-mark="stroke">描边</button>
+        </div>
+        <div class="mark-popover-row">
+            <label>颜色</label>
+            <input type="color" id="mark-color" value="#ff2442">
+        </div>
+        <div class="mark-popover-row">
+            <label>粗细 <span id="mark-width-val">4</span>px</label>
+            <input type="range" id="mark-width" min="1" max="20" value="4">
+        </div>
+    </div>
+
+
         <div id="context-menu" class="context-menu" style="display: none;">
         <ul>
             <li id="ctx-clear-inline-effect"><i class="fa-solid fa-eraser"></i> 清除所选文字特效</li>
@@ -436,6 +520,7 @@
     <script src="js/state.js"></script>
     <script src="js/effects.js"></script>
     <script src="js/text-layers.js"></script>
+    <script src="js/doodle.js"></script>
     <script src="js/stickers.js"></script>
     <script src="js/drag.js"></script>
     <script src="js/background-image.js"></script>
@@ -443,7 +528,7 @@
     <script src="js/guides.js"></script>
     <script src="js/projects.js"></script>
     <script src="js/app.js"></script>
-
+    <script src="js/features.js"></script>
 
 <div id="export-panel" class="export-panel" style="display:none;">
     <div class="export-panel-inner">

@@ -1956,3 +1956,126 @@ body.guide-cursor-h { cursor: ns-resize !important; }
     padding: 12px 16px;
     background: #1c2128;
 }
+
+
+
+/* ============================================================
+   涂鸦画笔
+   ============================================================ */
+.canvas-container.doodle-active .canvas-layer {
+    pointer-events: none !important;
+}
+.canvas-container.doodle-active .cover-canvas {
+    cursor: crosshair;
+}
+.doodle-canvas {
+    pointer-events: none;
+}
+
+
+/* ============================================================
+   文字强调标记
+   ============================================================ */
+.layer-backdrop.backdrop-mark {
+    background: transparent;
+    border-radius: 0;
+    overflow: visible;
+}
+.backdrop-mark[data-mark-kind="circle"] {
+    border: var(--mark-w, 4px) solid var(--mark-c, #ff2442);
+    border-radius: 50%;
+}
+.backdrop-mark[data-mark-kind="box"] {
+    border: var(--mark-w, 4px) solid var(--mark-c, #ff2442);
+    border-radius: 6px;
+}
+.backdrop-mark[data-mark-kind="underline"] {
+    border: none;
+    border-bottom: var(--mark-w, 4px) solid var(--mark-c, #ff2442);
+    border-radius: 0;
+    transform: rotate(-0.8deg);
+}
+.backdrop-mark[data-mark-kind="highlight"] {
+    background: var(--mark-c, #ff2442);
+    opacity: 0.35;
+    border-radius: 4px;
+    transform: rotate(-1deg);
+}
+
+
+
+/* ============================================================
+   标记设置弹出面板
+   ============================================================ */
+.mark-popover {
+    position: fixed;
+    z-index: 3500;
+    width: 220px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.8);
+    padding: 10px;
+}
+.mark-popover-title {
+    font-size: 12px;
+    font-weight: bold;
+    color: #e1e4e8;
+    margin-bottom: 2px;
+}
+.mark-popover-hint {
+    font-size: 10px;
+    color: #8b949e;
+    line-height: 1.4;
+    margin-bottom: 8px;
+}
+
+.mark-kind-btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    border-radius: 4px;
+    padding: 5px 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.mark-kind-btn:hover {
+    background: #ff2442;
+    color: #fff;
+    border-color: #ff2442;
+}
+.mark-popover-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #8b949e;
+}
+.mark-popover-row label {
+    flex-shrink: 0;
+    min-width: 52px;
+}
+.mark-popover-row input[type="color"] {
+    flex: 1;
+    height: 24px;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+}
+.mark-popover-row input[type="range"] {
+    flex: 1;
+    accent-color: #ff2442;
+}
+
+.mark-popover-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    margin-bottom: 8px;
+}
+.mark-popover {
+    width: 240px;
+}

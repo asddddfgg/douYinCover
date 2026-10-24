@@ -1,4 +1,55 @@
 // Professional Canva-style Drag + Rotate + Corner Scale + Edge Resize + Align Guides + Cross-page Drag
+// ============================================================
+// draw 图层路径命中测试：鼠标离笔迹足够近就算点中
+// ============================================================
+function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) {
+        const ex = px - x1, ey = py - y1;
+        return Math.sqrt(ex * ex + ey * ey);
+    }
+    let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    const cx = x1 + t * dx, cy = y1 + t * dy;
+    const ex = px - cx, ey = py - cy;
+    return Math.sqrt(ex * ex + ey * ey);
+}
+
+function isPointNearDrawLayer(pageX, pageY, layer) {
+    if (!layer || layer.type !== 'draw' || !Array.isArray(layer.segments)) return false;
+    const tol = Math.max(layer.strokeWidth || 4, 10) + 6; // 容差：至少 16px
+    // 先把鼠标点转到图层内部坐标系（考虑旋转）
+    let lx = pageX - layer.x;
+    let ly = pageY - layer.y;
+    const rot = (layer.rotation || 0) * Math.PI / 180;
+    if (rot) {
+        const cx = layer.width / 2;
+        const cy = layer.height / 2;
+        const dx = lx - cx, dy = ly - cy;
+        const cos = Math.cos(-rot), sin = Math.sin(-rot);
+        lx = cx + dx * cos - dy * sin;
+        ly = cy + dx * sin + dy * cos;
+    }
+    // 快速排除：离包围盒太远直接 false
+    if (lx < -tol || ly < -tol || lx > layer.width + tol || ly > layer.height + tol) {
+        return false;
+    }
+    // 逐段计算鼠标到笔迹的最短距离
+    for (const seg of layer.segments) {
+        const pts = seg.points || [];
+        if (pts.length === 1) {
+            const dx = lx - pts[0].x, dy = ly - pts[0].y;
+            if (Math.sqrt(dx * dx + dy * dy) <= tol) return true;
+        }
+        for (let i = 1; i < pts.length; i++) {
+            const d = pointToSegmentDistance(lx, ly, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y);
+            if (d <= tol) return true;
+        }
+    }
+    return false;
+}
+
 // + 多选整体拖拽 + 吸附对齐 + 右键菜单智能定位（最小侵入升级）
 
 function initDragModule() {
@@ -175,8 +226,37 @@ if (cornerHandle) {
             return;
         }
 
+                // ========== draw 图层路径命中：点击线附近也能选中 ==========
+        // 优先看鼠标是否落在某条笔迹的容差范围内（从上层到下层）
+        let drawHitEl = null;
+        {
+            const canvasEl = e.target.closest('.cover-canvas');
+            if (canvasEl) {
+                const pageWrapper = canvasEl.closest('.canvas-page-wrapper');
+                const pageId = pageWrapper ? pageWrapper.dataset.pageId : null;
+                const page = pageId ? state.pages.find(p => p.id === pageId) : null;
+                if (page) {
+                    const rect = canvasEl.getBoundingClientRect();
+                    const scaleX = rect.width / 360 || 1;
+                    const scaleY = rect.height / 640 || 1;
+                    const px = (e.clientX - rect.left) / scaleX;
+                    const py = (e.clientY - rect.top) / scaleY;
+                    // 从上层往下层找（数组末尾 = 上层）
+                    for (let i = page.layers.length - 1; i >= 0; i--) {
+                        const l = page.layers[i];
+                        if (l.type !== 'draw') continue;
+                        if (isPointNearDrawLayer(px, py, l)) {
+                            drawHitEl = canvasEl.querySelector(`.canvas-layer[data-id="${l.id}"]`);
+                            if (drawHitEl) break;
+                        }
+                    }
+                }
+            }
+        }
+
         // ========== 点击空白 ==========
-        const targetLayer = e.target.closest('.canvas-layer');
+        let targetLayer = e.target.closest('.canvas-layer');
+        if (!targetLayer && drawHitEl) targetLayer = drawHitEl;
         if (!targetLayer) {
             const pageWrapper = e.target.closest('.canvas-page-wrapper');
             if (pageWrapper) {
@@ -288,6 +368,7 @@ if (cornerHandle) {
             return;
         }
 
+        window.__layerDragging = true;
         pendingDrag = true;
         isDragging = false;
         hasMovedOrResized = false;
@@ -469,9 +550,20 @@ if (cornerHandle) {
                 return;
             }
 
-            // ===== 跨分页拖拽检测（保持原有逻辑） =====
-            const hoveredEl = document.elementFromPoint(e.clientX, e.clientY);
-            const hoveredCanvas = hoveredEl ? hoveredEl.closest('.cover-canvas') : null;
+                        // ===== 跨分页拖拽检测：只在鼠标靠近其它页时才做 elementFromPoint =====
+            let hoveredCanvas = null;
+            {
+                const activePageEl = document.querySelector(`.canvas-page-wrapper[data-page-id="${state.currentPageId}"] .cover-canvas`);
+                if (activePageEl) {
+                    const r = activePageEl.getBoundingClientRect();
+                    const near = e.clientX < r.left - 40 || e.clientX > r.right + 40 ||
+                                 e.clientY < r.top - 40 || e.clientY > r.bottom + 40;
+                    if (near) {
+                        const hoveredEl = document.elementFromPoint(e.clientX, e.clientY);
+                        hoveredCanvas = hoveredEl ? hoveredEl.closest('.cover-canvas') : null;
+                    }
+                }
+            }
             if (hoveredCanvas) {
                 const hoveredWrapper = hoveredCanvas.closest('.canvas-page-wrapper');
                 const targetPageId = hoveredWrapper ? hoveredWrapper.dataset.pageId : null;
@@ -526,6 +618,11 @@ if (cornerHandle) {
                 el.style.left = dragLayer.x + 'px';
                 el.style.top = dragLayer.y + 'px';
 
+                // draw 图层：只重绘 canvas 覆盖层，绝不动 DOM
+                if (dragLayer.type === 'draw' && window.Doodle) {
+                    Doodle.redrawDrawLayers();
+                }
+
                 // ===== 吸附对齐（Alt 临时禁用） =====
                 if (!e.altKey && window.Guides) {
                     const canvasEl = el.closest('.cover-canvas');
@@ -535,12 +632,13 @@ if (cornerHandle) {
                 }
             }
 
-            updateAlignGuides(dragLayer, el);
+                        updateAlignGuides(dragLayer, el);
         }
     });
 
     document.addEventListener('mouseup', () => {
         if (window.Guides) Guides.hideSnapLines();
+        window.__layerDragging = false;
 
         if (isDragging || isResizing || isRotating || pendingDrag) {
             if ((isDragging || isResizing || isRotating) && hasMovedOrResized) {
@@ -615,6 +713,11 @@ function moveLayerToPage(layer, fromPageId, toPageId) {
     toPage.layers.push(layer);
     return true;
 }
+
+
+let _alignGuidesRaf = null;
+let _lastAlignPos = null;
+
 
 function updateAlignGuides(layer, el) {
     const guides = document.getElementById('align-guides');

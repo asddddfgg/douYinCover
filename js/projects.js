@@ -92,7 +92,20 @@ const ProjectManager = (function () {
             wrapper.classList.remove('active-page');
             const oldShadow = canvasNode.style.boxShadow;
             canvasNode.style.boxShadow = 'none';
-            html2canvas(canvasNode, { scale: 0.35, useCORS: true, allowTaint: true, backgroundColor: null })
+                        html2canvas(canvasNode, {
+                scale: 0.35,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: null,
+                onclone: (clonedDoc) => {
+                    // 移除所有 <input type="color">，避免非法颜色值让 html2canvas 克隆时抛错
+                    clonedDoc.querySelectorAll('input[type="color"]').forEach(el => {
+                        const span = clonedDoc.createElement('span');
+                        span.style.cssText = el.style.cssText;
+                        if (el.parentNode) el.parentNode.replaceChild(span, el);
+                    });
+                }
+            })
                 .then(c => {
                     selected.forEach(el => el.classList.add('selected'));
                     if (wrapActive) wrapper.classList.add('active-page');
@@ -300,7 +313,7 @@ const ProjectManager = (function () {
                 const hint = document.getElementById('autosave-hint');
                 if (hint) hint.textContent = '已自动保存 ' + new Date().toLocaleTimeString();
             }
-        }, 3000);
+        }, 5000);
     }
 
     function hookStateChange() {
