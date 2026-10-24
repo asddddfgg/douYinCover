@@ -682,6 +682,131 @@ function _buildOnCloneForExport(originalCanvasNode) {
             console.warn('处理行内 invert 失败:', e);
         }
 
+
+        // ✅ 行内波浪下划线 / 删除线：html2canvas 只画直线，这里把带这些样式的 span 单独栅格化
+        //    核心：canvas 坐标 = DOM 坐标，用 textBaseline='top' 直接按 span 的 top 画字，
+        //    波浪线画在 ascent + descent 之下，不做任何「居中」「猜基线」的换算
+        try {
+            const origInlineEls = originalCanvasNode.querySelectorAll('.text-content-editable');
+            origInlineEls.forEach(origEl => {
+                const origSpans = origEl.querySelectorAll('span');
+                if (!origSpans.length) return;
+                const layerEl = origEl.closest('.canvas-layer');
+                if (!layerEl) return;
+                const layerId = layerEl.dataset.id;
+                const clonedLayer = clonedCanvasEl.querySelector(`.canvas-layer[data-id="${layerId}"]`);
+                if (!clonedLayer) return;
+                const clonedTextEl = clonedLayer.querySelector('.text-content-editable');
+                if (!clonedTextEl) return;
+                const clonedSpans = clonedTextEl.querySelectorAll('span');
+
+                for (let i = 0; i < Math.min(origSpans.length, clonedSpans.length); i++) {
+                    const osp = origSpans[i];
+                    const csp = clonedSpans[i];
+                    const deco = (osp.style.textDecoration || '') + ' ' + (osp.style.textDecorationLine || '');
+                    const hasWavy = /wavy/i.test(deco);
+                    const hasStrike = /line-through/i.test(deco);
+                    if (!hasWavy && !hasStrike) continue;
+
+                    try {
+                        const rect = osp.getBoundingClientRect();
+                        const w = Math.max(1, Math.round(rect.width));
+                        const textH = Math.max(1, Math.round(rect.height));
+                        const cs = window.getComputedStyle(osp);
+                        const fontSize = parseFloat(cs.fontSize) || 28;
+                        const fontFamily = cs.fontFamily || 'sans-serif';
+                        const fontWeight = cs.fontWeight || 'normal';
+                        const fontStyle = cs.fontStyle || 'normal';
+                        const color = cs.color || '#ffffff';
+                        const lineColor = cs.textDecorationColor && cs.textDecorationColor !== 'currentcolor'
+                            ? cs.textDecorationColor : color;
+                        const lineW = parseFloat(cs.textDecorationThickness) || 2;
+                        const amp = Math.max(1, lineW * 0.8);
+
+                        // 用 measureText 拿真实 ascent / descent
+                        const measureCanvas = document.createElement('canvas');
+                        const mctx = measureCanvas.getContext('2d');
+                        mctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+                        const text = osp.innerText || '';
+                        const m = mctx.measureText(text);
+                        const asc = m.actualBoundingBoxAscent || (fontSize * 0.8);
+                        const desc = m.actualBoundingBoxDescent || (fontSize * 0.2);
+
+                        // canvas 只画文字本身 + 装饰线，不画行高空白
+                        // 上方留 extraTop 防止字形顶部被裁；下方留 extraBottom 放波浪
+                        const extraTop = Math.ceil(fontSize * 0.15) + 2;
+                        const glyphH = asc + desc;
+                        const extraBottom = hasWavy ? Math.ceil(amp * 2 + lineW * 2 + 4) : 0;
+                        const h = extraTop + glyphH + extraBottom;
+
+                        const scale = 2;
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w * scale;
+                        canvas.height = h * scale;
+                        const ctx = canvas.getContext('2d');
+                        ctx.scale(scale, scale);
+
+                        ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+                        // ✅ 用 top 对齐，但 y 从 extraTop 开始画，避免字形顶部被裁
+                        ctx.textBaseline = 'top';
+                        ctx.fillStyle = color;
+                        ctx.fillText(text, 0, extraTop);
+
+                        ctx.strokeStyle = lineColor;
+                        ctx.lineWidth = lineW;
+
+                        // 基线在 canvas 内的 y 坐标（因为文字从 extraTop 开始画）
+                        const baselineY = extraTop + asc;
+
+                        if (hasWavy) {
+                            // 波浪中心：基线 + 下降深度 + 振幅 + 半线粗
+                            const yBase = baselineY + desc + amp + lineW * 0.5;
+                            ctx.beginPath();
+                            for (let x = 0; x < w; x += 1) {
+                                const y = yBase + Math.sin(x / 2) * amp;
+                                x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                            }
+                            ctx.stroke();
+                        }
+                        if (hasStrike) {
+                            // 删除线：基线向上 0.45 倍 ascent（x-height 中部）
+                            const yStrike = baselineY - asc * 0.45;
+                            ctx.beginPath();
+                            ctx.moveTo(0, yStrike);
+                            ctx.lineTo(w, yStrike);
+                            ctx.stroke();
+                        }
+
+                        const dataUrl = canvas.toDataURL('image/png');
+                        const img = document.createElement('img');
+                        img.src = dataUrl;
+                        img.style.width = w + 'px';
+                        img.style.height = h + 'px';
+                        img.style.display = 'inline-block';
+                        // 图片底边对齐文字基线：baseline 对齐下，图片底部 = 行基线
+                        // 图片底部比字形底部多出 extraBottom，用负 margin-bottom 抵消
+                        img.style.verticalAlign = 'baseline';
+                        // 图片底部 = 基线 + desc + extraBottom；图片顶部多出 extraTop
+                        // 负 marginBottom = 图片底部到基线的距离 = extraTop 偏移后实际多出的部分
+
+
+                        img.style.marginBottom = (-(desc + extraBottom + 4)) + 'px';
+
+
+
+
+                        if (csp.parentNode) csp.parentNode.replaceChild(img, csp);
+                    } catch (e) {
+                        console.warn('[InlineWavy] 栅格化失败:', e);
+                    }
+                }
+            });
+        } catch (e) {
+            console.warn('[InlineWavy] 处理失败:', e);
+        }
+
+
+
         // 找出原始画布上所有带 effectClass 的文字节点
         const originalTextEls = originalCanvasNode.querySelectorAll('.text-content-editable');
         const tasks = [];
