@@ -82,6 +82,14 @@ let multiResizeInit = null;    // 每个图层的初始几何快照
     let initPositionsMap = new Map();
 
         container.addEventListener('mousedown', (e) => {
+        // ✅ 左键按下时，如果右键菜单正显示，先隐藏它（不 return，继续正常选中流程）
+        if (e.button === 0) {
+            const _openMenu = document.getElementById('context-menu');
+            if (_openMenu && _openMenu.style.display === 'block') {
+                _openMenu.style.display = 'none';
+            }
+        }
+
         // ✅ 右键 + 正在编辑文字 + 有选区：直接弹菜单，不走后面任何选中/清编辑逻辑
         if (e.button === 2 && state.editingLayerId) {
             const _ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
@@ -176,14 +184,38 @@ if (cornerHandle) {
     initFontSize = parseFloat(dragLayer.fontSize) || 28;
     hasMovedOrResized = false;
 
-    // ===== 多选整体缩放：记录所有选中图层的初始几何 =====
-    // 只有当被拖角的图层在选中集合里、且选中集合 > 1 时才启用
-    const selectedIds = (window.MultiSelect && state.selectedLayerIds) || [];
-    const isMultiResize = selectedIds.length > 1 && selectedIds.includes(dragLayer.id);
+    // ===== 多选/组整体缩放：记录所有参与图层的初始几何 =====
+    let isMultiResize = false;
+    let layersToScale = [];
+
+    // 先看组：只要 dragLayer.groupId 存在，就整组缩放
+    if (dragLayer.groupId && typeof state.getGroupMemberIds === 'function') {
+        const memberIds = state.getGroupMemberIds(dragLayer.id);
+        const groupLayers = state.layers.filter(l => memberIds.includes(l.id));
+        // 组里至少有 2 个成员（含自己）才走整组；锁定成员不参与缩放但也不阻止整组
+        if (groupLayers.length >= 2) {
+            layersToScale = groupLayers.filter(l => !l.locked);
+            if (layersToScale.length >= 1) {
+                isMultiResize = true;
+                if (window.MultiSelect) {
+                    state.selectedLayerIds = groupLayers.map(l => l.id);
+                    state.selectedLayerId = dragLayer.id;
+                }
+            }
+        }
+    }
+
+    // 组没命中时才走多选
+    if (!isMultiResize) {
+        const selectedIds = (window.MultiSelect && state.selectedLayerIds) || [];
+        if (selectedIds.length > 1 && selectedIds.includes(dragLayer.id)) {
+            layersToScale = state.layers.filter(l => selectedIds.includes(l.id) && !l.locked);
+            if (layersToScale.length > 1) isMultiResize = true;
+        }
+    }
+
     if (isMultiResize) {
-        // 计算所有选中图层的包围盒（相对画布坐标）
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        const layersToScale = state.layers.filter(l => selectedIds.includes(l.id));
         layersToScale.forEach(l => {
             minX = Math.min(minX, l.x);
             minY = Math.min(minY, l.y);
@@ -250,6 +282,53 @@ if (cornerHandle) {
                             if (drawHitEl) break;
                         }
                     }
+                }
+            }
+        }
+
+        // ========== 锁定图层：点击后不选中、不拖动 ==========
+        // 左键：完全拦截（不选中、不拖动、不提示太多）
+        // 右键：放行，继续走下方右键菜单分支，让用户能直接解锁
+        {
+            let hitLayer = e.target.closest('.canvas-layer');
+            if (!hitLayer && drawHitEl) hitLayer = drawHitEl;
+            if (hitLayer) {
+                const hitId = hitLayer.dataset.id;
+                if (state.isLayerLocked && state.isLayerLocked(hitId)) {
+                    if (e.button === 2) {
+                        // 右键放行，但仍要把"被点击的那一层"设为当前选中目标，
+                        // 否则右键菜单会针对旧的选中图层（可能不是这个锁定层）
+                        state.selectedLayerId = hitId;
+                        if (window.MultiSelect) {
+                            state.selectedLayerIds = [hitId];
+                        }
+                    } else {
+                        if (typeof showBgToast === 'function') {
+                            showBgToast('🔒 该图层已锁定，右键或图层列表可解锁');
+                        }
+                        e.stopPropagation();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // ========== 点击组内任一图层：选中整个组 ==========
+        {
+            let hitLayer = e.target.closest('.canvas-layer');
+            if (!hitLayer && drawHitEl) hitLayer = drawHitEl;
+            if (hitLayer && !(e.ctrlKey || e.metaKey)) {
+                const hitId = hitLayer.dataset.id;
+                const hitData = state.layers.find(l => l.id === hitId);
+                if (hitData && hitData.groupId) {
+                    const memberIds = state.getGroupMemberIds(hitId);
+                    state.selectedLayerId = hitId;
+                    if (window.MultiSelect) {
+                        state.selectedLayerIds = memberIds.slice();
+                    }
+                    renderCanvas();
+                    renderLayerList();
+                    updateTopToolbarUI(state.getSelectedLayer());
                 }
             }
         }
@@ -348,6 +427,13 @@ if (cornerHandle) {
                 if (inlineItem) inlineItem.style.display = hasTextSel ? '' : 'none';
                 if (layerItem) layerItem.style.display = layerIsText ? '' : 'none';
 
+                // ✅ 根据锁定状态互换「锁定 / 解锁」按钮
+                const _ctxLockBtn = document.getElementById('ctx-lock');
+                const _ctxUnlockBtn = document.getElementById('ctx-unlock');
+                const _isLocked = !!(dragLayer && dragLayer.locked);
+                if (_ctxLockBtn) _ctxLockBtn.style.display = _isLocked ? 'none' : '';
+                if (_ctxUnlockBtn) _ctxUnlockBtn.style.display = _isLocked ? '' : 'none';
+
                 menu.style.display = 'block';
                 menu.style.visibility = 'hidden';
                 menu.style.left = '0px';
@@ -415,7 +501,62 @@ if (cornerHandle) {
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
 
-          if (resizeMode === 'corner') {
+                    if (resizeMode === 'corner') {
+
+        // ✅ 贴纸单图层缩放：仅当非组、非多选时生效
+    if (dragLayer.type === 'sticker' && !multiResizeBBox) {
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        // 用对角拖拽距离算比例，取平均让"斜拖"和"平拖"手感一致
+        let delta = 0;
+        if (resizeDirection === 'se') delta = (dx + dy) / 2;
+        else if (resizeDirection === 'sw') delta = (-dx + dy) / 2;
+        else if (resizeDirection === 'ne') delta = (dx - dy) / 2;
+        else if (resizeDirection === 'nw') delta = (-dx - dy) / 2;
+
+        const baseW = initWidth || 1;
+        let scale = 1 + delta / baseW;
+        scale = Math.max(0.1, Math.min(8, scale));
+
+        const newW = Math.max(20, initWidth * scale);
+        const newH = Math.max(20, initHeight * scale);
+
+        // 中心锚点：中心坐标不变
+        const cx = initX + initWidth / 2;
+        const cy = initY + initHeight / 2;
+        dragLayer.width = newW;
+        dragLayer.height = newH;
+        dragLayer.x = cx - newW / 2;
+        dragLayer.y = cy - newH / 2;
+
+        // ✅ emoji 贴纸：fontSize 跟随盒子等比缩放
+        if (dragLayer.stickerType === 'emoji') {
+            dragLayer.fontSize = Math.min(newW, newH) + 'px';
+        }
+
+        const el = document.querySelector(`.canvas-page-wrapper[data-page-id="${state.currentPageId}"] .canvas-layer[data-id="${dragLayer.id}"]`);
+        if (el) {
+            el.style.left = dragLayer.x + 'px';
+            el.style.top = dragLayer.y + 'px';
+            el.style.width = dragLayer.width + 'px';
+            el.style.height = dragLayer.height + 'px';
+
+            // ✅ 关键：同步更新内部 img 尺寸（防止 DOM 没跟上）
+            const innerImg = el.querySelector('img');
+            if (innerImg) {
+                innerImg.style.width = '100%';
+                innerImg.style.height = '100%';
+            }
+            // emoji 贴纸（无 img，用 innerText）
+            if (!innerImg && dragLayer.stickerType === 'emoji') {
+                el.style.fontSize = Math.min(newW, newH) + 'px';
+                el.style.lineHeight = newH + 'px';
+            }
+        }
+        return;   // 贴纸走完就退出
+    }
+
     // ===== 多选整体缩放分支 =====
     if (multiResizeBBox && multiResizeLayers && multiResizeInit) {
         // 以包围盒为基准计算比例：拖哪个角就用对应边
@@ -454,6 +595,10 @@ if (cornerHandle) {
             if (layer.type === 'text') {
                 layer.fontSize = Math.max(8, Math.round(init.fontSize * scale)) + 'px';
             }
+            // ✅ emoji 贴纸：字号随盒子等比缩放
+            if (layer.type === 'sticker' && layer.stickerType === 'emoji') {
+                layer.fontSize = Math.min(nw, nh) + 'px';
+            }
             const el = document.querySelector(`${activeSelector} .canvas-layer[data-id="${layer.id}"]`);
             if (el) {
                 el.style.left = layer.x + 'px';
@@ -463,6 +608,9 @@ if (cornerHandle) {
                 if (layer.type === 'text') {
                     const textEl = el.querySelector('.text-content-editable');
                     if (textEl) textEl.style.fontSize = layer.fontSize;
+                }
+                if (layer.type === 'sticker' && layer.stickerType === 'emoji') {
+                    el.style.fontSize = layer.fontSize;
                 }
             }
         });
@@ -487,6 +635,72 @@ if (cornerHandle) {
     dragLayer.height = newH;
     if (dragLayer.type === 'text') dragLayer.fontSize = newFont + 'px';
 } else if (resizeMode === 'edge') {
+                // ✅ 边中点也支持整组：整组沿同一轴拉伸
+                const isGroupEdge = !!(dragLayer.groupId && state.getGroupMemberIds);
+                if (isGroupEdge) {
+                    const memberIds = state.getGroupMemberIds(dragLayer.id);
+                    const groupLayers = state.layers.filter(l => memberIds.includes(l.id) && !l.locked);
+                    if (groupLayers.length > 1) {
+                        // 组包围盒
+                        let gMinX = Infinity, gMinY = Infinity, gMaxX = -Infinity, gMaxY = -Infinity;
+                        groupLayers.forEach(l => {
+                            gMinX = Math.min(gMinX, l.x);
+                            gMinY = Math.min(gMinY, l.y);
+                            gMaxX = Math.max(gMaxX, l.x + l.width);
+                            gMaxY = Math.max(gMaxY, l.y + l.height);
+                        });
+                        const gW = Math.max(1, gMaxX - gMinX);
+                        const gH = Math.max(1, gMaxY - gMinY);
+                        // 该方向的变化量
+                        let scaleX = 1, scaleY = 1;
+                        let anchorX = gMinX, anchorY = gMinY;
+                        if (resizeDirection === 'right') {
+                            scaleX = Math.max(0.05, (gW + dx) / gW);
+                            anchorX = gMinX;
+                        } else if (resizeDirection === 'left') {
+                            scaleX = Math.max(0.05, (gW - dx) / gW);
+                            anchorX = gMaxX;
+                        } else if (resizeDirection === 'bottom') {
+                            scaleY = Math.max(0.05, (gH + dy) / gH);
+                            anchorY = gMinY;
+                        } else if (resizeDirection === 'top') {
+                            scaleY = Math.max(0.05, (gH - dy) / gH);
+                            anchorY = gMaxY;
+                        }
+                        const activeSelector = `.canvas-page-wrapper[data-page-id="${state.currentPageId}"]`;
+                        groupLayers.forEach(l => {
+                            if (scaleX !== 1) {
+                                const initFont = parseFloat(l.fontSize) || 28;
+                                l.x = anchorX + (l.x - anchorX) * scaleX;
+                                l.width = Math.max(20, l.width * scaleX);
+                                if (l.type === 'text') l.fontSize = Math.max(8, Math.round(initFont * scaleX)) + 'px';
+                                if (l.type === 'sticker' && l.stickerType === 'emoji') l.fontSize = Math.min(l.width, l.height) + 'px';
+                            }
+                            if (scaleY !== 1) {
+                                l.y = anchorY + (l.y - anchorY) * scaleY;
+                                l.height = Math.max(20, l.height * scaleY);
+                                if (l.type === 'sticker' && l.stickerType === 'emoji') l.fontSize = Math.min(l.width, l.height) + 'px';
+                            }
+                            const el = document.querySelector(`${activeSelector} .canvas-layer[data-id="${l.id}"]`);
+                            if (el) {
+                                el.style.left = l.x + 'px';
+                                el.style.top = l.y + 'px';
+                                el.style.width = l.width + 'px';
+                                el.style.height = l.height + 'px';
+                                if (l.type === 'text') {
+                                    const t = el.querySelector('.text-content-editable');
+                                    if (t) t.style.fontSize = l.fontSize;
+                                }
+                                if (l.type === 'sticker' && l.stickerType === 'emoji') {
+                                    el.style.fontSize = l.fontSize;
+                                    el.style.lineHeight = l.height + 'px';
+                                }
+                            }
+                        });
+                        return;
+                    }
+                }
+
                 if (resizeDirection === 'right') dragLayer.width = Math.max(60, initWidth + dx);
                 else if (resizeDirection === 'left') {
                     const newW = Math.max(60, initWidth - dx);
@@ -682,6 +896,106 @@ multiResizeInit = null;    // ← 新增
         e.preventDefault();
         return false;
     }, { capture: true });
+
+    // ============================================================
+    // ✅ 建组 / 解组 / 锁定 按钮 & 右键菜单 & 快捷键绑定
+    // ============================================================
+    (function bindGroupLockUI() {
+        const btnGroup = document.getElementById('btn-group-layers');
+        const btnUngroup = document.getElementById('btn-ungroup-layers');
+        if (btnGroup) {
+            btnGroup.addEventListener('click', () => {
+                const gid = state.groupSelected();
+                if (gid) {
+                    renderCanvas();
+                    renderLayerList();
+                    if (typeof showBgToast === 'function') showBgToast('✅ 已建组');
+                }
+            });
+        }
+        if (btnUngroup) {
+            btnUngroup.addEventListener('click', () => {
+                if (state.ungroupSelected()) {
+                    renderCanvas();
+                    renderLayerList();
+                    if (typeof showBgToast === 'function') showBgToast('✅ 已解组');
+                }
+            });
+        }
+
+        const ctxGroup = document.getElementById('ctx-group');
+        const ctxUngroup = document.getElementById('ctx-ungroup');
+        const ctxLock = document.getElementById('ctx-lock');
+        const ctxUnlock = document.getElementById('ctx-unlock');
+
+        // 关闭菜单的快捷方法（菜单现在容器是 <li>，父级就是 .context-menu）
+        const closeCtxMenu = () => {
+            const m = document.getElementById('context-menu');
+            if (m) m.style.display = 'none';
+        };
+
+        if (ctxGroup) {
+            ctxGroup.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const gid = state.groupSelected();
+                closeCtxMenu();
+                if (gid) {
+                    renderCanvas(); renderLayerList();
+                    if (typeof showBgToast === 'function') showBgToast('✅ 已建组');
+                }
+            });
+        }
+        if (ctxUngroup) {
+            ctxUngroup.addEventListener('click', (e) => {
+                e.stopPropagation();
+                state.ungroupSelected();
+                closeCtxMenu();
+                renderCanvas(); renderLayerList();
+            });
+        }
+        if (ctxLock) {
+            ctxLock.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const ids = state.selectedLayerIds || (state.selectedLayerId ? [state.selectedLayerId] : []);
+                ids.forEach(id => state.setLayerLocked(id, true));
+                closeCtxMenu();
+                renderCanvas(); renderLayerList();
+                if (typeof showBgToast === 'function') showBgToast('🔒 已锁定');
+            });
+        }
+        if (ctxUnlock) {
+            ctxUnlock.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const ids = state.selectedLayerIds || (state.selectedLayerId ? [state.selectedLayerId] : []);
+                ids.forEach(id => state.setLayerLocked(id, false));
+                closeCtxMenu();
+                renderCanvas(); renderLayerList();
+                if (typeof showBgToast === 'function') showBgToast('🔓 已解锁');
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.target.isContentEditable) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            const ctrl = e.ctrlKey || e.metaKey;
+            if (!ctrl) return;
+            const k = e.key.toLowerCase();
+            if (k === 'g' && e.shiftKey) {
+                e.preventDefault();
+                state.ungroupSelected();
+                renderCanvas(); renderLayerList();
+            } else if (k === 'g') {
+                e.preventDefault();
+                state.groupSelected();
+                renderCanvas(); renderLayerList();
+            } else if (k === 'l') {
+                e.preventDefault();
+                const ids = state.selectedLayerIds || (state.selectedLayerId ? [state.selectedLayerId] : []);
+                ids.forEach(id => state.toggleLayerLocked(id));
+                renderCanvas(); renderLayerList();
+            }
+        });
+    })();
 }
 
 function exitAllEditingMode() {

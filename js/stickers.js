@@ -260,109 +260,209 @@ const AssetDB = (function () {
     return { put, get, getAll, remove };
 })();
 
+// ==================== AssetRegistry 安全修正版 v2 ====================
 const AssetRegistry = (function () {
-    const memoryCache = new Map();
-    let ready = false;
-    let readyPromise = null;
+  const memoryCache = new Map();
+  let db = null;
+  let initPromise = null;
+  const DB_NAME = 'douyin_assets_db';
+  const STORE = 'assets';
 
-    async function init() {
-        if (ready) return;
-        if (readyPromise) return readyPromise;
-        readyPromise = (async () => {
-            try {
-                const all = await AssetDB.getAll();
-                all.forEach(a => memoryCache.set(a.id, a));
-            } catch (e) {
-                console.warn('[AssetRegistry] 加载失败:', e);
-            }
-            ready = true;
-        })();
-        return readyPromise;
+  function openDB() {
+    if (initPromise) return initPromise;
+    initPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = (e) => {
+        const d = e.target.result;
+        if (!d.objectStoreNames.contains(STORE)) {
+          const store = d.createObjectStore(STORE, { keyPath: 'id' });
+          store.createIndex('type', 'type', { unique: false });
+          store.createIndex('tags', 'tags', { unique: false, multiEntry: true });
+          store.createIndex('source', 'source', { unique: false });
+        }
+      };
+      req.onsuccess = async (e) => {
+        db = e.target.result;
+        try { await loadAllIntoCache(); } catch (err) {}
+        resolve();
+      };
+      req.onerror = (e) => reject(e.error);
+    });
+    return initPromise;
+  }
+
+  function loadAllIntoCache() {
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).getAll();
+      req.onsuccess = () => {
+        memoryCache.clear();
+        (req.result || []).forEach(item => memoryCache.set(item.id, item));
+        resolve();
+      };
+      req.onerror = () => resolve();
+    });
+  }
+
+  function cleanSvg(data) {
+    if (typeof data !== 'string') return data;
+    const isDataUrl = data.startsWith('data:image/svg+xml');
+    let raw = data;
+    if (isDataUrl) {
+      const idx = raw.indexOf(',');
+      try { raw = decodeURIComponent(raw.slice(idx + 1)); } catch (e) { raw = raw.slice(idx + 1); }
+    }
+    raw = raw.replace(/fill="(?!none|currentColor|url\()[^"]*"/gi, 'fill="currentColor"');
+    raw = raw.replace(/stroke="(?!none|currentColor|url\()[^"]*"/gi, 'stroke="currentColor"');
+    return isDataUrl
+      ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(raw)
+      : raw;
+  }
+
+  async function register(assetData) {
+    await openDB();
+    let { type, name, data, tags = [], source = 'user', colorable = false } = assetData;
+    if (type === 'svg') data = cleanSvg(data);
+
+    for (const [id, a] of memoryCache) {
+      if (a.type === type && a.data === data) return id;
     }
 
-    function genId(prefix) {
-        return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    }
+    const id = `${type}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const asset = {
+      id, type, name: name || '', data,
+      tags: Array.isArray(tags) ? tags : [],
+      source, colorable: !!colorable,
+      createdAt: Date.now()
+    };
 
-    async function register(asset) {
-        if (!asset || !asset.type) throw new Error('asset.type 必填');
-        const record = {
-            id: asset.id || genId(asset.type),
-            type: asset.type,
-            name: asset.name || '',
-            data: asset.data || '',
-            tags: Array.isArray(asset.tags) ? asset.tags : [],
-            source: asset.source || 'user',
-            colorable: !!asset.colorable,
-            createdAt: asset.createdAt || Date.now()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const req = tx.objectStore(STORE).put(asset);
+      req.onsuccess = () => { memoryCache.set(id, asset); resolve(id); };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function registerBatch(list) {
+    const ids = [];
+    for (const a of list) ids.push(await register(a));
+    return ids;
+  }
+
+  async function get(id) {
+    if (!id) return null;
+    if (memoryCache.has(id)) return memoryCache.get(id);
+    await openDB();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).get(id);
+        req.onsuccess = () => {
+          const a = req.result || null;
+          if (a) memoryCache.set(id, a);
+          resolve(a);
         };
-        for (const [id, a] of memoryCache) {
-            if (a.type === record.type && a.data === record.data) {
-                return id;
-            }
-        }
-        memoryCache.set(record.id, record);
-        await AssetDB.put(record);
-        return record.id;
-    }
+        req.onerror = () => resolve(null);
+      } catch (e) { resolve(null); }
+    });
+  }
 
-    async function registerBatch(list) {
-        const ids = [];
-        for (const a of list) ids.push(await register(a));
-        return ids;
+  async function list(opts = {}) {
+    await openDB();
+    let arr = Array.from(memoryCache.values());
+    if (opts.type) arr = arr.filter(a => a.type === opts.type);
+    if (opts.source) arr = arr.filter(a => a.source === opts.source);
+    if (opts.tag) arr = arr.filter(a => a.tags.includes(opts.tag));
+    if (opts.keyword) {
+      const kw = opts.keyword.toLowerCase();
+      arr = arr.filter(a =>
+        (a.name || '').toLowerCase().includes(kw) ||
+        a.tags.some(t => t.toLowerCase().includes(kw))
+      );
     }
+    return arr;
+  }
 
-    async function get(id) {
-        if (!id) return null;
-        if (memoryCache.has(id)) return memoryCache.get(id);
-        const a = await AssetDB.get(id);
-        if (a) memoryCache.set(id, a);
-        return a;
-    }
-
-    async function list({ type, source, tag, keyword } = {}) {
-        await init();
-        let arr = Array.from(memoryCache.values());
-        if (type) arr = arr.filter(a => a.type === type);
-        if (source) arr = arr.filter(a => a.source === source);
-        if (tag) arr = arr.filter(a => a.tags.includes(tag));
-        if (keyword) {
-            const kw = keyword.toLowerCase();
-            arr = arr.filter(a =>
-                (a.name || '').toLowerCase().includes(kw) ||
-                a.tags.some(t => t.toLowerCase().includes(kw))
-            );
-        }
-        return arr;
-    }
-
-    async function remove(id) {
-        memoryCache.delete(id);
-        await AssetDB.remove(id);
-    }
+  async function remove(id) {
+    memoryCache.delete(id);
+    await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const req = tx.objectStore(STORE).delete(id);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
 
     function toSrc(asset, color) {
-        if (!asset) return '';
-        if (asset.type === 'emoji') return asset.data;
-        if (asset.type === 'svg') {
-            if (color && asset.colorable) {
-                try {
-                    const decoded = decodeURIComponent(
-                        (asset.data.split('utf8,')[1] || '')
-                    );
-                    const tinted = decoded.replace(/fill="currentColor"/g, `fill="${color}"`);
-                    return 'data:image/svg+xml;utf8,' + encodeURIComponent(tinted);
-                } catch (e) { return asset.data; }
-            }
-            return asset.data;
-        }
-        return asset.data;
-    }
+    if (!asset) return '';
+    if (asset.type === 'svg') {
+      const raw = asset.data || '';
+      if (!raw) return '';
 
-    return { init, register, registerBatch, get, list, remove, toSrc, isReady: () => ready };
+      // 已经是标准 URL 编码格式 → 直接用
+      if (raw.startsWith('data:image/svg+xml;charset=utf-8,%3C')) return raw;
+      if (raw.startsWith('data:image/svg+xml;utf8,%3C')) return raw;
+
+      // 其它格式 → 自愈
+      try {
+        let tail = raw;
+        if (raw.startsWith('data:')) {
+          const idx = raw.indexOf(',');
+          if (idx >= 0) tail = raw.slice(idx + 1);
+        }
+        let xml = '';
+
+        // 1) 裸 SVG
+        if (tail.trim().startsWith('<svg')) xml = tail;
+        // 2) URL 编码 XML
+        if (!xml) {
+          try { const u = decodeURIComponent(tail); if (u.includes('<svg')) xml = u; } catch (e) {}
+        }
+        // 3) URL 编码的 base64 → base64
+        if (!xml) {
+          try {
+            const u = decodeURIComponent(tail);
+            if (/^[A-Za-z0-9+/=]+$/.test(u)) {
+              const b = decodeURIComponent(escape(atob(u)));
+              if (b.includes('<svg')) xml = b;
+            }
+          } catch (e) {}
+        }
+        // 4) 纯 base64
+        if (!xml) {
+          try {
+            const clean = tail.replace(/[^A-Za-z0-9+/=]/g, '');
+            if (clean.length > 20) {
+              const b = decodeURIComponent(escape(atob(clean)));
+              if (b.includes('<svg')) xml = b;
+            }
+          } catch (e) {}
+        }
+        // 5) 字符串里含 <svg 就截取出来
+        if (!xml) {
+          const i = raw.indexOf('<svg');
+          if (i >= 0) xml = raw.slice(i);
+        }
+
+        if (xml) return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+      } catch (e) {}
+
+      return raw;
+    }
+    return asset.data || '';
+  }
+
+  return {
+    init: openDB,
+    register, registerBatch, get, list, remove, toSrc,
+    isReady: () => !!db
+  };
 })();
 
 window.AssetRegistry = AssetRegistry;
+
 
 // ============================================================
 // 初始化
@@ -614,6 +714,17 @@ async function renderStickerGrid() {
         items = recent.map(id => map.get(id)).filter(Boolean);
     } else if (currentStickerCategory === 'uploaded') {
         items = await AssetRegistry.list({ source: 'user' });
+        items = items.filter(a => {
+            // ✅ 严格白名单：只保留贴纸类型
+            if (a.type === 'backdrop' || a.type === 'bgImage' || a.type === 'font') return false;
+            if (a.type === 'emoji' || a.type === 'svg') return true;
+            if (a.type === 'image' || a.type === 'png') return true;
+            if (a.type === 'upload') {
+                const d = String(a.data || '');
+                return d.startsWith('data:image/') || d.startsWith('http') || d.startsWith('blob:');
+            }
+            return false;
+        });
     } else {
         items = await AssetRegistry.list({ tag: currentStickerCategory });
     }
@@ -652,9 +763,18 @@ function createStickerItemEl(asset) {
     if (asset.type === 'emoji') {
         el.innerText = asset.data;
     } else {
+        let src = '';
+        try { src = AssetRegistry.toSrc(asset, asset.colorable ? '#ffffff' : null); } catch (e) { src = ''; }
+        if (src && src.startsWith('<svg')) {
+            src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src);
+        }
         const img = document.createElement('img');
-        img.src = AssetRegistry.toSrc(asset, asset.colorable ? '#ffffff' : null);
+        img.src = src;
         img.draggable = false;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain';
+        img.style.pointerEvents = 'none';
         el.appendChild(img);
     }
 
@@ -724,22 +844,45 @@ async function addStickerToCanvas(assetId, xOverride, yOverride) {
         alert('素材不存在，请刷新后重试');
         return;
     }
+    // ✅ 严格白名单：backdrop/bgImage/font 一律拒绝
+    if (asset.type === 'backdrop' || asset.type === 'bgImage' || asset.type === 'font') {
+        alert('这个素材是底衬/背景图/字体，不能作为贴纸添加。');
+        return;
+    }
+    const _d = String(asset.data || '');
+    const _okType = asset.type === 'emoji' || asset.type === 'svg' || asset.type === 'image' || asset.type === 'png'
+        || (asset.type === 'upload' && (_d.startsWith('data:image/') || _d.startsWith('http') || _d.startsWith('blob:')));
+    if (!_okType) {
+        alert('这个素材不是图片，无法作为贴纸使用。');
+        return;
+    }
 
     const w = 80, h = 80;
     const newLayer = {
         id: 'sticker-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
         type: 'sticker',
         assetId: asset.id,
-        stickerType: asset.type === 'png' ? 'image' : asset.type,
+        stickerType: (function(t) {
+            if (t === 'svg') return 'svg';
+            if (t === 'emoji') return 'emoji';
+            if (t === 'png' || t === 'image' || t === 'upload') return 'image';
+            return 'image';
+        })(asset.type),
         stickerColor: null,
-        content: asset.data,
-        fontSize: '64px',
+        content: AssetRegistry.toSrc(asset),
+        fontSize: Math.min(w, h) + 'px',   // emoji 贴纸用，w/h 是 80
         flipH: false,
         flipV: false,
         rotation: 0,
         opacity: 1,
-        x: xOverride !== null && xOverride !== undefined ? Math.max(0, xOverride) : 140,
-        y: yOverride !== null && yOverride !== undefined ? Math.max(0, yOverride) : 280,
+        x: Math.max(0, Math.min(
+            (xOverride !== null && xOverride !== undefined) ? xOverride : 140,
+            360 - w
+        )),
+        y: Math.max(0, Math.min(
+            (yOverride !== null && yOverride !== undefined) ? yOverride : 280,
+            640 - h
+        )),
         width: w,
         height: h
     };
@@ -765,13 +908,37 @@ async function saveUploadedSticker(file) {
             r.onerror = rej;
             r.readAsDataURL(file);
         });
+        const _ext = (file.name.split('.').pop() || '').toLowerCase();
+        const _isImg = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'avif', 'ico'].includes(_ext);
+        if (!_isImg) {
+            alert('只支持图片格式：jpg / jpeg / png / webp / gif / bmp / svg / avif / ico');
+            return;
+        }
+
+        // ✅ SVG 上传：先把 dataURL 解成纯 XML，再交给 register 统一编码
+        let finalData = dataUrl;
+        if (_ext === 'svg') {
+            try {
+                const idx = dataUrl.indexOf(',');
+                let raw = dataUrl.slice(idx + 1);
+                try { raw = decodeURIComponent(raw); } catch (e) {}
+                // 兼容 base64 形式
+                if (!raw.includes('<svg') && /^[A-Za-z0-9+/=]+$/.test(raw)) {
+                    try { raw = decodeURIComponent(escape(atob(raw))); } catch (e) {}
+                }
+                if (raw.includes('<svg')) {
+                    finalData = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(raw);
+                }
+            } catch (e) {}
+        }
+
         await AssetRegistry.register({
-            type: 'upload',
+            type: _ext === 'svg' ? 'svg' : 'upload',
             name: file.name,
-            data: dataUrl,
-            tags: ['uploaded', file.name.replace(/\.[^.]+$/, '')],
+            data: finalData,
+            tags: ['uploaded', _ext, file.name.replace(/\.[^.]+$/, '')],
             source: 'user',
-            colorable: false
+            colorable: _ext === 'svg'
         });
         alert(`贴纸 "${file.name}" 已加入素材库`);
     } catch (err) {
@@ -1001,3 +1168,18 @@ window.DouyinCover.listByType = AssetRegistry.listByType;
         }, 1500);
     });
 })();
+
+
+// ==================== 增量挂载外部 API ====================
+window.DouyinCover = window.DouyinCover || {};
+Object.assign(window.DouyinCover, {
+  version: '1.0.0',
+  _listeners: window.DouyinCover._listeners || {},
+  on(event, cb) {
+    if (!this._listeners[event]) this._listeners[event] = [];
+    this._listeners[event].push(cb);
+  },
+  emit(event, data) {
+    (this._listeners[event] || []).forEach(cb => { try { cb(data); } catch (e) {} });
+  }
+});

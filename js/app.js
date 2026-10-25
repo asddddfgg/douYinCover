@@ -1730,6 +1730,10 @@ function renderCanvas() {
             const el = document.createElement('div');
             // ✅ 新增 layer-type-* 类名，供 CSS 做文本自适应
             el.className = `canvas-layer layer-type-${layer.type} ${isSelected ? 'selected' : ''} ${isEditing ? 'editing' : ''}`;
+            // ✅ 锁定 / 组状态类名
+            if (layer.locked) el.classList.add('locked');
+            if (layer.groupId) el.classList.add('in-group');
+            if (isSelected && layer.groupId) el.classList.add('group-selected');
             el.dataset.id = layer.id;
             el.style.left = layer.x + 'px';
             el.style.top = layer.y + 'px';
@@ -1786,9 +1790,11 @@ function renderCanvas() {
             if (flipH !== 1 || flipV !== 1) transforms.push(`scale(${flipH}, ${flipV})`);
             if (transforms.length > 0) el.style.transform = transforms.join(' ');
 
+            // ✅ 所有类型统一设 zIndex（text / sticker / draw 都生效）
+            const layerOrderIndex = page.layers.findIndex(l => l.id === layer.id);
+                        el.style.zIndex = String(10 + layerOrderIndex * 10);
+
             if (layer.type === 'text') {
-                const layerOrderIndex = page.layers.findIndex(l => l.id === layer.id);
-                el.style.zIndex = String(10 + layerOrderIndex);
 
                 const backdropEl = createBackdropElement(layer);
                 if (backdropEl) el.appendChild(backdropEl);
@@ -2001,29 +2007,79 @@ if (bgBoxEffectId) {
     el.style.overflow = 'hidden';
     el.style.pointerEvents = 'auto';
 
-    if (layer.stickerType === 'svg' || layer.stickerType === 'image' || layer.stickerType === 'uploaded') {
+                    const _isEmoji = layer.stickerType === 'emoji'
+            || (layer.content && /^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(layer.content) && layer.content.length < 10);
+        const _imgExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'avif', 'ico', 'image'];
+        const _hasImgExt = layer.stickerType && _imgExts.includes(String(layer.stickerType).toLowerCase());
+        const _isImg = !_isEmoji && (
+            _hasImgExt
+            || layer.stickerType === 'uploaded'
+            || (layer.content && (
+                layer.content.startsWith('data:image/')
+                || layer.content.startsWith('http')
+                || layer.content.startsWith('<svg')
+                || layer.content.startsWith('blob:')
+            ))
+        );
+
+        if (_isImg) {
         let src = layer.content;
+        if (src && src.startsWith('<svg')) {
+                src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src);
+            }
         if (layer.stickerType === 'svg' && layer.stickerColor) {
-            try {
-                const decoded = decodeURIComponent(src.split('utf8,')[1] || '');
-                src = 'data:image/svg+xml;utf8,' + encodeURIComponent(decoded.replace(/fill="currentColor"/g, `fill="${layer.stickerColor}"`));
-            } catch (err) { }
+    try {
+        let svgRaw = '';
+        if (src.startsWith('data:image/svg+xml')) {
+            const idx = src.indexOf(',');
+            svgRaw = decodeURIComponent(src.slice(idx + 1));
+        } else if (src.startsWith('<svg')) {
+            svgRaw = src;
         }
+        if (svgRaw) {
+            src = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+                svgRaw.replace(/fill="currentColor"/g, `fill="${layer.stickerColor}"`)
+            );
+        }
+    } catch (err) { }
+}
         const img = document.createElement('img');
         img.crossOrigin = 'anonymous';
         img.src = src;
-        img.style.display = 'inline-block';
-        img.style.verticalAlign = 'middle';
+        img.style.display = 'block';          // ← block 消除 inline 基线问题
+        img.style.verticalAlign = 'top';      // ← 冗余但保险
+        img.style.margin = '0 auto';          // ← 水平居中（block 下才有效）
+
         img.style.width = '100%';
         img.style.height = '100%';
         img.style.objectFit = 'contain';
         img.draggable = false;
         img.style.pointerEvents = 'none';
+
+
+        // ✅ 父元素 flex 居中，让 <img> 永远在盒子正中间
+        el.style.display = 'flex';
+        el.style.alignItems = 'center';
+        el.style.justifyContent = 'center';
+        el.style.lineHeight = '1';
+        el.style.overflow = 'hidden';
+
         el.appendChild(img);
     } else {
-        el.innerText = layer.content;
-        el.style.pointerEvents = 'auto';
-    }
+    // ✅ emoji 贴纸：完全居中，不裁剪，字形内缩 10% 防止字体 em box 溢出
+    el.innerText = layer.content;
+    el.style.overflow = 'visible';          // ← 关键：不裁剪
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'center';
+    el.style.textAlign = 'center';
+    el.style.lineHeight = '1';              // ← 关键：不用 lineHeight 撑高
+    // 字号 = 盒子短边 × 0.9（留 10% 余量给字形 em box 超出部分）
+    const _boxMin = Math.min(layer.width || 80, layer.height || 80);
+    const _fontSizePx = Math.max(10, Math.round(_boxMin * 0.9));
+    el.style.fontSize = _fontSizePx + 'px';
+    el.style.pointerEvents = 'auto';
+}
 }
 
             ['nw', 'ne', 'sw', 'se'].forEach(dir => {
@@ -2091,9 +2147,25 @@ function renderLayerList() {
             : (layer.content || '').replace(/<[^>]*>/g, '').substring(0, 10);
                 const iconName = layer.type === 'text' ? 'fa-font' : (layer.type === 'draw' ? 'fa-paintbrush' : 'fa-face-smile');
         const typeLabel = layer.type === 'sticker' ? `[${layer.stickerType || 'emoji'}]` : '';
+        const lockBadge = layer.locked
+            ? '<span class="layer-lock-badge" title="已锁定">🔒</span>'
+            : '';
+        const groupBadge = layer.groupId
+            ? '<span class="layer-group-badge" title="在组中">📦</span>'
+            : '';
+        const lockBtnHtml = `
+            <button class="btn" title="${layer.locked ? '解锁' : '锁定'}"
+                onclick="event.stopPropagation(); toggleLayerLockFromList('${layer.id}')"
+                style="padding: 2px 6px; font-size:11px;">
+                <i class="fa-solid ${layer.locked ? 'fa-lock' : 'fa-lock-open'}"></i>
+            </button>
+        `;
         item.innerHTML = `
-            <span><i class="fa-solid ${iconName}"></i> ${typeLabel}${cleanContent || '图层'}</span>
-            <button class="btn" style="padding: 2px 6px; font-size:11px;" onclick="selectLayerFromList('${layer.id}')">选择</button>
+            <span><i class="fa-solid ${iconName}"></i> ${typeLabel}${cleanContent || '图层'}${lockBadge}${groupBadge}</span>
+            <span style="display:flex; gap:2px;">
+                ${lockBtnHtml}
+                <button class="btn" style="padding: 2px 6px; font-size:11px;" onclick="selectLayerFromList('${layer.id}')">选择</button>
+            </span>
         `;
         item.addEventListener('click', () => {
             state.selectedLayerId = layer.id;
@@ -2124,6 +2196,18 @@ function selectLayerFromList(id) {
         showStickerColorBar(layer.type === 'sticker' && layer.stickerType === 'svg');
     }
 }
+
+// ✅ 从图层列表点锁图标切换锁定
+function toggleLayerLockFromList(id) {
+    state.toggleLayerLocked(id);
+    renderCanvas();
+    renderLayerList();
+    if (typeof showBgToast === 'function') {
+        const l = state.layers.find(x => x.id === id);
+        showBgToast(l && l.locked ? '🔒 已锁定' : '🔓 已解锁');
+    }
+}
+window.toggleLayerLockFromList = toggleLayerLockFromList;
 
 /* ============================================================
    背景系统 v2 —— 智能预设库 + 一键随机 + 主色提取

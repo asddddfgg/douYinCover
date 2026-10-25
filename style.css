@@ -2079,3 +2079,93 @@ body.guide-cursor-h { cursor: ns-resize !important; }
 .mark-popover {
     width: 240px;
 }
+
+/* ============================================================
+   右键菜单 · 建组/锁定 双列紧凑行
+   ============================================================ */
+.context-menu li.ctx-split-row {
+    display: flex;
+    gap: 6px;
+    padding: 4px 8px;
+    cursor: default;
+}
+.context-menu li.ctx-split-row:hover {
+    background: transparent;
+}
+.context-menu li.ctx-split-row > button {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 4px 6px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.context-menu li.ctx-split-row > button:hover {
+    background: #30363d;
+    border-color: #ff2442;
+    color: #fff;
+}
+.context-menu li.ctx-split-row > button:active {
+    transform: translateY(1px);
+}
+
+/* ============================================================
+   图层锁定 & 建组样式
+   ============================================================ */
+
+/* 被锁定的图层：禁止光标 + 右上角小锁 */
+.canvas-layer.locked {
+    cursor: not-allowed !important;
+}
+.canvas-layer.locked::before {
+    content: '🔒';
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    font-size: 11px;
+    background: #ffb300;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    pointer-events: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+/* 组内成员：虚线边框提示 */
+.canvas-layer.in-group {
+    outline: 1px dashed rgba(0, 229, 255, 0.5);
+    outline-offset: 2px;
+}
+
+/* 组被整体选中时：外层组框高亮 */
+.canvas-layer.group-selected {
+    outline: 2px solid #00e5ff;
+    outline-offset: 3px;
+}
+
+/* 图层列表里的锁定图标 */
+.layer-item .layer-lock-badge {
+    color: #ffb300;
+    font-size: 10px;
+    margin-left: 4px;
+}
+
+/* 图层列表里的组图标 */
+.layer-item .layer-group-badge {
+    color: #00e5ff;
+    font-size: 10px;
+    margin-left: 4px;
+}

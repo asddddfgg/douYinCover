@@ -417,6 +417,14 @@
 
                 <div class="panel-section">
                     <h3><i class="fa-solid fa-layer-group"></i> 图层管理</h3>
+                    <div style="display:flex; gap:6px; margin-bottom:8px;">
+                        <button id="btn-group-layers" class="btn" style="flex:1; justify-content:center; font-size:11px;" title="把选中的多个图层合并成一个组（Ctrl+G）">
+                            <i class="fa-solid fa-object-group"></i> 建组
+                        </button>
+                        <button id="btn-ungroup-layers" class="btn" style="flex:1; justify-content:center; font-size:11px;" title="拆散选中的组（Ctrl+Shift+G）">
+                            <i class="fa-solid fa-object-ungroup"></i> 解组
+                        </button>
+                    </div>
                     <div id="layer-list" class="layer-list"></div>
                 </div>
             </aside>
@@ -461,8 +469,17 @@
             <li id="ctx-copy-style"><i class="fa-solid fa-wand-magic"></i> 复制样式</li>
             <li id="ctx-paste"><i class="fa-solid fa-paste"></i> 粘贴样式</li>
             <li class="divider"></li>
-            <li id="ctx-move-up"><i class="fa-solid fa-arrow-up"></i> 图层上移</li>
-            <li id="ctx-move-down"><i class="fa-solid fa-arrow-down"></i> 图层下移</li>
+            <li id="ctx-move-top"><i class="fa-solid fa-angles-up"></i> 移到最顶层</li>
+            <li id="ctx-move-bottom"><i class="fa-solid fa-angles-down"></i> 移到最底层</li>
+            <li class="divider"></li>
+            <li class="ctx-split-row">
+                <button type="button" id="ctx-group"><i class="fa-solid fa-object-group"></i> 建组</button>
+                <button type="button" id="ctx-ungroup"><i class="fa-solid fa-object-ungroup"></i> 解组</button>
+            </li>
+            <li class="ctx-split-row">
+                <button type="button" id="ctx-lock"><i class="fa-solid fa-lock"></i> 锁定</button>
+                <button type="button" id="ctx-unlock"><i class="fa-solid fa-lock-open"></i> 解锁</button>
+            </li>
             <li class="divider"></li>
             <li id="ctx-flip-h"><i class="fa-solid fa-arrows-left-right"></i> 水平翻转</li>
             <li id="ctx-flip-v"><i class="fa-solid fa-arrows-up-down"></i> 垂直翻转</li>

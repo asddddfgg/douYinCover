@@ -146,11 +146,18 @@ const MultiSelect = (function () {
 
     // ============ 整体拖拽 ============
     function getDragLayers(primaryLayer) {
-        const sel = getSelectedLayers();
-        if (sel.length > 1 && primaryLayer && isSelected(primaryLayer.id)) {
-            return sel;
+        if (!primaryLayer) return [];
+        // ✅ 图层属于组：整组一起拖（排除锁定的）
+        if (primaryLayer.groupId) {
+            const memberIds = state.getGroupMemberIds(primaryLayer.id);
+            const members = state.layers.filter(l => memberIds.includes(l.id) && !l.locked);
+            if (members.length > 0) return members;
         }
-        return primaryLayer ? [primaryLayer] : [];
+        const sel = getSelectedLayers();
+        if (sel.length > 1 && isSelected(primaryLayer.id)) {
+            return sel.filter(l => !l.locked);
+        }
+        return primaryLayer.locked ? [] : [primaryLayer];
     }
 
     function captureInitialPositions(layers) {
@@ -246,7 +253,10 @@ const MultiSelect = (function () {
         getDragLayers,
         captureInitialPositions,
         applyMove,
-        deleteSelected
+        deleteSelected,
+        // ✅ 新增：建组 / 解组
+        groupSelected: () => state.groupSelected(),
+        ungroupSelected: () => state.ungroupSelected()
     };
 })();
 

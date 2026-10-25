@@ -960,7 +960,21 @@ document.addEventListener('selectionchange', () => {
    ============================================================ */
 function setupContextMenuEvents() {
     const menu = document.getElementById('context-menu');
-    document.addEventListener('click', () => { menu.style.display = 'none'; });
+    // ✅ 左键 mousedown 就关闭右键菜单（比 click 更早、更稳）
+    //    点在菜单内部的按钮上时不关闭，交给按钮自己的 click 处理
+    document.addEventListener('mousedown', (e) => {
+        if (!menu || menu.style.display !== 'block') return;
+        if (menu.contains(e.target)) return;
+        if (e.button !== 0) return;
+        menu.style.display = 'none';
+    }, true);
+    // 保险：click 阶段兜底关闭（例如某些浏览器 mousedown 被 stopPropagation 拦截）
+    document.addEventListener('click', (e) => {
+        if (!menu) return;
+        if (menu.style.display !== 'block') return;
+        if (menu.contains(e.target)) return;
+        menu.style.display = 'none';
+    }, true);
 
     document.getElementById('ctx-copy').addEventListener('click', () => {
         const layer = state.getSelectedLayer();
@@ -996,7 +1010,7 @@ function setupContextMenuEvents() {
         }
     });
 
-    const doMoveLayer = (direction) => {
+        const doMoveLayer = (direction) => {
         let id = state.selectedLayerId;
         if (window.MultiSelect && state.selectedLayerIds && state.selectedLayerIds.length === 1) {
             id = state.selectedLayerIds[0];
@@ -1004,7 +1018,12 @@ function setupContextMenuEvents() {
         if (!id) return;
         const exists = state.layers.some(l => l.id === id);
         if (!exists) return;
-        const moved = state.moveLayer(id, direction);
+
+        let moved = false;
+        if (direction === 'up' || direction === 'top') moved = state.moveLayer(id, 'top');
+        else if (direction === 'down' || direction === 'bottom') moved = state.moveLayer(id, 'bottom');
+        else moved = state.moveLayer(id, direction);
+
         if (!moved) return;
         state.selectedLayerId = id;
         if (window.MultiSelect) state.selectedLayerIds = [id];
@@ -1013,8 +1032,11 @@ function setupContextMenuEvents() {
         updateTopToolbarUI(state.getSelectedLayer());
     };
 
-    document.getElementById('ctx-move-up').addEventListener('click', () => doMoveLayer('up'));
-    document.getElementById('ctx-move-down').addEventListener('click', () => doMoveLayer('down'));
+
+    const _ctxMoveTop = document.getElementById('ctx-move-top');
+    if (_ctxMoveTop) _ctxMoveTop.addEventListener('click', () => doMoveLayer('top'));
+    const _ctxMoveBottom = document.getElementById('ctx-move-bottom');
+    if (_ctxMoveBottom) _ctxMoveBottom.addEventListener('click', () => doMoveLayer('bottom'));
 
     document.getElementById('ctx-flip-h').addEventListener('click', () => {
         const layer = state.getSelectedLayer();

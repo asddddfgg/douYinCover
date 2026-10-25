@@ -180,6 +180,9 @@ class AppState {
     }
 
     addLayer(layer) {
+        // ✅ 自动补齐新字段，兼容老数据
+        if (layer.locked === undefined) layer.locked = false;
+        if (layer.groupId === undefined) layer.groupId = null;
         this.layers.push(layer);
         this.selectedLayerId = layer.id;
         if (this.selectedLayerIds) this.selectedLayerIds = [layer.id];
@@ -198,19 +201,105 @@ class AppState {
         this.saveState();
     }
 
-        moveLayer(id, direction) {
+    /* ============================================================
+       建组 / 解组 / 锁定 / 解锁
+       ============================================================ */
+
+    // 把当前选中的多个图层合并成一个组
+    groupSelected() {
+        const ids = (this.selectedLayerIds || []).slice();
+        if (ids.length < 2) {
+            alert('请至少选中 2 个图层才能建组（按住 Ctrl/Cmd 点击多个图层）');
+            return false;
+        }
+        const groupId = 'group-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+        const page = this.getCurrentPage();
+        page.layers.forEach(l => {
+            if (ids.includes(l.id)) {
+                l.groupId = groupId;
+            }
+        });
+        this.selectedLayerIds = ids.slice();
+        this.saveState();
+        return groupId;
+    }
+
+    // 拆散选中图层所在的组
+    ungroupSelected() {
+        const ids = (this.selectedLayerIds || []).slice();
+        if (ids.length === 0) {
+            alert('请先选中一个组里的图层');
+            return false;
+        }
+        const page = this.getCurrentPage();
+        const groupIds = new Set();
+        page.layers.forEach(l => {
+            if (ids.includes(l.id) && l.groupId) {
+                groupIds.add(l.groupId);
+            }
+        });
+        if (groupIds.size === 0) {
+            alert('选中的图层不在任何组里');
+            return false;
+        }
+        page.layers.forEach(l => {
+            if (groupIds.has(l.groupId)) {
+                l.groupId = null;
+            }
+        });
+        this.saveState();
+        return true;
+    }
+
+    // 锁定 / 解锁指定图层
+    setLayerLocked(id, locked) {
+        const page = this.getCurrentPage();
+        const layer = page.layers.find(l => l.id === id);
+        if (!layer) return false;
+        layer.locked = !!locked;
+        this.saveState();
+        return true;
+    }
+
+    // 切换锁定状态
+    toggleLayerLocked(id) {
+        const layer = this.layers.find(l => l.id === id);
+        if (!layer) return false;
+        return this.setLayerLocked(id, !layer.locked);
+    }
+
+    // 判断图层是否被锁定
+    isLayerLocked(id) {
+        const layer = this.layers.find(l => l.id === id);
+        return !!(layer && layer.locked);
+    }
+
+    // 取某个图层同组的所有图层 id（包含它自己）
+    getGroupMemberIds(id) {
+        const layer = this.layers.find(l => l.id === id);
+        if (!layer || !layer.groupId) return [id];
+        return this.layers
+            .filter(l => l.groupId === layer.groupId)
+            .map(l => l.id);
+    }
+
+    moveLayer(id, direction) {
         const curLayers = this.layers;
         const index = curLayers.findIndex(l => l.id === id);
         if (index === -1) return false;
 
-        const targetIndex = direction === 'up' ? index + 1 : index - 1;
+        let targetIndex;
+        if (direction === 'top') targetIndex = curLayers.length - 1;
+        else if (direction === 'bottom') targetIndex = 0;
+        else if (direction === 'up') targetIndex = index + 1;
+        else targetIndex = index - 1;
+
         if (targetIndex < 0 || targetIndex >= curLayers.length) return false;
+        if (targetIndex === index) return false;
 
-        const temp = curLayers[index];
-        curLayers[index] = curLayers[targetIndex];
-        curLayers[targetIndex] = temp;
+        const [layer] = curLayers.splice(index, 1);
+        curLayers.splice(targetIndex, 0, layer);
 
-        this.getCurrentPage().layers = curLayers;
         this.saveState();
         return true;
     }
