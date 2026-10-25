@@ -196,11 +196,86 @@ const MultiSelect = (function () {
         if (typeof updateTopToolbarUI === 'function') updateTopToolbarUI(null);
     }
 
+    // ============ 剪贴板：复制 / 粘贴图层 ============
+    // 只用内部变量，不写系统剪贴板（避免干扰文字复制、且支持整层 JSON）
+    let _layerClipboard = [];
+
+    function copySelectedLayers() {
+        const sel = getSelectedLayers();
+        if (sel.length === 0) return false;
+        // 深拷贝，避免后续修改共享引用
+        _layerClipboard = JSON.parse(JSON.stringify(sel));
+        if (typeof showBgToast === 'function') {
+            showBgToast(`已复制 ${sel.length} 个图层（Ctrl+V 粘贴）`);
+        }
+        return true;
+    }
+
+    function pasteLayers() {
+        if (!_layerClipboard || _layerClipboard.length === 0) {
+            if (typeof showBgToast === 'function') showBgToast('剪贴板为空，请先选中图层按 Ctrl+C');
+            return false;
+        }
+        const OFFSET = 20;
+        const newIds = [];
+        const page = state.getCurrentPage();
+        _layerClipboard.forEach(src => {
+            const clone = JSON.parse(JSON.stringify(src));
+            clone.id = src.type + '-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+            // 位置偏移，避免完全重叠
+            clone.x = (src.x || 0) + OFFSET;
+            clone.y = (src.y || 0) + OFFSET;
+            // 组关系需要重建：粘贴出来的图层组成一个新组（如果复制时它们在组里）
+            if (src.groupId) {
+                clone.groupId = 'group-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+            } else {
+                clone.groupId = null;
+            }
+            // 新图层默认不锁定
+            clone.locked = false;
+            page.layers.push(clone);
+            newIds.push(clone.id);
+        });
+        state.selectedLayerIds = newIds.slice();
+        state.selectedLayerId = newIds[newIds.length - 1] || null;
+        state.editingLayerId = null;
+        state.saveState();
+        if (typeof renderCanvas === 'function') renderCanvas();
+        if (typeof renderLayerList === 'function') renderLayerList();
+        if (typeof updateTopToolbarUI === 'function') updateTopToolbarUI(state.getSelectedLayer());
+        if (typeof showBgToast === 'function') {
+            showBgToast(`已粘贴 ${newIds.length} 个图层`);
+        }
+        return true;
+    }
+
     // ============ 键盘 ============
     function initKeyboard() {
         document.addEventListener('keydown', (e) => {
             if (e.target.isContentEditable) return;
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+            // ✅ Ctrl/Cmd + C：复制选中图层
+            // ✅ Ctrl/Cmd + V：粘贴图层
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+                const key = e.key.toLowerCase();
+                if (key === 'c') {
+                    // 如果正在编辑文字，交给浏览器原生复制，不拦截
+                    if (state.editingLayerId) return;
+                    if ((state.selectedLayerIds || []).length === 0) return;
+                    e.preventDefault();
+                    copySelectedLayers();
+                    return;
+                }
+                if (key === 'v') {
+                    // 如果正在编辑文字，交给浏览器原生粘贴，不拦截
+                    if (state.editingLayerId) return;
+                    if (!_layerClipboard || _layerClipboard.length === 0) return;
+                    e.preventDefault();
+                    pasteLayers();
+                    return;
+                }
+            }
 
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 if ((state.selectedLayerIds || []).length > 0 && !state.editingLayerId) {
@@ -256,7 +331,10 @@ const MultiSelect = (function () {
         deleteSelected,
         // ✅ 新增：建组 / 解组
         groupSelected: () => state.groupSelected(),
-        ungroupSelected: () => state.ungroupSelected()
+        ungroupSelected: () => state.ungroupSelected(),
+        // ✅ 新增：复制 / 粘贴图层
+        copySelectedLayers,
+        pasteLayers
     };
 })();
 

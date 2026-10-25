@@ -892,6 +892,40 @@ function initCustomFontUpload() {
     loadCachedCustomFonts(fontSelect);
     btnUpload.addEventListener('click', () => fileInput.click());
 
+    // ✅ 管理字体：列出所有本地自定义字体，可单独删除
+    const btnManage = document.getElementById('btn-manage-font');
+    if (btnManage) {
+        btnManage.addEventListener('click', () => openFontManagerModal());
+    }
+
+    // ✅ 一次性自愈：把 localStorage 里 displayName 是 CustomFont_xxx 的脏数据，回填成 AssetRegistry 里的真实文件名
+    (async function healLegacyFonts() {
+        try {
+            let savedFonts = [];
+            try { savedFonts = JSON.parse(localStorage.getItem('douyin_cover_custom_fonts') || '[]'); }
+            catch (e) { return; }
+            if (!Array.isArray(savedFonts) || savedFonts.length === 0) return;
+            if (!window.AssetRegistry) return;
+            let changed = false;
+            for (const f of savedFonts) {
+                if (!f.assetId) continue;
+                // 已经是正常的名字（不是 CustomFont_ 开头），跳过
+                if (f.displayName && !/^CustomFont_\d+$/.test(f.displayName)) continue;
+                try {
+                    const asset = await AssetRegistry.get(f.assetId);
+                    if (asset && asset.name && !/^CustomFont_\d+$/.test(asset.name)) {
+                        f.displayName = asset.name;
+                        changed = true;
+                    }
+                } catch (e) {}
+            }
+            if (changed) {
+                localStorage.setItem('douyin_cover_custom_fonts', JSON.stringify(savedFonts));
+                console.log('[Font] 已修复历史字体脏数据');
+            }
+        } catch (e) {}
+    })();
+
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -948,88 +982,294 @@ function initCustomFontUpload() {
     });
 }
 
+// ✅ 把字体名安全化：含空格/中文/特殊字符时包一层引号，避免被当成多个 fallback 名
+function _safeFontFamily(name) {
+    if (!name) return '';
+    const n = String(name).trim();
+    if (!n) return '';
+    // 已经是通用族名或已经带引号，原样返回
+    if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|inherit|initial|unset)$/i.test(n)) return n;
+    if (/^['"].*['"]$/.test(n)) return n;
+    // 含空格、中文、非 ASCII、或特殊符号 → 加双引号
+    if (/[\s\u4e00-\u9fa5]/.test(n) || !/^[A-Za-z0-9_-]+$/.test(n)) {
+        return '"' + n.replace(/"/g, '\"') + '"';
+    }
+    return n;
+}
+window._safeFontFamily = _safeFontFamily;
+
+// ✅ 字体管理弹窗：列出 localStorage 里的所有自定义字体，可删除
+function openFontManagerModal() {
+    const existing = document.getElementById('font-manager-modal');
+    if (existing) { existing.remove(); return; }
+
+    let savedFonts = [];
+    try { savedFonts = JSON.parse(localStorage.getItem('douyin_cover_custom_fonts') || '[]'); }
+    catch (e) { savedFonts = []; }
+
+    const modal = document.createElement('div');
+    modal.id = 'font-manager-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#161b22;border:1px solid #30363d;border-radius:8px;width:460px;max-width:92vw;max-height:80vh;overflow-y:auto;padding:16px;color:#c9d1d9;box-shadow:0 8px 24px rgba(0,0,0,0.8);font-size:12px;';
+
+    let listHtml = '';
+    if (!savedFonts.length) {
+        listHtml = '<div style="color:#8b949e;text-align:center;padding:20px;">还没有上传过自定义字体</div>';
+    } else {
+        listHtml = savedFonts.map((f, i) => {
+            const family = (f.displayName && String(f.displayName).trim()) || f.fontName || ('字体 ' + (i + 1));
+            return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-bottom:6px;">
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:' + family.replace(/'/g, "\\'") + ';">✍️ ${family}</span>
+                <small style="color:#8b949e;font-family:monospace;">${f.fontName || ''}</small>
+                <button class="btn font-del-btn" data-family="${family.replace(/"/g,'&quot;')}" data-fontname="${(f.fontName||'').replace(/"/g,'&quot;')}" data-assetid="${f.assetId || ''}" style="padding:3px 8px;font-size:11px;background:#f85149;border-color:#f85149;color:#fff;">删除</button>
+            </div>`;
+        }).join('');
+    }
+
+    box.innerHTML = `
+        <h3 style="margin-bottom:10px;color:#f1e05a;font-size:14px;"><i class="fa-solid fa-list"></i> 管理自定义字体</h3>
+        <div style="font-size:11px;color:#8b949e;margin-bottom:10px;line-height:1.5;">删除后会从下拉框、localStorage、IndexedDB、以及 document.fonts 中一起移除。已使用该字体的文字图层会回退到默认字体。</div>
+        <div id="font-manager-list">${listHtml}</div>
+        <div style="margin-top:12px;text-align:right;">
+            <button id="font-manager-close" class="btn btn-primary" style="padding:4px 14px;font-size:11px;">关闭</button>
+        </div>
+    `;
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    box.querySelectorAll('.font-del-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const family = btn.dataset.family || '';
+            const fontName = btn.dataset.fontname || '';
+            const assetId = btn.dataset.assetid || '';
+            if (!confirm(`确定删除字体「${family}」吗？`)) return;
+            await deleteCustomFont(family, fontName, assetId);
+            // 重建弹窗内容
+            openFontManagerModal();
+            openFontManagerModal(); // 再开一次（第一次是关闭，第二次是重建）
+        });
+    });
+
+    document.getElementById('font-manager-close').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+}
+
+// ✅ 删除一个自定义字体：下拉 option / localStorage / IndexedDB / document.fonts 全清
+async function deleteCustomFont(family, fontName, assetId) {
+    // 1) 从下拉框移除
+    const fontSelect = document.getElementById('tb-font');
+    if (fontSelect) {
+        Array.from(fontSelect.options).forEach(opt => {
+            if (opt.value === family || opt.value === fontName) {
+                opt.remove();
+            }
+        });
+    }
+
+    // 2) 从 localStorage 移除（按 displayName / fontName 匹配）
+    let savedFonts = [];
+    try { savedFonts = JSON.parse(localStorage.getItem('douyin_cover_custom_fonts') || '[]'); }
+    catch (e) { savedFonts = []; }
+    savedFonts = savedFonts.filter(f => {
+        const fam = (f.displayName && String(f.displayName).trim()) || f.fontName;
+        return fam !== family && f.fontName !== fontName && f.fontName !== family;
+    });
+    try { localStorage.setItem('douyin_cover_custom_fonts', JSON.stringify(savedFonts)); } catch (e) {}
+
+    // 3) 从 IndexedDB（AssetRegistry）移除
+    if (assetId && window.AssetRegistry) {
+        try { await AssetRegistry.remove(assetId); } catch (e) {}
+    }
+
+    // 4) 尝试从 document.fonts 里移除对应 FontFace（FontFaceSet.delete 支持）
+    try {
+        if (document.fonts && document.fonts.forEach) {
+            const toDelete = [];
+            document.fonts.forEach(ff => {
+                const ffFam = (ff.family || '').replace(/^["']|["']$/g, '');
+                if (ffFam === family || ffFam === fontName) toDelete.push(ff);
+            });
+            toDelete.forEach(ff => { try { document.fonts.delete(ff); } catch (e) {} });
+        }
+    } catch (e) {}
+
+    // 5) 清理 window.__loadedCustomFonts
+    if (window.__loadedCustomFonts) {
+        delete window.__loadedCustomFonts[family];
+        delete window.__loadedCustomFonts[fontName];
+    }
+
+    // 6) 凡是图层里还引用了这个字体的，回退到 sans-serif
+    if (window.state && state.pages) {
+        state.pages.forEach(p => p.layers.forEach(l => {
+            if (l.fontFamily === family || l.fontFamily === fontName) {
+                l.fontFamily = 'sans-serif';
+            }
+        }));
+    }
+
+    // 7) 刷新画布
+    if (typeof renderCanvas === 'function') renderCanvas();
+    if (typeof renderLayerList === 'function') renderLayerList();
+    if (typeof showBgToast === 'function') showBgToast(`已删除字体「${family}」`);
+}
+window.openFontManagerModal = openFontManagerModal;
+window.deleteCustomFont = deleteCustomFont;
+
 function registerAndApplyFont(fontName, displayName, fontDataUrl, autoSelect = false) {
     const fontSelect = document.getElementById('tb-font');
     if (!fontSelect) return;
-    fetch(fontDataUrl).then(res => res.arrayBuffer())
-        .then(buffer => {
-            const fontFace = new FontFace(fontName, buffer);
-            return fontFace.load();
-        })
-        .then((loadedFace) => {
+
+    // ✅ 家族名统一 = displayName（即用户上传时看到的 "Xiaolai-Regular"）
+    const realFamilyName = displayName && String(displayName).trim() ? String(displayName).trim() : fontName;
+
+    const doRegister = async () => {
+        try {
+            const res = await fetch(fontDataUrl);
+            const buffer = await res.arrayBuffer();
+
+            // ✅ 家族名、weight、style 全部显式指定，防伪加粗/伪斜体
+            const fontFace = new FontFace(realFamilyName, buffer, { weight: 'normal', style: 'normal' });
+            const loadedFace = await fontFace.load();
             document.fonts.add(loadedFace);
-            let exists = Array.from(fontSelect.options).some(opt => opt.value === fontName);
+            try { await document.fonts.load(`normal normal 16px "${realFamilyName}"`); } catch (e) {}
+
+            // 下拉 option：value = 家族名，显示加 ✍️
+            let exists = Array.from(fontSelect.options).some(opt => opt.value === realFamilyName);
             if (!exists) {
                 const option = document.createElement('option');
-                option.value = fontName;
-                option.innerText = '✍️ ' + displayName;
+                option.value = realFamilyName;
+                option.innerText = '✍️ ' + realFamilyName;
                 fontSelect.appendChild(option);
             }
+
+            window.__loadedCustomFonts = window.__loadedCustomFonts || {};
+            window.__loadedCustomFonts[realFamilyName] = true;
+            window.__loadedCustomFonts[fontName] = true;
+            if (displayName) window.__loadedCustomFonts[displayName] = true;
+
+            if (typeof renderCanvas === 'function') renderCanvas();
+
             if (autoSelect) {
-                fontSelect.value = fontName;
+                fontSelect.value = realFamilyName;
                 const layer = state.getSelectedLayer();
-                if (layer && layer.type === 'text') { layer.fontFamily = fontName; renderCanvas(); }
-            }
-        })
-        .catch(err => console.error('注册字体失败:', err));
-}
-
-function loadCachedCustomFonts(fontSelect) {
-    try {
-        let savedFonts = JSON.parse(localStorage.getItem('douyin_cover_custom_fonts') || '[]');
-        if (!Array.isArray(savedFonts) || savedFonts.length === 0) return;
-
-        // ✅ 先把下拉选项同步加上（UI 立即可见）
-        savedFonts.forEach(font => {
-            let exists = Array.from(fontSelect.options).some(opt => opt.value === font.fontName);
-            if (!exists) {
-                const option = document.createElement('option');
-                option.value = font.fontName;
-                option.innerText = '✍️ ' + font.displayName;
-                fontSelect.appendChild(option);
-            }
-        });
-
-        // ✅ 异步从 IndexedDB 取字体二进制，注册 FontFace
-        (async () => {
-            for (const font of savedFonts) {
-                try {
-                    let fontDataUrl = font.fontDataUrl; // 兼容老数据（localStorage 里还有 dataUrl 的）
-                    if (!fontDataUrl && font.assetId && window.AssetRegistry) {
-                        const asset = await AssetRegistry.get(font.assetId);
-                        if (asset && asset.data) fontDataUrl = asset.data;
-                    }
-                    // 老数据：localStorage 里还存着 fontDataUrl → 迁移到 IndexedDB
-                    if (fontDataUrl && font.assetId && window.AssetRegistry) {
-                        const asset = await AssetRegistry.get(font.assetId);
-                        if (!asset) {
-                            await AssetRegistry.registerFont({
-                                name: font.displayName,
-                                data: fontDataUrl,
-                                tags: ['font', 'custom', font.displayName],
-                                source: 'user'
-                            });
-                        }
-                    }
-                    if (!fontDataUrl) continue;
-                    await new Promise((resolve) => {
-                        fetch(fontDataUrl).then(res => res.arrayBuffer())
-                            .then(buffer => {
-                                const fontFace = new FontFace(font.fontName, buffer);
-                                return fontFace.load();
-                            })
-                            .then((loadedFace) => {
-                                document.fonts.add(loadedFace);
-                                resolve();
-                            })
-                            .catch(err => { console.warn('字体注册失败:', font.displayName, err); resolve(); });
-                    });
-                } catch (err) {
-                    console.warn('读取字体失败:', font.displayName, err);
+                if (layer && layer.type === 'text') {
+                    // ✅ 强制切过去，同时清掉可能残留的旧字体名
+                    layer.fontFamily = realFamilyName;
+                    if (typeof state.saveState === 'function') state.saveState();
+                    renderCanvas();
                 }
             }
+        } catch (err) {
+            console.error('注册字体失败:', err);
+            alert('字体加载失败：' + (err && err.message ? err.message : '未知错误'));
+        }
+    };
+    doRegister();
+}
+
+async function loadCachedCustomFonts(fontSelect) {
+    if (!fontSelect) return;
+
+    try {
+        // ✅ 第一步：不管 localStorage 里有什么，先从 IndexedDB 拉真实数据做权威源
+        let fontAssets = [];
+        try {
+            if (window.AssetRegistry && AssetRegistry.init) {
+                await AssetRegistry.init();
+                fontAssets = await AssetRegistry.list({ type: 'font' });
+            }
+        } catch (e) { console.warn('读取字体资产失败', e); }
+
+        // ✅ 第二步：合并 localStorage 老数据 + IndexedDB 数据，去重
+        //    每个字体最终只保留一个 family 名（优先用文件原始名，即 asset.name）
+        const savedFonts = (() => {
+            try { return JSON.parse(localStorage.getItem('douyin_cover_custom_fonts') || '[]'); }
+            catch (e) { return []; }
         })();
-    } catch (err) { console.error('读取字体缓存出错:', err); }
+
+        const seenAssets = new Set();
+        const allFonts = [];
+
+        // 2a. 索引库里的每个字体资产都加一份（family 用 asset.name）
+        fontAssets.forEach(a => {
+            if (!a || !a.id || seenAssets.has(a.id)) return;
+            seenAssets.add(a.id);
+            const family = (a.name && String(a.name).trim()) || a.id;
+            allFonts.push({
+                family,
+                assetId: a.id,
+                data: a.data,
+                source: 'asset'
+            });
+        });
+
+        // 2b. localStorage 老数据：只补 asset 里没有的（用 assetId 匹配，没 assetId 的用 family 匹配）
+        for (const f of savedFonts) {
+            const family = (f.displayName && String(f.displayName).trim()) || f.fontName;
+            if (!family) continue;
+            // 已经通过 asset 加载过这个 family，就跳过
+            if (allFonts.some(x => x.family === family)) continue;
+            // 有 assetId 且之前没加载成功，跳过（说明资产已经失效，不要再重复注册）
+            if (f.assetId && seenAssets.has(f.assetId)) continue;
+            allFonts.push({
+                family,
+                assetId: f.assetId || null,
+                data: f.fontDataUrl || null,
+                source: 'legacy'
+            });
+        }
+
+        // ✅ 第三步：先把所有 option 建出来（UI 立即可见）
+        for (const f of allFonts) {
+            const exists = Array.from(fontSelect.options).some(o => o.value === f.family);
+            if (!exists) {
+                const option = document.createElement('option');
+                option.value = f.family;
+                option.innerText = '✍️ ' + f.family;
+                fontSelect.appendChild(option);
+            }
+        }
+
+        // ✅ 第四步：逐个注册 FontFace（family = 上面确定的最终名）
+        for (const f of allFonts) {
+            let dataUrl = f.data;
+            if (!dataUrl && f.assetId && window.AssetRegistry) {
+                try {
+                    const asset = await AssetRegistry.get(f.assetId);
+                    if (asset && asset.data) dataUrl = asset.data;
+                } catch (e) {}
+            }
+            if (!dataUrl) continue;
+
+            try {
+                const res = await fetch(dataUrl);
+                const buffer = await res.arrayBuffer();
+                // ✅ 关键：家族名 = f.family；明确 weight/style=normal，防止伪加粗
+                const fontFace = new FontFace(f.family, buffer, { weight: 'normal', style: 'normal' });
+                const loadedFace = await fontFace.load();
+                document.fonts.add(loadedFace);
+                try { await document.fonts.load(`normal normal 16px "${f.family}"`); } catch (e) {}
+                window.__loadedCustomFonts = window.__loadedCustomFonts || {};
+                window.__loadedCustomFonts[f.family] = true;
+                if (f.assetId) window.__loadedCustomFonts[f.assetId] = true;
+                console.log('[Font] 已注册:', f.family, '（来源:', f.source, '）');
+            } catch (err) {
+                console.warn('[Font] 注册失败:', f.family, err);
+            }
+        }
+
+        // ✅ 第五步：加载完后重绘一次画布，把 fallback 文字刷新成真实字体
+        if (typeof renderCanvas === 'function') renderCanvas();
+
+        console.log('[Font] loadCachedCustomFonts 完成，已注册家族:',
+            allFonts.map(f => f.family));
+    } catch (err) {
+        console.error('读取字体缓存出错:', err);
+    }
 }
 
 
@@ -1830,8 +2070,50 @@ textInner.className = 'text-content-editable';
 textInner.contentEditable = isEditing ? 'true' : 'false';
 textInner.innerHTML = layer.content || '';
 textInner.style.fontSize = layer.fontSize;
-textInner.style.fontFamily = layer.fontFamily;
+// ✅ 字体名安全化：中文/含空格的字体名一律加引号，避免浏览器把它当多个 fallback
+(function applySafeFontFamily(rawName, node) {
+    if (!node) return;
+    const safe = (typeof window._safeFontFamily === 'function')
+        ? window._safeFontFamily(rawName)
+        : (rawName || '');
+    if (safe) node.style.fontFamily = safe;
+})(layer.fontFamily, textInner);
 textInner.style.color = layer.color;
+
+// ✅ 手写体保护：自定义字体（中文/前缀/已加载表命中）默认 weight/style=normal，
+//    避免浏览器把只有 Regular 字重的手写字体伪加粗/伪斜体，笔画被拉粗后完全失去手写感
+try {
+    const rawFam = layer.fontFamily || '';
+    const isCustomFont = !!(rawFam && (
+        rawFam.startsWith('CustomFont_') ||
+        /[\u4e00-\u9fa5]/.test(rawFam) ||
+        (window.__loadedCustomFonts && window.__loadedCustomFonts[rawFam])
+    ));
+    if (isCustomFont) {
+        // 用户没有显式 bold/italic 时，强制 normal（用 !important 级别覆盖后续 bold 效果）
+        if (!layer.bold) textInner.style.setProperty('font-weight', 'normal', 'important');
+        if (!layer.italic) textInner.style.setProperty('font-style', 'normal', 'important');
+        // 禁止浏览器做伪加粗/伪斜体合成
+        textInner.style.setProperty('font-synthesis', 'none');
+        // 手写体细笔画下，让浏览器更贴近原字形
+        textInner.style.setProperty('text-rendering', 'geometricPrecision');
+    }
+} catch (e) {}
+
+// ✅ 字体加载保证：如果自定义字体还没注册完，等它 ready 后再刷一次该图层字体
+(function ensureFontApplied(fontName, node) {
+    if (!fontName || !node) return;
+    if (!document.fonts || !document.fonts.load) return;
+    const safe = (typeof window._safeFontFamily === 'function')
+        ? window._safeFontFamily(fontName) : '"' + fontName + '"';
+    // ✅ 用 normal normal，避免请求去匹配 700/italic 触发合成字体
+    document.fonts.load(`normal normal 16px ${safe}`)
+        .then(() => {
+            if (node.isConnected) node.style.fontFamily = safe;
+        })
+        .catch(() => {});
+})(layer.fontFamily, textInner);
+
 textInner.style.backgroundColor = layer.bgColor;
 textInner.style.fontWeight = layer.bold ? 'bold' : 'normal';
 textInner.style.fontStyle = layer.italic ? 'italic' : 'normal';
@@ -1841,7 +2123,11 @@ if (layer.strike) textDecorations.push('line-through');
 textInner.style.textDecoration = textDecorations.join(' ');
 textInner.style.textAlign = layer.align;
 textInner.style.writingMode = layer.vertical ? 'vertical-rl' : 'horizontal-tb';
-textInner.style.letterSpacing = layer.letterSpacing || '0px';
+// ✅ 自定义字体保留原生字距：仅当用户显式调过 letterSpacing（非 0）时才应用，
+//    否则用 normal 让手写体的连笔/自然字距生效
+textInner.style.letterSpacing = (layer.letterSpacing && parseFloat(layer.letterSpacing) !== 0)
+    ? layer.letterSpacing
+    : 'normal';
 textInner.style.lineHeight = layer.lineHeight || 1.2;
 
 
@@ -2385,13 +2671,25 @@ function pushRecentPresetId(id) {
     try { localStorage.setItem(BG_RECENT_KEY, JSON.stringify(list)); } catch (e) {}
 }
 
+// ✅ 读取用户自定义背景收藏库（非预设，来自「收藏当前背景」）
+function getCustomBgFavs() {
+    try {
+        const raw = localStorage.getItem('douyin_custom_bg_favs_v1');
+        const list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list) ? list : [];
+    } catch (e) { return []; }
+}
+
 function findPresetById(id) {
-    return BG_PRESETS.find(p => p.id === id) || null;
+    return BG_PRESETS.find(p => p.id === id)
+        || getCustomBgFavs().find(p => p.id === id)
+        || null;
 }
 
 function getPresetsByCategory(cat) {
     if (cat === 'fav') {
-        return getFavPresetIds().map(id => findPresetById(id)).filter(Boolean);
+        const favIds = getFavPresetIds();
+        return favIds.map(id => findPresetById(id)).filter(Boolean);
     }
     if (cat === 'recent') {
         return getRecentPresetIds().map(id => findPresetById(id)).filter(Boolean);
@@ -2406,6 +2704,17 @@ function toggleFavPreset(id) {
         if (id.startsWith('img-') || id.startsWith('url-')) {
             removeFavImageEntry(id);
         }
+        // ✅ 自定义背景收藏：从自定义库中删除
+        if (id.startsWith('custom-bg-')) {
+            try {
+                const raw = localStorage.getItem('douyin_custom_bg_favs_v1') || '[]';
+                let list = JSON.parse(raw);
+                if (Array.isArray(list)) {
+                    list = list.filter(it => it.id !== id);
+                    localStorage.setItem('douyin_custom_bg_favs_v1', JSON.stringify(list));
+                }
+            } catch (e) {}
+        }
     } else {
         favIds.push(id);
     }
@@ -2417,7 +2726,7 @@ function toggleFavPreset(id) {
 function applyPresetToState(preset) {
     if (!preset) return;
     const newBg = {
-        type: preset.type,
+        type: preset.type || 'gradient',
         color1: preset.color1 || '#000000',
         color2: preset.color2 || preset.color1 || '#000000',
         imageUrl: '',
@@ -2995,6 +3304,49 @@ function initBackgroundPanelV2() {
         renderBgPresetGrid();
     });
 
+    // ✅ 吸管取色（颜色1 / 颜色2）
+    function bindEyeDropperForBgColor(btnId, colorInputId, applyColor) {
+        const btn = document.getElementById(btnId);
+        const input = document.getElementById(colorInputId);
+        if (!btn || !input) return;
+        if (typeof window.EyeDropper === 'undefined') {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            btn.title = '当前浏览器不支持吸管取色，请使用 Chrome / Edge 等';
+            return;
+        }
+        btn.addEventListener('click', async () => {
+            try {
+                const eyeDropper = new EyeDropper();
+                const result = await eyeDropper.open();
+                const hex = (result && result.sRGBHex) || '';
+                if (!hex) return;
+                input.value = hex;
+                // 触发现有 input 事件，统一走原有逻辑
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                // 再显式兜底一次（有些浏览器不派发 input）
+                applyColor(hex);
+            } catch (err) {
+                // 用户按 Esc 取消，静默忽略
+            }
+        });
+    }
+
+    bindEyeDropperForBgColor('bg-color-1-eyedropper', 'bg-color-1', (hex) => {
+        state.background.color1 = hex;
+        state.background.presetId = null;
+        applyBackgroundToCanvases(state.background);
+        renderBgPresetGrid();
+        state.saveState();
+    });
+    bindEyeDropperForBgColor('bg-color-2-eyedropper', 'bg-color-2', (hex) => {
+        state.background.color2 = hex;
+        state.background.presetId = null;
+        applyBackgroundToCanvases(state.background);
+        renderBgPresetGrid();
+        state.saveState();
+    });
+
     const angleEl = document.getElementById('bg-angle');
     const angleVal = document.getElementById('bg-angle-val');
     if (angleEl) angleEl.addEventListener('input', (e) => {
@@ -3034,8 +3386,10 @@ function initBackgroundPanelV2() {
         btnFav.dataset.bound = 'true';
         btnFav.addEventListener('click', () => {
             const bg = state.background;
+            if (!bg) return;
 
-            if (bg && bg.type === 'image' && (bg.customImageId || bg.imageUrl)) {
+            // 1) 图片背景：走图片收藏分支
+            if (bg.type === 'image' && (bg.customImageId || bg.imageUrl)) {
                 const imgKey = bg.customImageId
                     ? ('img-' + bg.customImageId)
                     : ('url-' + hashString(bg.imageUrl || ''));
@@ -3053,7 +3407,8 @@ function initBackgroundPanelV2() {
                 return;
             }
 
-            const pid = bg && bg.presetId;
+            // 2) 当前背景正好对应某个预设：直接收藏预设
+            const pid = bg.presetId;
             if (pid && findPresetById(pid)) {
                 if (!getFavPresetIds().includes(pid)) {
                     toggleFavPreset(pid);
@@ -3061,9 +3416,56 @@ function initBackgroundPanelV2() {
                 } else {
                     showBgToast('该预设已在收藏夹中');
                 }
-            } else {
-                showBgToast('请先点击一款预设，再收藏为快捷背景 ⭐', 2600);
+                return;
             }
+
+            // 3) 当前是非预设背景（手动调色 / 自定义渐变 / 纯色 / 纹理）：
+            //    把它作为一个「临时自定义预设」收藏起来，存进本地自定义库
+            const customKey = 'custom-bg-' + Date.now();
+            const snapshot = {
+                type: bg.type || 'gradient',
+                color1: bg.color1 || '#000000',
+                color2: bg.color2 || bg.color1 || '#000000',
+                angle: bg.angle ?? 135,
+                texture: bg.texture || 'none',
+                presetId: customKey,
+                imageUrl: ''
+            };
+            // 存自定义预设库
+            try {
+                const raw = localStorage.getItem('douyin_custom_bg_favs_v1') || '[]';
+                let list = JSON.parse(raw);
+                if (!Array.isArray(list)) list = [];
+                // 去重：如果同色同角度同纹理已存在，视为重复
+                const isDup = list.some(it =>
+                    it.type === snapshot.type &&
+                    it.color1 === snapshot.color1 &&
+                    it.color2 === snapshot.color2 &&
+                    it.angle === snapshot.angle &&
+                    it.texture === snapshot.texture
+                );
+                if (isDup) {
+                    showBgToast('当前背景已在自定义收藏中');
+                    return;
+                }
+                snapshot.id = customKey;
+                snapshot.cat = 'fav-custom';
+                snapshot.name = '自定义 ' + (list.length + 1);
+                list.push(snapshot);
+                localStorage.setItem('douyin_custom_bg_favs_v1', JSON.stringify(list));
+            } catch (e) {
+                showBgToast('收藏失败：' + e.message, 3000);
+                return;
+            }
+            // 加入收藏 id 列表
+            const favIds = getFavPresetIds();
+            if (!favIds.includes(customKey)) {
+                favIds.push(customKey);
+                saveFavPresetIds(favIds);
+            }
+            renderBgPresetGrid();
+            renderFavBackgrounds();
+            showBgToast('当前自定义背景已加入收藏 ⭐');
         });
     }
 

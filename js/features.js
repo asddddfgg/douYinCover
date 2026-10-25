@@ -215,73 +215,7 @@ const Features = (function () {
     }
 
     // ============================================================
-    // 2. 一键换主题
-    // ============================================================
-    const THEMES = [
-        { id: 'douyin', name: '抖音红蓝', bg1: '#ff2442', bg2: '#2575fc', angle: 135, text: '#ffffff', stroke: '#000000', accent: '#ffeb3b' },
-        { id: 'black-gold', name: '黑金奢华', bg1: '#0a0a0a', bg2: '#c9a227', angle: 130, text: '#ffd700', stroke: '#000000', accent: '#ffd700' },
-        { id: 'cyber', name: '赛博霓虹', bg1: '#0f0c29', bg2: '#ff00de', angle: 155, text: '#00ffff', stroke: '#000000', accent: '#ff00de' },
-        { id: 'cream', name: '奶油日系', bg1: '#fdfbfb', bg2: '#ebedee', angle: 135, text: '#333333', stroke: '#ffffff', accent: '#ff8c00' },
-        { id: 'forest', name: '森林治愈', bg1: '#a8c0b8', bg2: '#d9e4dd', angle: 130, text: '#1b4332', stroke: '#ffffff', accent: '#2d6a4f' },
-        { id: 'sakura', name: '樱花粉', bg1: '#ffdde1', bg2: '#ee9ca7', angle: 140, text: '#ffffff', stroke: '#c9184a', accent: '#ffb3c6' },
-        { id: 'ocean', name: '深海蓝', bg1: '#0f2027', bg2: '#2c5364', angle: 140, text: '#e0f7fa', stroke: '#000000', accent: '#00e5ff' },
-        { id: 'sunset', name: '日落橙', bg1: '#ff512f', bg2: '#dd2476', angle: 135, text: '#ffffff', stroke: '#000000', accent: '#ffeb3b' },
-        { id: 'paper', name: '纸张手账', bg1: '#f5efe0', bg2: '#d2b48c', angle: 125, text: '#3e2723', stroke: '#ffffff', accent: '#d84315' }
-    ];
-
-    function applyTheme(themeId) {
-        const t = THEMES.find(x => x.id === themeId);
-        if (!t) return;
-        state.background = normalizeBackground({
-            type: 'gradient', color1: t.bg1, color2: t.bg2,
-            angle: t.angle, texture: 'none', presetId: null, imageUrl: ''
-        });
-        const page = state.getCurrentPage();
-        page.layers.forEach(layer => {
-            if (layer.type === 'text') {
-                layer.color = t.text;
-                if (layer.effectParams && layer.effectClass && layer.effectParams[layer.effectClass]) {
-                    const p = layer.effectParams[layer.effectClass];
-                    if (p.fill !== undefined) p.fill = t.text;
-                    if (p.stroke !== undefined) p.stroke = t.stroke;
-                }
-                if (layer.backdrop && layer.backdrop.type === 'mark') {
-                    layer.backdrop.markColor = t.accent;
-                }
-            } else if (layer.type === 'draw') {
-                if (layer.color === '#ff2442' || layer.color === '#000000' || layer.color === '#ffffff') {
-                    layer.color = t.accent;
-                }
-            }
-        });
-        state.saveState();
-        applyBackgroundToCanvases(state.background);
-        syncBgPanelInputs(state.background);
-        renderCanvas();
-        renderLayerList();
-        if (typeof showBgToast === 'function') showBgToast(`已应用主题「${t.name}」🎨`);
-    }
-
-    function buildThemeGrid() {
-        const grid = document.getElementById('theme-grid');
-        if (!grid) return;
-        grid.innerHTML = '';
-        THEMES.forEach(t => {
-            const card = document.createElement('div');
-            card.style.cssText = 'height:52px;border-radius:6px;border:1px solid #30363d;cursor:pointer;position:relative;overflow:hidden;';
-            card.style.background = `linear-gradient(${t.angle}deg, ${t.bg1}, ${t.bg2})`;
-            const label = document.createElement('div');
-            label.style.cssText = 'position:absolute;bottom:0;left:0;right:0;font-size:9px;color:#fff;text-align:center;background:rgba(0,0,0,0.45);padding:1px 0;';
-            label.textContent = t.name;
-            card.appendChild(label);
-            card.title = t.name;
-            card.addEventListener('click', () => applyTheme(t.id));
-            grid.appendChild(card);
-        });
-    }
-
-    // ============================================================
-    // 3. 智能排版模板
+    // 2. 智能排版模板
     // ============================================================
     function applyLayout(kind) {
         const page = state.getCurrentPage();
@@ -446,22 +380,6 @@ const Features = (function () {
 
 
 
-        buildThemeGrid();
-        const btnTheme = document.getElementById('btn-theme');
-        if (btnTheme) btnTheme.addEventListener('click', () => {
-            const sec = document.getElementById('theme-panel-section');
-            if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-
-        document.querySelectorAll('.layout-btn').forEach(btn => {
-            btn.addEventListener('click', () => applyLayout(btn.dataset.layout));
-        });
-        const btnLayout = document.getElementById('btn-layout');
-        if (btnLayout) btnLayout.addEventListener('click', () => {
-            const sec = document.getElementById('layout-panel-section');
-            if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-
         let safeBtn = document.getElementById('btn-safe-area');
         if (!safeBtn) {
             safeBtn = document.createElement('button');
@@ -477,7 +395,7 @@ const Features = (function () {
         console.log('[Features] 初始化完成：标记 / 主题 / 排版 / 安全区');
     }
 
-        return { init, applyTheme, applyLayout, applyMark, applyInlineMark, toggleSafeArea };
+        return { init, applyMark, applyInlineMark, toggleSafeArea };
 })();
 
 

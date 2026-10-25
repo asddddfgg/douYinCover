@@ -681,17 +681,50 @@ function setupTopToolbarEvents() {
     const fontSelect = document.getElementById('tb-font');
     if (fontSelect) {
         fontSelect.addEventListener('change', (e) => {
-            const ctx = getActiveSelectionRange();
-            if (ctx && !ctx.collapsed) {
-                ensureStyleWithCSS();
-                document.execCommand('fontName', false, e.target.value);
-                const layer = state.layers.find(l => l.id === state.editingLayerId);
-                if (layer) layer.content = ctx.el.innerHTML;
-                updateTopToolbarUI(state.getSelectedLayer());
-            } else {
-                const layer = state.getSelectedLayer();
-                if (layer) { layer.fontFamily = e.target.value; state.saveState(); renderCanvas(); }
+            let val = e.target.value;
+            if (!val) return;
+
+            // ✅ 如果这个 value 不在 option 列表里（例如自定义字体 option 丢失），
+            //    说明 select 选到了空/非法值，直接放弃这次变更
+            const exists = Array.from(fontSelect.options).some(o => o.value === val);
+            if (!exists) {
+                console.warn('[Font] 字体选项不存在:', val);
+                return;
             }
+
+            // ✅ 拿到安全字体名（含引号保护）
+            const safeVal = (typeof window._safeFontFamily === 'function') ? window._safeFontFamily(val) : val;
+
+            // ✅ 主动确认字体已经就绪；如果未就绪，先 await 再刷画布，避免切了字体但字还显示默认
+            const ensureReady = (typeof document !== 'undefined' && document.fonts && document.fonts.load)
+                ? document.fonts.load(`normal normal 16px ${safeVal}`).catch(() => {})
+                : Promise.resolve();
+
+            ensureReady.then(() => {
+                const ctx = getActiveSelectionRange();
+                if (ctx && !ctx.collapsed) {
+                    ensureStyleWithCSS();
+                    try { document.execCommand('fontName', false, val); } catch (err) {}
+                    const layer = state.layers.find(l => l.id === state.editingLayerId);
+                    if (layer) {
+                        layer.content = ctx.el.innerHTML;
+                        state.saveState();
+                    }
+                    updateTopToolbarUI(state.getSelectedLayer());
+                    renderCanvas();
+                } else {
+                    const layer = state.getSelectedLayer();
+                    if (layer) {
+                        layer.fontFamily = val;
+                        const layerEl = document.querySelector(
+                            `.canvas-page-wrapper[data-page-id="${state.currentPageId}"] .canvas-layer[data-id="${layer.id}"] .text-content-editable`
+                        );
+                        if (layerEl) layerEl.style.fontFamily = safeVal;
+                        state.saveState();
+                        renderCanvas();
+                    }
+                }
+            });
         });
     }
 
@@ -808,7 +841,12 @@ function setupTopToolbarEvents() {
     if (letterSpacing) {
         letterSpacing.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
-            if (layer) { layer.letterSpacing = e.target.value + 'px'; state.saveState(); renderCanvas(); }
+            if (!layer) return;
+            const v = parseFloat(e.target.value) || 0;
+            // ✅ 0 表示不改字距，回退到 normal（手写体连笔重要）
+            layer.letterSpacing = (v === 0) ? 0 : (v + 'px');
+            state.saveState();
+            renderCanvas();
         });
     }
 
@@ -924,7 +962,22 @@ function updateTopToolbarUI(layer) {
         curStrike = !!layer.strike;
     }
 
-    document.getElementById('tb-font').value = layer.fontFamily || 'sans-serif';
+    // ✅ 字体下拉框同步：如果 layer.fontFamily 对应的 option 还没出现（如自定义字体异步还没加载完），
+    //    自动补一个 option 再选中，避免 select.value 被重置成第一项导致显示"没生效"
+    {
+        const fontSelectEl = document.getElementById('tb-font');
+        const targetFont = layer.fontFamily || 'sans-serif';
+        if (fontSelectEl) {
+            const hasOption = Array.from(fontSelectEl.options).some(o => o.value === targetFont);
+            if (!hasOption && targetFont) {
+                const opt = document.createElement('option');
+                opt.value = targetFont;
+                opt.innerText = targetFont;
+                fontSelectEl.appendChild(opt);
+            }
+            try { fontSelectEl.value = targetFont; } catch (e) {}
+        }
+    }
     document.getElementById('tb-fontsize').value = layer.fontSize || '28px';
         // 安全地把颜色值写入 <input type="color">（只接受 #rrggbb，其余归一化或跳过）
 

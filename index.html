@@ -29,6 +29,9 @@
         <button id="btn-upload-font" class="tool-btn" title="上传本地手写字体 (.ttf/.otf)" style="width: auto; padding: 0 6px; font-size: 10px;">
             <i class="fa-solid fa-upload"></i> 自定义字体
         </button>
+        <button id="btn-manage-font" class="tool-btn" title="管理已上传的字体（可删除）" style="width: auto; padding: 0 6px; font-size: 10px;">
+            <i class="fa-solid fa-list"></i> 管理
+        </button>
         <input type="file" id="local-font-file" accept=".ttf,.otf" style="display: none;">
 
         <select id="tb-fontsize" title="字号">
@@ -67,9 +70,6 @@
 
         <button id="btn-doodle" class="tool-btn" title="涂鸦画笔"><i class="fa-solid fa-paintbrush"></i></button>
         
-        <button id="btn-theme" class="tool-btn" title="一键换主题"><i class="fa-solid fa-palette"></i></button>
-        <button id="btn-layout" class="tool-btn" title="智能排版模板"><i class="fa-solid fa-table-cells-large"></i></button>
-
         <div class="slider-group" title="字间距">
             <span>字距</span>
             <input type="range" id="tb-letter-spacing" min="-5" max="30" value="0" step="1">
@@ -167,6 +167,14 @@
                             <div class="color-pickers">
                                 <input type="color" id="bg-color-1" value="#ff2442">
                                 <input type="color" id="bg-color-2" value="#2575fc">
+                            </div>
+                            <div style="display:flex; gap:6px; margin-top:6px;">
+                                <button id="bg-color-1-eyedropper" class="btn" style="flex:1; justify-content:center; font-size:11px;" title="从屏幕任意位置吸取颜色，设置为颜色1">
+                                    <i class="fa-solid fa-eye-dropper"></i> 吸管取色1
+                                </button>
+                                <button id="bg-color-2-eyedropper" class="btn" style="flex:1; justify-content:center; font-size:11px;" title="从屏幕任意位置吸取颜色，设置为颜色2">
+                                    <i class="fa-solid fa-eye-dropper"></i> 吸管取色2
+                                </button>
                             </div>
                             <div class="control-group" style="margin-top:8px;">
                                 <label>渐变角度 <span id="bg-angle-val">135</span>°</label>
@@ -279,24 +287,6 @@
 
                 <div class="panel-section">
 
-
-
-                <div class="panel-section" id="theme-panel-section">
-                    <h3><i class="fa-solid fa-palette"></i> 一键换主题</h3>
-                    <p class="hint">背景 + 文字色 + 描边 + 高亮一起换</p>
-                    <div id="theme-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;"></div>
-                </div>
-
-                <div class="panel-section" id="layout-panel-section">
-                    <h3><i class="fa-solid fa-table-cells-large"></i> 智能排版模板</h3>
-                    <p class="hint">点一下，自动把当前页图层排成对应布局</p>
-                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;">
-                        <button class="btn layout-btn" data-layout="title-center" style="justify-content:center;font-size:11px;">上标题+中图+下副标</button>
-                        <button class="btn layout-btn" data-layout="left-right" style="justify-content:center;font-size:11px;">左文字+右内容</button>
-                        <button class="btn layout-btn" data-layout="big-center" style="justify-content:center;font-size:11px;">全屏大字</button>
-                        <button class="btn layout-btn" data-layout="three-col" style="justify-content:center;font-size:11px;">三栏对比</button>
-                    </div>
-                </div>
 
 
                 <div class="panel-section" id="doodle-panel-section">
