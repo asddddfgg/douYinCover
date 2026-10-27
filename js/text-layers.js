@@ -142,6 +142,22 @@ function wrapSelectionWithStyle(styleList, markAsEffect = false, passedCtx = nul
         parent.removeChild(node);
     });
 
+    // ✅ 包装后把选区恢复到新 span 上，避免用户必须重新拖选
+    if (tasks.length > 0) {
+        try {
+            const spans = el.querySelectorAll('span[data-effect-span]');
+            if (spans.length > 0) {
+                const lastSpan = spans[spans.length - 1];
+                const newRange = document.createRange();
+                newRange.selectNodeContents(lastSpan);
+                const sel = window.getSelection();
+                if (sel) {
+                    sel.removeAllRanges();
+                    sel.addRange(newRange);
+                }
+            }
+        } catch (e) { /* ignore */ }
+    }
     _savedSelectionContext = null;
     return tasks.length > 0;
 }
@@ -341,11 +357,14 @@ function splitAndClearEffectSpan(sp, root, range) {
                     const cr = document.createRange();
                     cr.setStart(c.node, i);
                     cr.setEnd(c.node, i + 1);
-                    const cmpStart = range.compareBoundaryPoints(Range.START_TO_START, cr);
-                    const cmpEnd = range.compareBoundaryPoints(Range.END_TO_END, cr);
-                    if (cmpStart <= 0 && cmpEnd >= 0) {
-                        if (i < s) s = i;
-                        if (i + 1 > e) e = i + 1;
+                    // ✅ 用 intersectsNode 判断字符级 range 是否与选区相交，避免 compareBoundaryPoints 方向错误
+                    if (range.intersectsNode(c.node)) {
+                        const cmpStart = range.compareBoundaryPoints(Range.START_TO_START, cr);
+                        const cmpEnd = range.compareBoundaryPoints(Range.END_TO_END, cr);
+                        if (cmpStart <= 0 && cmpEnd >= 0) {
+                            if (i < s) s = i;
+                            if (i + 1 > e) e = i + 1;
+                        }
                     }
                 }
                 if (e <= s) { s = 0; e = c.text.length; }
@@ -592,6 +611,9 @@ function applyEffectToSelection(eff) {
     }
     if (!newCtx || newCtx.collapsed) {
         console.warn('套新特效失败：清理后选区丢失');
+        if (typeof showBgToast === 'function') {
+            showBgToast('选区已丢失，请重新选中文字后再套特效');
+        }
         return;
     }
 
@@ -651,7 +673,17 @@ function handleEffectClick(eff) {
         return;
     }
 
-    const ctx = getActiveSelectionRange();
+    let ctx = getActiveSelectionRange();
+    // ✅ 若选区因清理而丢失，但编辑态仍在且有冻结快照，先尝试恢复
+    if ((!ctx || ctx.collapsed) && state.editingLayerId && typeof _savedSelectionContext !== 'undefined' && _savedSelectionContext) {
+        try {
+            const r = _savedSelectionContext.range;
+            r.startContainer; r.endContainer;
+            if (!r.collapsed && _savedSelectionContext.el && document.body.contains(_savedSelectionContext.el)) {
+                ctx = { el: _savedSelectionContext.el, range: r, sel: null, collapsed: false };
+            }
+        } catch (e) {}
+    }
     const hasSelection = ctx && !ctx.collapsed;
 
     if (hasSelection && canEffectApplyToSelection(eff.css)) {
@@ -778,6 +810,35 @@ function setupTopToolbarEvents() {
         });
     }
 
+    const bgRadius = document.getElementById('tb-bg-radius');
+    if (bgRadius) {
+        bgRadius.addEventListener('input', (e) => {
+            const v = parseInt(e.target.value, 10) || 0;
+            const layer = state.getSelectedLayer();
+            if (layer && layer.type === 'text') {
+                layer.bgRadius = v;
+                state.saveState();
+                renderCanvas();
+            }
+        });
+    }
+
+    const btnBgClear = document.getElementById('btn-bgcolor-clear');
+    if (btnBgClear) {
+        btnBgClear.addEventListener('click', () => {
+            const layer = state.getSelectedLayer();
+            if (!layer || layer.type !== 'text') {
+                if (typeof showBgToast === 'function') showBgToast('请先选中一个文字图层');
+                return;
+            }
+            layer.bgColor = 'transparent';
+            state.saveState();
+            renderCanvas();
+            updateTopToolbarUI(layer);
+            if (typeof showBgToast === 'function') showBgToast('已清除背景色');
+        });
+    }
+
     const bindCommand = (id, cmd) => {
         const btn = document.getElementById(id);
         if (btn) {
@@ -857,6 +918,72 @@ function setupTopToolbarEvents() {
             if (layer) { layer.lineHeight = e.target.value; state.saveState(); renderCanvas(); }
         });
     }
+
+    // 精确行高输入框（0.8 ~ 3.0，数字输入）
+    const lineHeightExact = document.getElementById('tb-line-height-exact');
+    if (lineHeightExact) {
+        lineHeightExact.addEventListener('change', (e) => {
+            let v = parseFloat(e.target.value);
+            if (!isFinite(v)) v = 1.2;
+            v = Math.max(0.8, Math.min(3.0, v));
+            e.target.value = v.toFixed(2);
+            const layer = state.getSelectedLayer();
+            if (layer && layer.type === 'text') {
+                layer.lineHeight = v;
+                state.saveState();
+                renderCanvas();
+            }
+        });
+    }
+
+    // F5 预览快捷键
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'F5') {
+            if (e.target.isContentEditable) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            if (window.PreviewMode && typeof PreviewMode.open === 'function') {
+                e.preventDefault();
+                PreviewMode.open();
+            }
+        }
+    });
+
+    // 同步精确行高：当选中的图层变化时，把 layer.lineHeight 回填到数字输入
+    const _origUpdateToolbar = window.updateTopToolbarUI;
+    if (typeof _origUpdateToolbar === 'function' && !window.__lineHeightExactSynced) {
+        window.__lineHeightExactSynced = true;
+        window.updateTopToolbarUI = function (layer) {
+            const ret = _origUpdateToolbar.apply(this, arguments);
+            const exact = document.getElementById('tb-line-height-exact');
+            if (exact && layer && layer.type === 'text') {
+                const v = parseFloat(layer.lineHeight) || 1.2;
+                exact.value = v.toFixed(2);
+            }
+            return ret;
+        };
+    }
+
+
+
+    // F5 预览快捷键
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'F5') {
+            if (e.target.isContentEditable) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            if (window.PreviewMode && typeof PreviewMode.open === 'function') {
+                e.preventDefault();
+                PreviewMode.open();
+            }
+        }
+    });
+
+
+
+
+
+
+
+
 
         const opacity = document.getElementById('tb-opacity');
     if (opacity) {
@@ -983,6 +1110,17 @@ function updateTopToolbarUI(layer) {
 
     safeSetColorInput('tb-color', layer.color, '#ffffff');
     safeSetColorInput('tb-bgcolor', layer.bgColor === 'transparent' ? '#000000' : layer.bgColor, '#000000');
+    const _bgRadiusEl = document.getElementById('tb-bg-radius');
+    if (_bgRadiusEl) {
+        const _r = (layer.bgRadius !== undefined ? layer.bgRadius : 6);
+        _bgRadiusEl.value = _r;
+    }
+    const _btnBgClear = document.getElementById('btn-bgcolor-clear');
+    if (_btnBgClear) {
+        const hasBg = layer.bgColor && layer.bgColor !== 'transparent' && layer.bgColor !== 'rgba(0, 0, 0, 0)';
+        _btnBgClear.classList.toggle('active', !!hasBg);
+        _btnBgClear.style.opacity = hasBg ? '' : '0.4';
+    }
     document.getElementById('tb-bold').classList.toggle('active', !!curBold);
     document.getElementById('tb-italic').classList.toggle('active', !!curItalic);
     document.getElementById('tb-underline').classList.toggle('active', !!curUnderline);
@@ -1158,32 +1296,53 @@ function setupContextMenuEvents() {
         });
     }
 
-    // 清除整层特效
+    // 清除整层特效（只清图层级特效，不动行内 span；行内特效由「清除所选文字特效」单独负责）
     const clearLayerItem = document.getElementById('ctx-clear-layer-effect');
     if (clearLayerItem) {
         clearLayerItem.addEventListener('click', () => {
             const layer = state.getSelectedLayer();
             if (!layer || layer.type !== 'text') return;
             layer.effectClass = null;
-            const tmp = document.createElement('div');
-            tmp.innerHTML = layer.content || '';
-            tmp.querySelectorAll('span').forEach(sp => {
-                sp.removeAttribute('data-effect-span');
-                sp.removeAttribute('style');
-                if (!sp.attributes.length && !sp.className) {
-                    const p = sp.parentNode;
-                    while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
-                    p.removeChild(sp);
-                }
-            });
-            tmp.normalize();
-            layer.content = tmp.innerHTML;
+            if (layer.effectClasses) delete layer.effectClasses;
+            if (layer.effectParams) delete layer.effectParams;
             state.saveState();
             renderCanvas();
             renderLayerList();
             if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
+            if (typeof refreshEffectParamsPanel === 'function') refreshEffectParamsPanel();
+            if (typeof showBgToast === 'function') showBgToast('已清除整层特效（行内特效保留）');
         });
     }
+
+    // ✅ 打开右键菜单时，按当前图层真实状态决定两项显隐
+    document.addEventListener('contextmenu', (e) => {
+        const menu = document.getElementById('context-menu');
+        if (!menu || menu.style.display === 'none') return;
+        const layer = state.getSelectedLayer();
+        const inlineItem = document.getElementById('ctx-clear-inline-effect');
+        const layerItem = document.getElementById('ctx-clear-layer-effect');
+
+        // 行内：仅当处于编辑态、有选中文本、且选区内含特效 span 时显示
+        let showInline = false;
+        if (layer && layer.type === 'text' && state.editingLayerId === layer.id) {
+            const hasInlineSpan = /<span[^>]*style="[^"]*(color|background|text-shadow|text-decoration|-webkit-text-stroke|background-image|border|padding)/i.test(layer.content || '');
+            if (hasInlineSpan) {
+                // 有选中文本
+                const ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
+                if (ctx && !ctx.collapsed) showInline = true;
+                // 或者虽然没有选中，但有整个图层含行内 span（右键选中整层文字也允许清）
+                if (!showInline) showInline = true;
+            }
+        }
+        if (inlineItem) inlineItem.style.display = showInline ? '' : 'none';
+
+        // 整层：仅当图层有 effectClass / effectClasses 时显示
+        const hasLayerEffect = !!(layer && (
+            layer.effectClass ||
+            (Array.isArray(layer.effectClasses) && layer.effectClasses.length > 0)
+        ));
+        if (layerItem) layerItem.style.display = hasLayerEffect ? '' : 'none';
+    }, true);
 }
 
 /* ============================================================

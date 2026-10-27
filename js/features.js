@@ -22,7 +22,7 @@ const Features = (function () {
     // ============================================================
     function applyInlineMark(kind) {
         // 必须有正在编辑的文字图层 + 非折叠选区
-                let ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
+        let ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
         if (!ctx || ctx.collapsed) {
             // 没有选区 → 看看有没有冻结快照
             if (typeof _savedSelectionContext !== 'undefined' && _savedSelectionContext) {
@@ -40,7 +40,14 @@ const Features = (function () {
                 } catch (e) {}
             }
             if (!ctx || ctx.collapsed) {
-                // 真的没有选区 → 退回整层标记
+                // ✅ 正在编辑文字但选区折叠：提示用户先选中文字，不退回整层标记
+                if (state.editingLayerId) {
+                    if (typeof showBgToast === 'function') {
+                        showBgToast('请先选中要强调的文字，再点标记');
+                    }
+                    return;
+                }
+                // 真的没有编辑态 → 才退回整层标记
                 return applyMark(kind);
             }
         }
@@ -92,34 +99,31 @@ const Features = (function () {
             styleList.push({ prop: '-webkit-text-stroke', val: `${Math.max(1, markWidth / 2)}px ${markColor}` });
             styleList.push({ prop: 'paint-order', val: 'stroke fill' });
         }
-        // 先用 text-layers.js 的清理逻辑清掉选区内的旧标记
-        if (typeof clearEffectSpansInSelection === 'function') {
-            const saved = clearEffectSpansInSelection(ctx);
-            if (saved) {
-                if (typeof restoreSelectionByTextOffset === 'function') {
-                    restoreSelectionByTextOffset(saved.root, saved.start, saved.end);
-                }
+        // ✅ 修复：不再先 clear 再 wrap（清空 DOM 会破坏选区），
+        //    直接把标记叠加到当前选区（国际做法：标记可叠加，清除由「清除标记」按钮负责）
+        const targetCtx = ctx;
+        if (!targetCtx || targetCtx.collapsed) {
+            if (typeof showBgToast === 'function') {
+                showBgToast('请先选中要强调的文字，再点标记');
             }
+            return;
         }
-        // 重新取一次选区（清理后 DOM 变了）
-        let newCtx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
-        if (!newCtx || newCtx.collapsed) {
-            console.warn('[InlineMark] 清理后选区丢失，退回整层标记');
-            return applyMark(kind);
-        }
-        // 用 wrapSelectionWithStyle 给选区包 span
+        // 用 wrapSelectionWithStyle 给选区包 span（传入已冻结的 ctx，避免再查一次选区丢失）
         let wrapped = false;
         if (typeof wrapSelectionWithStyle === 'function') {
-            wrapped = wrapSelectionWithStyle(styleList, true, newCtx);
+            wrapped = wrapSelectionWithStyle(styleList, true, targetCtx);
         }
         if (!wrapped) {
-            console.warn('[InlineMark] 包裹失败，退回整层标记');
-            return applyMark(kind);
+            console.warn('[InlineMark] 包裹失败');
+            if (typeof showBgToast === 'function') {
+                showBgToast('标记应用失败，请重新选中文字后再试');
+            }
+            return;
         }
-        // 写回 layer.content
+        // 写回 layer.content（用 targetCtx.el）
         const layer = state.layers.find(l => l.id === state.editingLayerId);
         if (layer) {
-            layer.content = newCtx.el.innerHTML;
+            layer.content = targetCtx.el.innerHTML;
         }
         if (typeof updateTopToolbarUI === 'function') {
             updateTopToolbarUI(state.getSelectedLayer());
@@ -353,10 +357,15 @@ const Features = (function () {
                     const ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
                     if (ctx && !ctx.collapsed) {
                         applyInlineMark(kind);
+                    } else if (state.editingLayerId) {
+                        // 编辑态但无选区：提示，不退回整层
+                        if (typeof showBgToast === 'function') {
+                            showBgToast('请先选中要强调的文字，再点标记');
+                        }
                     } else {
                         applyMark(kind);
                     }
-                    _markSavedCtx = null;
+                    // ✅ 不立即清空快照，让用户可连续标记；下一次点按钮时会覆盖
                     closeMarkPopover();
                 });
             });

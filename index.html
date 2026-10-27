@@ -44,11 +44,16 @@
             <option value="64px">64px</option>
             <option value="80px">80px</option>
         </select>
-        <div class="color-picker-wrapper" title="文字颜色">
-            <input type="color" id="tb-color" value="#ffffff">
+        <div class="color-picker-wrapper color-picker-lg">
+            <input type="color" id="tb-color" value="#ffffff" title="文字颜色（点击选色）">
         </div>
-        <div class="color-picker-wrapper" title="背景底色">
-            <input type="color" id="tb-bgcolor" value="#000000">
+        <div class="color-picker-wrapper color-picker-lg">
+            <input type="color" id="tb-bgcolor" value="#000000" title="背景底色（点击选色）">
+        </div>
+        <button id="btn-bgcolor-clear" class="tool-btn" title="清除背景色（无背景）"><i class="fa-solid fa-ban"></i></button>
+        <div class="slider-group" title="背景色块圆角">
+            <span>圆角</span>
+            <input type="range" id="tb-bg-radius" min="0" max="40" value="6" step="1">
         </div>
     </div>
 
@@ -86,9 +91,40 @@
         <button id="btn-toggle-snap" class="tool-btn active" title="吸附开启"><i class="fa-solid fa-magnet"></i></button>
         <button id="btn-clear-guides" class="tool-btn" title="清除所有参考线"><i class="fa-solid fa-eraser"></i></button>
     </div>
+
+    <!-- 组 3：批量对齐 / 分布 / 排版 / 对比色 / 行高 -->
+    <div class="toolbar-group">
+        <button id="btn-align-left-multi" class="tool-btn" title="左对齐（Alt+A）"><i class="fa-solid fa-align-left"></i></button>
+        <button id="btn-align-center-multi" class="tool-btn" title="水平居中（Alt+H）"><i class="fa-solid fa-align-center"></i></button>
+        <button id="btn-align-right-multi" class="tool-btn" title="右对齐（Alt+D）"><i class="fa-solid fa-align-right"></i></button>
+        <button id="btn-align-top-multi" class="tool-btn" title="顶对齐（Alt+W）"><i class="fa-solid fa-arrows-up-to-line"></i></button>
+        <button id="btn-align-middle-multi" class="tool-btn" title="垂直居中（Alt+V）"><i class="fa-solid fa-arrows-left-right"></i></button>
+        <button id="btn-align-bottom-multi" class="tool-btn" title="底对齐（Alt+S）"><i class="fa-solid fa-arrows-down-to-line"></i></button>
+        <button id="btn-distribute-h" class="tool-btn" title="水平等间距分布"><i class="fa-solid fa-grip-lines"></i></button>
+        <button id="btn-distribute-v" class="tool-btn" title="垂直等间距分布"><i class="fa-solid fa-grip-lines-vertical"></i></button>
+
+        <button id="btn-auto-contrast" class="tool-btn" title="自动对比色（根据背景主色）"><i class="fa-solid fa-circle-half-stroke"></i></button>
+
+        <select id="tb-type-preset" title="排版预设" style="background:#161b22; border:1px solid #30363d; color:#c9d1d9; padding:4px 6px; border-radius:4px; font-size:12px; outline:none; cursor:pointer;">
+            <option value="">排版预设</option>
+            <option value="title">大标题</option>
+            <option value="subtitle">副标题</option>
+            <option value="body">正文</option>
+            <option value="caption">注释小字</option>
+        </select>
+
+        <div class="slider-group" title="精确行高（点击数字可输入）">
+            <span>行高</span>
+            <input type="number" id="tb-line-height-exact" min="0.8" max="3.0" step="0.05" value="1.2" style="width:52px; background:#161b22; border:1px solid #30363d; color:#c9d1d9; padding:2px 4px; border-radius:4px; font-size:11px; text-align:center;">
+        </div>
+    </div>
 </div>
 
             <div class="actions">
+                <span id="multi-edit-badge" style="display:none; font-size:11px; color:#00e5ff; background:rgba(0,229,255,0.12); border:1px solid rgba(0,229,255,0.35); padding:3px 8px; border-radius:4px; white-space:nowrap;">
+                    <i class="fa-solid fa-layer-group"></i> 批量编辑 <span id="multi-edit-count">0</span>
+                </span>
+                <button id="btn-history" class="btn" title="设计历史"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 <button id="btn-projects" class="btn"><i class="fa-solid fa-folder"></i> 我的项目</button>
                 <button id="btn-save-project" class="btn"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                 <button id="btn-saveas-project" class="btn" title="另存为"><i class="fa-solid fa-file-export"></i></button>
@@ -105,6 +141,62 @@
                     <h3><i class="fa-solid fa-wand-magic-sparkles"></i> 20款艺术特效</h3>
                     <p class="hint">选中画布图层后点击应用特效</p>
                     <div id="effects-grid" class="effects-grid"></div>
+                </div>
+
+                <div class="panel-section" id="brand-panel">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:4px;">
+                        <h3 style="margin:0;"><i class="fa-solid fa-palette"></i> 品牌资产包</h3>
+                        <div style="display:flex; gap:4px;">
+                            <button id="btn-import-brand" class="btn" style="padding:2px 6px; font-size:10px;" title="导入品牌包 JSON"><i class="fa-solid fa-file-import"></i> 导入</button>
+                            <button id="btn-export-brand" class="btn" style="padding:2px 6px; font-size:10px;" title="导出品牌包 JSON"><i class="fa-solid fa-file-export"></i> 导出</button>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px; padding:6px 8px; background:#0d1117; border:1px solid #30363d; border-radius:4px; font-size:11px; color:#8b949e;">
+                        <input type="checkbox" id="brand-strict-mode" style="accent-color:#ff2442; cursor:pointer;">
+                        <label for="brand-strict-mode" style="cursor:pointer; flex:1;">严格模式：仅允许使用品牌色 / 品牌字体</label>
+                    </div>
+
+                    <div class="brand-tabs" style="display:flex; gap:4px; margin-bottom:8px;">
+                        <button class="btn brand-tab active" data-brand-tab="brand-colors" style="flex:1; justify-content:center; font-size:11px;">颜色</button>
+                        <button class="btn brand-tab" data-brand-tab="brand-fonts" style="flex:1; justify-content:center; font-size:11px;">字体</button>
+                        <button class="btn brand-tab" data-brand-tab="brand-logos" style="flex:1; justify-content:center; font-size:11px;">Logo</button>
+                        <button class="btn brand-tab" data-brand-tab="brand-templates" style="flex:1; justify-content:center; font-size:11px;">模板</button>
+                    </div>
+
+                    <div id="brand-colors" class="brand-tab-content">
+                        <div style="display:flex; align-items:center; gap:4px; margin-bottom:6px;">
+                            <select id="brand-palette-select" style="flex:1; background:#161b22; border:1px solid #30363d; color:#c9d1d9; padding:3px 6px; border-radius:4px; font-size:11px;"></select>
+                            <button id="btn-add-palette" class="btn" style="padding:2px 6px; font-size:10px;" title="新建色板"><i class="fa-solid fa-plus"></i></button>
+                            <button id="btn-rename-palette" class="btn" style="padding:2px 6px; font-size:10px;" title="重命名当前色板"><i class="fa-solid fa-pen"></i></button>
+                            <button id="btn-del-palette" class="btn" style="padding:2px 6px; font-size:10px;" title="删除当前色板"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                        <div id="brand-color-list" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;"></div>
+                        <div style="display:flex; gap:6px;">
+                            <button id="btn-add-current-color" class="btn" style="flex:1; justify-content:center; font-size:11px;">+ 收藏当前图层色</button>
+                            <button id="btn-add-manual-color" class="btn" style="flex:1; justify-content:center; font-size:11px;">+ 手动添加颜色</button>
+                        </div>
+                    </div>
+
+                    <div id="brand-fonts" class="brand-tab-content" style="display:none;">
+                        <div id="brand-font-list" style="margin-bottom:8px; font-size:11px; color:#8b949e;"></div>
+                        <input type="file" id="input-brand-font" accept=".ttf,.otf,.woff,.woff2" style="display:none;">
+                        <button id="btn-upload-brand-font" class="btn" style="width:100%; justify-content:center; font-size:11px;">+ 上传品牌字体</button>
+                    </div>
+
+                    <div id="brand-logos" class="brand-tab-content" style="display:none;">
+                        <div id="brand-logo-grid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; margin-bottom:8px;"></div>
+                        <input type="file" id="input-brand-logo" accept="image/*" style="display:none;">
+                        <button id="btn-upload-brand-logo" class="btn" style="width:100%; justify-content:center; font-size:11px;">+ 上传品牌 Logo</button>
+                    </div>
+
+                    <div id="brand-templates" class="brand-tab-content" style="display:none;">
+                        <div style="font-size:10px; color:#8b949e; margin-bottom:6px; line-height:1.4;">
+                            将当前页面保存为品牌模板，新页面可直接套用（含背景 / 图层 / 特效 / Logo）。
+                        </div>
+                        <div id="brand-template-list" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:6px; margin-bottom:8px; max-height:200px; overflow-y:auto;"></div>
+                        <button id="btn-save-template" class="btn" style="width:100%; justify-content:center; font-size:11px;">+ 保存当前页为品牌模板</button>
+                    </div>
                 </div>
             </aside>
 
@@ -521,6 +613,60 @@
         </div>
     </div>
 
+    <div id="history-panel" class="history-panel" style="display:none;">
+        <div class="history-panel-header">
+            <h3><i class="fa-solid fa-clock-rotate-left"></i> 设计历史</h3>
+            <button id="history-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+    </div>
+
+    <div id="preview-overlay" class="preview-overlay" style="display:none;">
+        <div class="preview-controls">
+            <button id="preview-prev" class="btn"><i class="fa-solid fa-chevron-left"></i> 上一页</button>
+            <span id="preview-page-indicator">1 / 1</span>
+            <button id="preview-next" class="btn">下一页 <i class="fa-solid fa-chevron-right"></i></button>
+            <button id="preview-close" class="btn btn-primary"><i class="fa-solid fa-xmark"></i> 退出预览</button>
+        </div>
+        <div id="preview-stage" class="preview-stage"></div>
+    </div>
+
+    <div id="history-panel" class="history-panel" style="display:none;">
+        <div class="history-panel-header">
+            <h3><i class="fa-solid fa-clock-rotate-left"></i> 设计历史</h3>
+            <button id="history-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+    </div>
+
+    <div id="preview-overlay" class="preview-overlay" style="display:none;">
+        <div class="preview-controls">
+            <button id="preview-prev" class="btn"><i class="fa-solid fa-chevron-left"></i> 上一页</button>
+            <span id="preview-page-indicator">1 / 1</span>
+            <button id="preview-next" class="btn">下一页 <i class="fa-solid fa-chevron-right"></i></button>
+            <button id="preview-close" class="btn btn-primary"><i class="fa-solid fa-xmark"></i> 退出预览</button>
+        </div>
+        <div id="preview-stage" class="preview-stage"></div>
+    </div>
+
+    <div id="history-panel" class="history-panel" style="display:none;">
+        <div class="history-panel-header">
+            <h3><i class="fa-solid fa-clock-rotate-left"></i> 设计历史</h3>
+            <button id="history-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+    </div>
+
+    <div id="preview-overlay" class="preview-overlay" style="display:none;">
+        <div class="preview-controls">
+            <button id="preview-prev" class="btn"><i class="fa-solid fa-chevron-left"></i> 上一页</button>
+            <span id="preview-page-indicator">1 / 1</span>
+            <button id="preview-next" class="btn">下一页 <i class="fa-solid fa-chevron-right"></i></button>
+            <button id="preview-close" class="btn btn-primary"><i class="fa-solid fa-xmark"></i> 退出预览</button>
+        </div>
+        <div id="preview-stage" class="preview-stage"></div>
+    </div>
+
     <script src="js/background-presets.js"></script>
     <script src="js/db.js"></script>
     <script src="js/backdrop-textures.js"></script>
@@ -536,6 +682,16 @@
     <script src="js/projects.js"></script>
     <script src="js/app.js"></script>
     <script src="js/features.js"></script>
+    <script src="js/brand-manager.js"></script>
+    <script src="js/batch-edit.js"></script>
+    <script src="js/history-panel.js"></script>
+    <script src="js/align-distribute.js"></script>
+    <script src="js/type-presets.js"></script>
+    <script src="js/auto-contrast.js"></script>
+    <script src="js/preview-mode.js"></script>
+    <script src="js/tooltip.js"></script>
+    <script src="js/hex-input.js"></script>
+
 
 <div id="export-panel" class="export-panel" style="display:none;">
     <div class="export-panel-inner">

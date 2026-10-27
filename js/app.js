@@ -1,3 +1,5 @@
+window.state = state;
+
 // Main Application Entry
 /* ============================================================
    导出补丁：复杂文字特效 → 内联 PNG
@@ -186,15 +188,16 @@ function _drawTextToDataUrl(el, layerStyle) {
         ctx.fillStyle = cs.backgroundColor;
         ctx.fillRect(0, 0, canvasW, canvasH);
     }
+ctx.font = fontStr;
+    // ✅ 基线漂移修复：用 alphabetic 基线 + 手动加 ascent 量
+    ctx.textBaseline = 'alphabetic';
+    // 供每行绘制时计算基线 y 使用（ascent 从当前字体测量）
+    const fontAscent = (function(){
+        try { const m = mctx.measureText('Hg'); return m.actualBoundingBoxAscent || (fontSize * 0.8); } catch(e){ return fontSize * 0.8; }
+    })();
+    ctx.textAlign = 'left';
 
-    ctx.font = fontStr;
-    ctx.textBaseline = 'top';
-    ctx.textAlign = 'left'; // 自己算 x
-    // ⚠️ 不要在 canvas 上设 letterSpacing：各浏览器支持不一致会与手动测量双重叠加导致变形
-    // 统一由 measureLineWidth 与逐字绘制处理
-
-    // 填充样式：渐变 or 纯色
-    let fillStyle = layerStyle.fill || cs.color || '#ffffff';
+// 填充样式：渐变 or 纯色let fillStyle = layerStyle.fill || cs.color || '#ffffff';
     if (layerStyle.backgroundGradient) {
         const g = _parseLinearGradient(layerStyle.backgroundGradient);
         if (g) {
@@ -269,9 +272,7 @@ function _drawTextToDataUrl(el, layerStyle) {
 
             charX += mctx.measureText(ch).width + (letterSpacing > 0 ? letterSpacing : 0);
         });
-
-
-// 处理 text-decoration
+// 处理 text-decoration（基线用 yBaseline，避免下划线/删除线跟着字形顶部漂移）
 const deco = cs.textDecorationLine || cs.textDecoration || '';
 if (deco && deco !== 'none') {
     const decoColor = cs.textDecorationColor || cs.color;
@@ -280,7 +281,7 @@ if (deco && deco !== 'none') {
     ctx.lineWidth = 1.5;
     if (decoStyle === 'wavy') {
         // 波浪线
-        const yBase = y + fontSize + 2;
+        const yBase = yBaseline + 2;
         ctx.beginPath();
         for (let xx = x; xx < x + w; xx += 4) {
             const yy = yBase + Math.sin((xx - x) / 2) * 1.5;
@@ -290,18 +291,18 @@ if (deco && deco !== 'none') {
     } else if (decoStyle === 'dotted') {
         for (let xx = x; xx < x + w; xx += 4) {
             ctx.beginPath();
-            ctx.arc(xx, y + fontSize + 2, 1, 0, Math.PI * 2);
+            ctx.arc(xx, yBaseline + 2, 1, 0, Math.PI * 2);
             ctx.fillStyle = decoColor;
             ctx.fill();
         }
     } else if (decoStyle === 'double') {
         ctx.beginPath();
-        ctx.moveTo(x, y + fontSize + 1); ctx.lineTo(x + w, y + fontSize + 1);
-        ctx.moveTo(x, y + fontSize + 4); ctx.lineTo(x + w, y + fontSize + 4);
+        ctx.moveTo(x, yBaseline + 1); ctx.lineTo(x + w, yBaseline + 1);
+        ctx.moveTo(x, yBaseline + 4); ctx.lineTo(x + w, yBaseline + 4);
         ctx.stroke();
     } else {
         // 单线：下划线 / 删除线
-        const yLine = deco.includes('line-through') ? (y + fontSize * 0.55) : (y + fontSize + 2);
+        const yLine = deco.includes('line-through') ? (yBaseline - fontSize * 0.3) : (yBaseline + 2);
         ctx.beginPath();
         ctx.moveTo(x, yLine);
         ctx.lineTo(x + w, yLine);
@@ -309,15 +310,9 @@ if (deco && deco !== 'none') {
     }
 }
 
-
-
-
-
-
     });
 
-    // 应用 filter（模糊/灰度/反色等）—— 画完后对 canvas 做像素处理
-    const filterCss = cs.filter;
+    // 应用 filter（模糊/灰度/反色等）—— 画完后对 canvas 做像素处理const filterCss = cs.filter;
     if (filterCss && filterCss !== 'none') {
         // 用 canvas filter 再画一层
         const filtered = document.createElement('canvas');
@@ -418,13 +413,22 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
     measureNode.style.transform = 'none';
     measureNode.style.transformOrigin = 'center center';
     try {
+        // ✅ 修复导出卡死：离屏截图不再走全局 onclone（避免递归触发 _buildOnCloneForExport）
         const c = await html2canvas(measureNode, {
             scale: 2, backgroundColor: null, logging: false,
             useCORS: true, allowTaint: true,
             x: boxLeft,
             y: boxTop,
             width: w,
-            height: h
+            height: h,
+            onclone: (clonedDoc) => {
+                // 只移除非法 color input，不调用 _buildOnCloneForExport（避免递归）
+                clonedDoc.querySelectorAll('input[type="color"]').forEach(el => {
+                    const span = clonedDoc.createElement('span');
+                    span.style.cssText = el.style.cssText;
+                    if (el.parentNode) el.parentNode.replaceChild(span, el);
+                });
+            }
         });
         dataUrl = c.toDataURL('image/png');
         } catch (e) {
@@ -461,13 +465,15 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
         const cs = window.getComputedStyle(originalNode);
         const baseLeftPx = parseFloat(originalNode.style.left || cs.left) || 0;
         const baseTopPx = parseFloat(originalNode.style.top || cs.top) || 0;
-        img.style.position = 'absolute';
-        img.style.left = baseLeftPx + 'px';
-        img.style.top = baseTopPx + 'px';
-       img.style.marginLeft = (boxLeft + 83) + 'px';
-        img.style.marginTop = (boxTop + 237) + 'px';   // 60 是往下拉的像素数，按需调
-        // ✅ 旋转/翻转必须照搬，否则方向被抹平
-        img.style.transform = originalNode.style.transform || cs.transform;
+img.style.position = 'absolute';
+        // ✅ 基线漂移修复：截图区域以 (boxLeft, boxTop) 为左上角，宽 w 高 h。
+        //    img 要放回原图层的「视觉左上角」，需把 img 的 left/top 直接定位到 (baseLeftPx + boxLeft, baseTopPx + boxTop)，
+        //    然后 marginLeft/marginTop 归零。这样 img 的 (0,0) 就对应截图的 (boxLeft, boxTop)，与原图层坐标系一致，不会整体下沉。
+        img.style.left = (baseLeftPx + boxLeft) + 'px';
+        img.style.top = (baseTopPx + boxTop) + 'px';
+        img.style.marginLeft = '0px';
+        img.style.marginTop = '0px';
+        // ✅ 旋转/翻转必须照搬，否则方向被抹平img.style.transform = originalNode.style.transform || cs.transform;
         img.style.transformOrigin = originalNode.style.transformOrigin || cs.transformOrigin;
         img.style.opacity = originalNode.style.opacity || cs.opacity;
         // ✅ 层级必须照搬，否则会掉到其它图层下面
@@ -495,22 +501,29 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
 // ✅ 新增：只把文字节点栅格化后塞进克隆层（不碰底衬），供"有底衬"时先处理文字
 //    抽自 _rasterizeRiskyText 里原有逻辑，保证底衬截图时文字已是位图
 function _rasterizeTextNodeIntoClone(originalNode, clonedNode, effectClass) {
-    if (!originalNode || !clonedNode) return;
-    // 富文本含 span 时交给 html2canvas 原生画
-    if (originalNode.querySelector('span, b, i, u, s, strong, em')) return;
+    if (!originalNode || !clonedNode) return Promise.resolve();
+    // ✅ 修复导出卡死：不再用离屏 html2canvas（会递归触发 onclone 造成死循环）。
+    //    改为纯文本节点才栅格化；富文本（含 span）直接交给外层 html2canvas 原生画。
     try {
+        if (originalNode.querySelector('span, b, i, u, s, strong, em')) {
+            return Promise.resolve();
+        }
+        const w = originalNode.offsetWidth || 0;
+        const h = originalNode.offsetHeight || 0;
+        if (w === 0 || h === 0) return Promise.resolve();
+
         let styleNode = originalNode;
         const innerSpan = originalNode.querySelector('span[data-effect-span], span[class*="eff"], span[class*="effect"]');
         if (innerSpan) styleNode = innerSpan;
         const computed = window.getComputedStyle(styleNode);
         const layerStyle = _parseEffectStyle(effectClass, computed);
         const dataUrl = _drawTextToDataUrl(originalNode, layerStyle);
-        if (!dataUrl) return;
+        if (!dataUrl) return Promise.resolve();
 
         const img = document.createElement('img');
         img.src = dataUrl;
-        img.style.width = originalNode.offsetWidth + 'px';
-        img.style.height = originalNode.offsetHeight + 'px';
+        img.style.width = w + 'px';
+        img.style.height = h + 'px';
         img.style.display = 'block';
         img.style.objectFit = 'contain';
         img.crossOrigin = 'anonymous';
@@ -518,8 +531,10 @@ function _rasterizeTextNodeIntoClone(originalNode, clonedNode, effectClass) {
         if (clonedNode.parentNode) {
             clonedNode.parentNode.replaceChild(img, clonedNode);
         }
+        return Promise.resolve();
     } catch (e) {
         console.warn('rasterize text into clone failed:', e);
+        return Promise.resolve();
     }
 }
 
@@ -529,6 +544,8 @@ function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
     // originalNode: 原 DOM 的 .text-content-editable
     // clonedNode:   clone 里的对应节点（会被替换）
     if (!originalNode || !clonedNode) return;
+    // ✅ 含行内特效 span 时：整体栅格化会丢行内样式，交给 html2canvas 原生画；
+    //    但不要 return 整层特效处理链（外层 _buildOnCloneForExport 会继续判断是否需要整层截图）
     if (originalNode.querySelector('span[data-effect-span]')) {
         return;
     }
@@ -539,7 +556,7 @@ function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
     if (layerEl && layerEl.querySelector('.layer-backdrop')) {
         const clonedLayerEl = clonedNode.closest('.canvas-layer');
         if (clonedLayerEl) {
-            // 先把文字节点单独栅格化成 img 放进克隆层，再对外层整体截图
+            // 纯文本先栅格化；富文本交给整层 html2canvas 原生画
             _rasterizeTextNodeIntoClone(originalNode, clonedNode, effectClass);
             return _rasterizeByOffscreenHtml2Canvas(layerEl, clonedLayerEl);
         }
@@ -674,17 +691,65 @@ function _buildOnCloneForExport(originalCanvasNode) {
                     csp.style.setProperty('background-image', 'none', 'important');
                     csp.style.setProperty('background-clip', 'border-box', 'important');
                     csp.style.setProperty('-webkit-background-clip', 'border-box', 'important');
-                    csp.style.setProperty('filter', 'none', 'important');
+csp.style.setProperty('filter', 'none', 'important');
                     csp.style.setProperty('padding', cs.padding, 'important');
+
+                    // ✅ 锚点补丁：修复 html2canvas 渲染 inline-block + padding 导致的下沉
+                    const _padTop = parseFloat(cs.paddingTop) || 0;
+                    const _padBottom = parseFloat(cs.paddingBottom) || 0;
+                    const _disp = cs.display || '';
+                    if (_disp === 'inline-block' && (_padTop > 0 || _padBottom > 0)) {
+                        // html2canvas 会把 inline-block 的垂直 padding 额外向下撑开，
+                        // 用负的 vertical-align 把内容提回来（约等于半行 padding 的视觉补偿）
+                        const _lift = Math.max(1, Math.round((_padTop + _padBottom) * 0.4));
+                        csp.style.setProperty('vertical-align', '-' + _lift + 'px', 'important');
+                    } else {
+                        csp.style.setProperty('vertical-align', 'baseline', 'important');
+                    }
                 }
             });
         } catch (e) {
             console.warn('处理行内 invert 失败:', e);
         }
 
+        // ✅ 锚点补丁（独立遍历）：对**所有** span[data-effect-span]（不止 invert 那些）
+        //    统一做 inline-block + padding 的 vertical-align 补偿，解决强调文字整体下沉问题。
+        try {
+            const origTextElsAll2 = originalCanvasNode.querySelectorAll('.text-content-editable');
+            origTextElsAll2.forEach(origEl => {
+                const layerEl0 = origEl.closest('.canvas-layer');
+                if (!layerEl0) return;
+                const layerId0 = layerEl0.dataset.id;
+                const clonedLayer0 = clonedCanvasEl.querySelector(`.canvas-layer[data-id="${layerId0}"]`);
+                if (!clonedLayer0) return;
+                const clonedTextEl0 = clonedLayer0.querySelector('.text-content-editable');
+                if (!clonedTextEl0) return;
 
-        // ✅ 行内波浪下划线 / 删除线：html2canvas 只画直线，这里把带这些样式的 span 单独栅格化
-        //    核心：canvas 坐标 = DOM 坐标，用 textBaseline='top' 直接按 span 的 top 画字，
+                const origSpans = origEl.querySelectorAll('span[data-effect-span]');
+                const cloneSpans = clonedTextEl0.querySelectorAll('span[data-effect-span]');
+                const sn2 = Math.min(origSpans.length, cloneSpans.length);
+                for (let si = 0; si < sn2; si++) {
+                    const osp = origSpans[si];
+                    const csp = cloneSpans[si];
+                    const cs2 = window.getComputedStyle(osp);
+                    const disp2 = cs2.display || '';
+                    const pTop = parseFloat(cs2.paddingTop) || 0;
+                    const pBottom = parseFloat(cs2.paddingBottom) || 0;
+                    const borderTop = parseFloat(cs2.borderTopWidth) || 0;
+                    const borderBottom = parseFloat(cs2.borderBottomWidth) || 0;
+                    if ((disp2 === 'inline-block') && (pTop + pBottom + borderTop + borderBottom > 0)) {
+                        const lift = Math.max(1, Math.round((pTop + pBottom + borderTop + borderBottom) * 0.4));
+                        csp.style.setProperty('vertical-align', '-' + lift + 'px', 'important');
+                    } else if (disp2 === 'inline-block') {
+                        csp.style.setProperty('vertical-align', 'baseline', 'important');
+                    }
+                }
+            });
+        } catch (e) {
+            console.warn('inline-block padding 补偿失败:', e);
+        }
+
+        // ✅ 行内波浪下划线 / 删除线：html2canvas 只画直线，这里把带这些样式的 span 单独栅格化//    核心：canvas 坐标 = DOM 坐标，用 textBaseline='top' 直接按 span 的 top 画字，
         //    波浪线画在 ascent + descent 之下，不做任何「居中」「猜基线」的换算
         try {
             const origInlineEls = originalCanvasNode.querySelectorAll('.text-content-editable');
@@ -823,14 +888,20 @@ function _buildOnCloneForExport(originalCanvasNode) {
             const clonedTextEl = clonedLayer.querySelector('.text-content-editable');
             if (!clonedTextEl) return;
 
-            // 兼容同步返回（原 _rasterizeRiskyText）和 Promise 返回（_rasterizeByOffscreenHtml2Canvas）
-            const ret = _rasterizeRiskyText(origEl, clonedTextEl, layer.effectClass);
-            if (ret && typeof ret.then === 'function') {
-                tasks.push(ret);
+            // 兼容同步返回（原 _rasterizeRiskyText）和 Promise 返回（_rasterizeByOffscreenHtml2Canvas / _rasterizeTextNodeIntoClone）
+            try {
+                const ret = _rasterizeRiskyText(origEl, clonedTextEl, layer.effectClass);
+                if (ret && typeof ret.then === 'function') {
+                    tasks.push(ret);
+                }
+            } catch (err) {
+                console.warn('rasterize risky text failed:', err);
             }
         });
         if (tasks.length > 0) {
-            await Promise.all(tasks);
+            await Promise.all(tasks.map(p => Promise.resolve(p).catch(err => {
+                console.warn('rasterize task failed:', err);
+            })));
         }
     };
 }
@@ -1171,6 +1242,8 @@ function registerAndApplyFont(fontName, displayName, fontDataUrl, autoSelect = f
     doRegister();
 }
 
+window.registerAndApplyFont = registerAndApplyFont;
+
 async function loadCachedCustomFonts(fontSelect) {
     if (!fontSelect) return;
 
@@ -1284,8 +1357,11 @@ function exportElementToPNG(canvasDOMNode, filename, scale) {
     // ⚠️ 已知限制：图片背景的 colorFilter（sepia / saturate 等）在 html2canvas
     // 导出时可能被部分忽略，暖调效果在导出图中可能减弱。
     // 如需像素级一致，需在导出前对背景图做 canvas 预渲染（当前暂不实现）。
+    // ✅ 品牌水印图层（layer.watermark=true）在 DOM 中为普通 sticker，html2canvas 会自动渲染；
+    //    若未来需要「导出时强制加水印」，可在此处对 canvas 做后处理叠加 Logo。
     const exportScale = (typeof scale === 'number' && scale > 0) ? scale : 2;
     return new Promise((resolve, reject) => {
+        const _start = async () => {
         // 1. 找到所有要隐藏的"编辑辅助"元素
         const guidesLayer = canvasDOMNode.querySelector('.custom-guides-layer');
         const snapLayer = canvasDOMNode.querySelector('.snap-lines-layer');
@@ -1297,6 +1373,94 @@ function exportElementToPNG(canvasDOMNode, filename, scale) {
         const prevDisplays = toHide.map(el => el.style.display);
         toHide.forEach(el => el.style.display = 'none');
         selectedLayers.forEach(el => el.classList.remove('selected'));
+
+        // ✅ 修复导出背景色不一致：把 .canvas-bg + .canvas-bg-overlay 合成为一张 PNG，替换成 <img>，
+        //    截图后恢复。这样 html2canvas 不会丢失图片背景的 filter/transform/遮罩叠加效果。
+        const bgEl = canvasDOMNode.querySelector('.canvas-bg');
+        const overlayEl = canvasDOMNode.querySelector('.canvas-bg-overlay');
+        let bgReplaced = null;
+        let overlayHidden = null;
+        const _bgComposePromise = (async () => {
+            if (!bgEl) return;
+            try {
+                const rect = bgEl.getBoundingClientRect();
+                const W = Math.round(rect.width) || 360;
+                const H = Math.round(rect.height) || 640;
+                if (W <= 0 || H <= 0) return;
+
+                // 创建一个临时容器，把 .canvas-bg + overlay 一起放进去，用 html2canvas 预渲染
+                const tempWrap = document.createElement('div');
+                tempWrap.style.cssText = `position:fixed;left:-99999px;top:0;width:${W}px;height:${H}px;overflow:hidden;`;
+                const bgClone = bgEl.cloneNode(true);
+                bgClone.style.cssText = bgEl.style.cssText;
+                // 把计算样式全部复制到 clone（cloneNode 只带 inline style，不够）
+                const cs = window.getComputedStyle(bgEl);
+                ['background','backgroundImage','backgroundSize','backgroundPosition','backgroundRepeat','backgroundColor','filter','transform','transformOrigin','opacity','inset','position','left','top','width','height'].forEach(p => {
+                    try { bgClone.style.setProperty(p, cs.getPropertyValue(p)); } catch (e) {}
+                });
+                bgClone.style.position = 'absolute';
+                bgClone.style.left = '0';
+                bgClone.style.top = '0';
+                bgClone.style.width = W + 'px';
+                bgClone.style.height = H + 'px';
+                bgClone.style.visibility = 'visible';
+                bgClone.style.zIndex = '0';
+                tempWrap.appendChild(bgClone);
+
+                if (overlayEl) {
+                    const ovClone = overlayEl.cloneNode(true);
+                    const ocs = window.getComputedStyle(overlayEl);
+                    ovClone.style.cssText = overlayEl.style.cssText;
+                    ['background','backgroundImage','opacity','inset','position','left','top','width','height'].forEach(p => {
+                        try { ovClone.style.setProperty(p, ocs.getPropertyValue(p)); } catch (e) {}
+                    });
+                    ovClone.style.position = 'absolute';
+                    ovClone.style.left = '0';
+                    ovClone.style.top = '0';
+                    ovClone.style.width = W + 'px';
+                    ovClone.style.height = H + 'px';
+                    ovClone.style.zIndex = '1';
+                    ovClone.style.pointerEvents = 'none';
+                    tempWrap.appendChild(ovClone);
+                }
+
+                document.body.appendChild(tempWrap);
+                await new Promise(r => requestAnimationFrame(r));
+
+                const c = await html2canvas(tempWrap, {
+                    scale: 1,
+                    backgroundColor: null,
+                    logging: false,
+                    useCORS: true,
+                    allowTaint: true,
+                    width: W,
+                    height: H,
+                    onclone: (clonedDoc) => {
+                        clonedDoc.querySelectorAll('input[type="color"]').forEach(el => {
+                            const span = clonedDoc.createElement('span');
+                            span.style.cssText = el.style.cssText;
+                            if (el.parentNode) el.parentNode.replaceChild(span, el);
+                        });
+                    }
+                });
+                document.body.removeChild(tempWrap);
+
+                const dataUrl = c.toDataURL('image/png');
+                const imgEl = document.createElement('img');
+                imgEl.src = dataUrl;
+                imgEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;z-index:0;pointer-events:none;';
+                imgEl.className = 'canvas-bg-composited';
+                bgEl.parentNode.insertBefore(imgEl, bgEl);
+                bgEl.style.visibility = 'hidden';
+                if (overlayEl) {
+                    overlayHidden = { el: overlayEl, prev: overlayEl.style.visibility };
+                    overlayEl.style.visibility = 'hidden';
+                }
+                bgReplaced = { img: imgEl, orig: bgEl };
+            } catch (e) {
+                console.warn('导出背景合成失败:', e);
+            }
+        })();
 
         // 2. 去掉页面外框高亮
         const pageWrapper = canvasDOMNode.closest('.canvas-page-wrapper');
@@ -1328,7 +1492,20 @@ function exportElementToPNG(canvasDOMNode, filename, scale) {
             canvasDOMNode.style.borderColor = orig.borderColor;
             canvasDOMNode.style.boxShadow = orig.boxShadow;
             canvasDOMNode.style.borderRadius = orig.borderRadius;
+            // ✅ 恢复背景合成前的状态
+            if (bgReplaced) {
+                bgReplaced.orig.style.visibility = '';
+                if (bgReplaced.img && bgReplaced.img.parentNode) bgReplaced.img.parentNode.removeChild(bgReplaced.img);
+                bgReplaced = null;
+            }
+            if (overlayHidden) {
+                overlayHidden.el.style.visibility = overlayHidden.prev || '';
+                overlayHidden = null;
+            }
         };
+
+        // ✅ 等背景合成完成后再截图
+        await _bgComposePromise;
 
         // 5. 截图
                 html2canvas(canvasDOMNode, {
@@ -1346,8 +1523,21 @@ onclone: async (clonedDoc, clonedEl) => {
         '.custom-guides-layer, .snap-lines-layer, .selection-box, ' +
         '.resize-handle, .edge-handle, .rotate-handle'
     ).forEach(el => el.style.display = 'none');
-    clonedEl.querySelectorAll('.canvas-layer.selected')
-        .forEach(el => el.classList.remove('selected'));
+    // 强制清除所有 .canvas-layer 的选中态背景（rgba(255,36,66,0.02) 在 html2canvas 里会渲染成灰色）
+    clonedEl.querySelectorAll('.canvas-layer').forEach(el => {
+        el.classList.remove('selected');
+        el.style.background = 'transparent';
+        el.style.backgroundColor = 'transparent';
+        el.style.border = '1px solid transparent';
+        el.style.boxShadow = 'none';
+        el.style.outline = 'none';
+    });
+    // 清除 .layer-fill 的边框/阴影，只保留纯色背景（防 html2canvas 渲染成灰块）
+    clonedEl.querySelectorAll('.layer-fill').forEach(el => {
+        el.style.border = 'none';
+        el.style.boxShadow = 'none';
+        el.style.outline = 'none';
+    });
     // 导出时移除所有 <input type="color">，避免浏览器解析非法颜色值抛 NotFoundError
     clonedDoc.querySelectorAll('input[type="color"]').forEach(el => {
         const span = clonedDoc.createElement('span');
@@ -1389,6 +1579,8 @@ onclone: async (clonedDoc, clonedEl) => {
             alert('导出失败：' + (err && err.message ? err.message : '未知错误'));
             resolve(false);
         }).finally(cleanup);
+        };
+        _start();
     });
 }
 
@@ -1539,6 +1731,9 @@ function renderAll() {
     renderPageList();
     updateBackgroundView();
     updateTopToolbarUI(state.getSelectedLayer());
+    if (window.BatchEdit && typeof BatchEdit.updateBadge === 'function') {
+        try { BatchEdit.updateBadge(); } catch (e) {}
+    }
 }
 
 function initPaginationModule() {
@@ -2078,7 +2273,7 @@ textInner.style.fontSize = layer.fontSize;
         : (rawName || '');
     if (safe) node.style.fontFamily = safe;
 })(layer.fontFamily, textInner);
-textInner.style.color = layer.color;
+
 
 // ✅ 手写体保护：自定义字体（中文/前缀/已加载表命中）默认 weight/style=normal，
 //    避免浏览器把只有 Regular 字重的手写字体伪加粗/伪斜体，笔画被拉粗后完全失去手写感
@@ -2114,7 +2309,19 @@ try {
         .catch(() => {});
 })(layer.fontFamily, textInner);
 
-textInner.style.backgroundColor = layer.bgColor;
+// ✅ 图层填充：用独立的 .layer-fill 块垫在文字后面，形成有 padding/圆角的色块
+//    同时移除 textInner 自身的 backgroundColor（避免双重背景）
+textInner.style.backgroundColor = 'transparent';
+try {
+    if (layer.bgColor && layer.bgColor !== 'transparent' && layer.bgColor !== 'rgba(0, 0, 0, 0)') {
+        const radius = (layer.bgRadius !== undefined ? layer.bgRadius : 6);
+        const pad = (layer.bgPadding !== undefined ? layer.bgPadding : 6);
+        const layerFill = document.createElement('div');
+        layerFill.className = 'layer-fill';
+        layerFill.style.cssText = 'position:absolute; inset:' + (-pad) + 'px ' + (-pad) + 'px; background-color:' + layer.bgColor + '; background-image: none; border-radius:' + radius + 'px; z-index:0; pointer-events:none; border:1px solid rgba(0,0,0,0.08); box-sizing:border-box; transition: background 0.12s ease;';
+        el.insertBefore(layerFill, el.firstChild);
+    }
+} catch (e) { console.warn('[layer-fill] 生成失败', e); }
 textInner.style.fontWeight = layer.bold ? 'bold' : 'normal';
 textInner.style.fontStyle = layer.italic ? 'italic' : 'normal';
 let textDecorations = [];
@@ -2129,6 +2336,7 @@ textInner.style.letterSpacing = (layer.letterSpacing && parseFloat(layer.letterS
     ? layer.letterSpacing
     : 'normal';
 textInner.style.lineHeight = layer.lineHeight || 1.2;
+textInner.style.setProperty('color', layer.color || '#ffffff', 'important');
 
 
 
@@ -2281,6 +2489,7 @@ if (bgBoxEffectId) {
                     }
                 });
 
+                try { textInner.style.setProperty('color', layer.color || '#ffffff', 'important'); } catch (e) {}
                 textInner.style.position = 'relative';
                 textInner.style.zIndex = '1';
                 el.appendChild(textInner);

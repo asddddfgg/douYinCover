@@ -424,8 +424,13 @@ if (cornerHandle) {
                     }
                 } catch (_err) { hasTextSel = false; }
                 const layerIsText = !!(dragLayer && dragLayer.type === 'text');
-                if (inlineItem) inlineItem.style.display = hasTextSel ? '' : 'none';
-                if (layerItem) layerItem.style.display = layerIsText ? '' : 'none';
+                const hasLayerEffect = !!(dragLayer && (
+                    dragLayer.effectClass ||
+                    (Array.isArray(dragLayer.effectClasses) && dragLayer.effectClasses.length > 0)
+                ));
+                // 兜底显隐：text-layers.js 的 contextmenu 捕获阶段会再做精确判断
+                if (inlineItem) inlineItem.style.display = (hasTextSel || (layerIsText && /<span[^>]*style="/i.test(dragLayer.content || ''))) ? '' : 'none';
+                if (layerItem) layerItem.style.display = (layerIsText && hasLayerEffect) ? '' : 'none';
 
                 // ✅ 根据锁定状态互换「锁定 / 解锁」按钮
                 const _ctxLockBtn = document.getElementById('ctx-lock');
