@@ -136,11 +136,25 @@
         </header>
 
         <div class="workspace">
-            <aside class="sidebar-left">
+                        <aside class="sidebar-left">
+                <div class="panel-section" id="cover-templates-panel">
+                    <h3><i class="fa-solid fa-table-cells-large"></i> 封面模板库</h3>
+                    <p class="hint">点击任意模板，当前页面立刻套用（背景+文字+特效+底衬）</p>
+                    <div id="cover-template-grid" class="cover-template-grid"></div>
+                </div>
+
                 <div class="panel-section">
                     <h3><i class="fa-solid fa-wand-magic-sparkles"></i> 20款艺术特效</h3>
                     <p class="hint">选中画布图层后点击应用特效</p>
                     <div id="effects-grid" class="effects-grid"></div>
+                </div>
+
+                                <div class="panel-section" id="asset-cleanup-panel">
+                    <h3><i class="fa-solid fa-broom"></i> 存储管理</h3>
+                    <p class="hint">删掉不再被任何项目引用的贴纸、字体、底衬、背景图，防止 IndexedDB 无限膨胀</p>
+                    <button id="btn-cleanup-assets" class="btn" style="width:100%; justify-content:center; font-size:11px;">
+                        <i class="fa-solid fa-broom"></i> 清理未使用资产
+                    </button>
                 </div>
 
                 <div class="panel-section" id="brand-panel">
@@ -667,6 +681,9 @@
         <div id="preview-stage" class="preview-stage"></div>
     </div>
 
+    <script src="js/utils.js"></script>
+    <script src="js/app-runtime.js"></script>
+    <script src="js/namespaces.js"></script>
     <script src="js/background-presets.js"></script>
     <script src="js/db.js"></script>
     <script src="js/backdrop-textures.js"></script>
@@ -681,6 +698,14 @@
     <script src="js/guides.js"></script>
     <script src="js/projects.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/exporter.js"></script>
+    <script src="js/effect-params-panel.js"></script>
+    <script src="js/font-manager.js"></script>
+    <script src="js/background-engine.js"></script>
+    <script src="js/background-core.js"></script>
+        <script src="js/background-layers-ui.js"></script>
+    <script src="js/bgimage-migrate.js"></script>
+    <script src="js/backdrop-panel.js"></script>
     <script src="js/features.js"></script>
     <script src="js/brand-manager.js"></script>
     <script src="js/batch-edit.js"></script>
@@ -691,6 +716,7 @@
     <script src="js/preview-mode.js"></script>
     <script src="js/tooltip.js"></script>
     <script src="js/hex-input.js"></script>
+    <script src="js/cover-templates.js"></script>
 
 
 <div id="export-panel" class="export-panel" style="display:none;">

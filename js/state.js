@@ -1,3 +1,12 @@
+// ============================================================
+// state.js — 全局状态 + HistoryManager
+// 职责边界：
+//   ✅ 负责：数据模型（pages/layers/background/guides）、选中态、建组/锁定、
+//            HistoryManager 快照与撤销
+//   ❌ 不负责：DOM 操作、canvas 渲染、导出、选区、背景面板 UI
+// 依赖：window.DEFAULT_BACKGROUND（background-presets.js）
+// 被依赖：几乎全部模块（state 是单一数据源）
+// ============================================================
 // Global State Management (Supports Uniform Background, Consistent Style & Full Undo/Redo System)
 
 class HistoryManager {
@@ -158,10 +167,26 @@ class AppState {
         }, 500);
     }
 
-    saveState() {
+        saveState() {
         if (this.history) {
             this.history.record();
         }
+    }
+
+    // ✅ P0-3：批量变更入口
+    // 用法：state.mutate(() => { layer.x = 100; layer.color = '#fff'; });
+    mutate(fn) {
+        if (typeof fn !== 'function') {
+            if (window.Utils && Utils.log) Utils.log.warn('[state.mutate] 参数不是函数');
+            return;
+        }
+        this.__mutating = true;
+        try {
+            fn.call(this);
+        } finally {
+            this.__mutating = false;
+        }
+        this.saveState();
     }
 
     getCurrentPage() {
@@ -177,6 +202,16 @@ class AppState {
 
     getSelectedLayer() {
         return this.layers.find(l => l.id === this.selectedLayerId);
+    }
+
+    // ✅ 跨页查找图层（所有模块统一用它，避免 state.layers 只查当前页的误用）
+    findLayerById(id) {
+        if (!id) return null;
+        for (const page of this.pages) {
+            const found = (page.layers || []).find(l => l.id === id);
+            if (found) return found;
+        }
+        return null;
     }
 
     addLayer(layer) {

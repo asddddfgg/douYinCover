@@ -3373,3 +3373,76 @@ body.guide-cursor-h { cursor: ns-resize !important; }
     transform: scale(1.2);
     border-color: #fff !important;
 }
+
+/* ============================================================
+   封面模板库
+   ============================================================ */
+.cover-template-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 2px;
+}
+.cover-template-card {
+    position: relative;
+    aspect-ratio: 9 / 16;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.15s;
+    background: #0d1117;
+}
+.cover-template-card:hover {
+    border-color: #ff2442;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(0,0,0,0.5);
+}
+.cover-template-card .ct-preview {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    text-align: center;
+    gap: 4px;
+    overflow: hidden;
+}
+.cover-template-card .ct-title {
+    font-weight: 900;
+    line-height: 1.15;
+    color: #fff;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.8);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.cover-template-card .ct-subtitle {
+    font-size: 9px;
+    color: rgba(255,255,255,0.85);
+    line-height: 1.3;
+    white-space: pre-wrap;
+}
+.cover-template-card .ct-badge {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 3px 4px;
+    font-size: 9.5px;
+    line-height: 1.2;
+    color: #fff;
+    background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cover-template-empty {
+    grid-column: span 2;
+    text-align: center;
+    color: #8b949e;
+    font-size: 12px;
+    padding: 16px 0;
+}

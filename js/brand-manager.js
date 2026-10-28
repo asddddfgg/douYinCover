@@ -1,4 +1,13 @@
 // ============================================================
+// brand-manager.js — 本地品牌资产包（Brand Kit）
+// 职责边界：
+//   ✅ 负责：品牌色板 / 品牌字体 / 品牌 Logo / 品牌模板的 CRUD + UI
+//   ✅ 负责：色板快速条注入工具栏、品牌字体 optgroup、严格模式
+//   ✅ 负责：应用到选中文字底色（走 SelectionCore）
+//   ❌ 不负责：选区取/写逻辑（一律调 SelectionCore.getCtx / applyStyle）
+//   ❌ 不负责：画布渲染、导出
+// 依赖：SelectionCore（text-layers.js）、AssetRegistry（stickers.js）、state
+// ============================================================
 // brand-manager.js — 本地品牌资产包（Brand Kit）完整版
 // 依赖：window.AssetRegistry / window.DouyinCover.addStickerToCanvas
 //      window.state / window.renderCanvas / window.renderAll
@@ -84,7 +93,9 @@ const BrandManager = {
     save() {
         try {
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
-            try { localStorage.removeItem(this.LEGACY_KEY); } catch (e) {}
+            try { localStorage.removeItem(this.LEGACY_KEY); } catch (e) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Brand] 删除 legacy 品牌键失败', e);
+            }
         } catch (e) {
             console.warn('[Brand] 保存品牌配置失败', e);
         }
@@ -304,7 +315,9 @@ const BrandManager = {
                     // 2) 清旧 IndexedDB 资产
                     const oldEntry = this.data.fonts.find(f => f.name === fontName);
                     if (oldEntry && oldEntry.assetId && window.AssetRegistry && AssetRegistry.remove) {
-                        try { await AssetRegistry.remove(oldEntry.assetId); } catch (err) {}
+                        try { await AssetRegistry.remove(oldEntry.assetId); } catch (err) {
+                            if (window.Utils && Utils.log) Utils.log.warn('[Brand] 移除同名旧字体资产失败', oldEntry.assetId, err);
+                        }
                     }
 
                     // 3) 清旧 FontFace
@@ -314,11 +327,15 @@ const BrandManager = {
                             const fam = (face.family || '').replace(/^["']|["']$/g, '');
                             if (fam === fontName) toDelete.push(face);
                         });
-                        toDelete.forEach(face => { try { document.fonts.delete(face); } catch (err) {} });
+                        toDelete.forEach(face => { try { document.fonts.delete(face); } catch (err) {
+                            if (window.Utils && Utils.log) Utils.log.warn('[Brand] 删除旧 FontFace 失败', err);
+                        } });
                     }
 
                     // 4) 加入浏览器
-                    try { document.fonts.add(pendingFontFace); } catch (err) {}
+                    try { document.fonts.add(pendingFontFace); } catch (err) {
+                        if (window.Utils && Utils.log) Utils.log.warn('[Brand] document.fonts.add 失败', fontName, err);
+                    }
                     window.__loadedCustomFonts = window.__loadedCustomFonts || {};
                     window.__loadedCustomFonts[fontName] = true;
 
@@ -333,7 +350,9 @@ const BrandManager = {
                                 tags: ['font', 'brand'],
                                 source: 'user'
                             });
-                        } catch (err) {}
+                        } catch (err) {
+                            if (window.Utils && Utils.log) Utils.log.warn('[Brand] 品牌字体写资产失败', fontName, err);
+                        }
                     }
 
                     // 6) 去重 + 保存
@@ -386,7 +405,9 @@ const BrandManager = {
                                 tags: ['brand', 'logo'],
                                 source: 'user'
                             });
-                        } catch (err) {}
+                        } catch (err) {
+                            if (window.Utils && Utils.log) Utils.log.warn('[Brand] Logo 写资产失败', file.name, err);
+                        }
                     }
                     this.data.logos.push({ id: assetId, name: file.name, dataUrl });
                     this.save();
@@ -523,9 +544,13 @@ const BrandManager = {
                             document.fonts.add(ff);
                             window.__loadedCustomFonts = window.__loadedCustomFonts || {};
                             window.__loadedCustomFonts[f.name] = true;
-                        } catch (e) {}
+                        } catch (e) {
+                            if (window.Utils && Utils.log) Utils.log.warn('[Brand] 导入品牌字体注册失败', f.name, e);
+                        }
                         this.data.fonts.push({ name: f.name, assetId });
-                    } catch (err) {}
+                    } catch (err) {
+                        if (window.Utils && Utils.log) Utils.log.warn('[Brand] 导入品牌字体写资产失败', f.name, err);
+                    }
                 } else {
                     this.data.fonts.push({ name: f.name, assetId: f.assetId || '' });
                 }
@@ -547,7 +572,9 @@ const BrandManager = {
                             tags: ['brand', 'logo'],
                             source: 'user'
                         });
-                    } catch (err) {}
+                    } catch (err) {
+                        if (window.Utils && Utils.log) Utils.log.warn('[Brand] 导入品牌 Logo 写资产失败', l.name, err);
+                    }
                 }
                 this.data.logos.push({ id: assetId, name: l.name || 'brand-logo', dataUrl: l.dataUrl });
             }
@@ -609,7 +636,9 @@ const BrandManager = {
             try {
                 state.background = JSON.parse(JSON.stringify(tpl.background));
                 if (typeof applyBackgroundToCanvases === 'function') applyBackgroundToCanvases(state.background);
-            } catch (e) {}
+            } catch (e) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Brand] 应用模板背景失败', e);
+            }
         }
 
         const newLayers = (tpl.page.layers || []).map(src => {
@@ -672,7 +701,9 @@ const BrandManager = {
             opt.textContent = p.name + ' (' + p.colors.length + ')';
             sel.appendChild(opt);
         });
-        try { sel.value = this.data.activePaletteId; } catch (e) {}
+        try { sel.value = this.data.activePaletteId; } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Brand] 回填 activePaletteId 失败', e);
+        }
     },
 
     renderColors() {
@@ -725,6 +756,7 @@ const BrandManager = {
         menu.style.cssText = 'position:fixed; display:block; z-index:99999; width:180px;';
         menu.innerHTML = '<ul>' +
             '<li id="bcs-rename"><i class="fa-solid fa-pen"></i> 重命名颜色</li>' +
+            '<li id="bcs-apply-inline-bg"><i class="fa-solid fa-highlighter"></i> 应用到选中文字底色</li>' +
             '<li id="bcs-apply-bg"><i class="fa-solid fa-fill-drip"></i> 应用到背景色</li>' +
             '<li class="divider"></li>' +
             '<li id="bcs-delete" class="danger"><i class="fa-solid fa-trash"></i> 从色板移除</li>' +
@@ -774,8 +806,26 @@ const BrandManager = {
 
         menu.querySelector('#bcs-apply-bg').addEventListener('click', () => {
             close();
-            this.applyColorToSelected(hex, 'bg');
+            this.applyInlineBackgroundToSelection(hex) || this.applyColorToSelected(hex, 'bg');
         });
+
+        const _bcsInlineBg = menu.querySelector('#bcs-apply-inline-bg');
+        if (_bcsInlineBg) {
+            // ✅ P0：mousedown 阶段冻结选区统一走 SelectionCore.freezeFromEvent，
+            //    它内部会 clone Range 并阻止默认行为（防止焦点被夺、防止画布重新选中出现四角柄）
+            _bcsInlineBg.addEventListener('mousedown', (e) => {
+                if (typeof SelectionCore !== 'undefined' && SelectionCore.freezeFromEvent) {
+                    SelectionCore.freezeFromEvent(e);
+                }
+                // 无论是否冻结成功，都阻止默认行为，避免菜单项点击激活画布选中态
+                e.preventDefault();
+                e.stopPropagation();
+            });
+            _bcsInlineBg.addEventListener('click', () => {
+                close();
+                this.applyInlineBackgroundToSelection(hex);
+            });
+        }
 
         menu.querySelector('#bcs-delete').addEventListener('click', () => {
             close();
@@ -1029,7 +1079,41 @@ const BrandManager = {
         });
 
         inputEl.focus();
-        setTimeout(() => { try { inputEl.select(); } catch (e) {} }, 30);
+        setTimeout(() => { try { inputEl.select(); } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Brand] 全选添加颜色输入框失败', e);
+        } }, 30);
+    },
+
+    // ===== 应用到选中文字底色（等价工具栏 #tb-bgcolor 的选区分支） =====
+    // ✅ P0 收口：只调 SelectionCore.applyStyle，不自己取 ctx / 不自己 wrap / 不 execCommand
+    // 规则：有选区 → 只给选区加底色；无选区 → 仅提示，绝不整层改色
+    applyInlineBackgroundToSelection(hex) {
+        if (!window.state || !state.editingLayerId) {
+            if (typeof showBgToast === 'function') showBgToast('请先在文本中选中要加底色的文字');
+            return;
+        }
+
+        if (typeof SelectionCore === 'undefined' || !SelectionCore || !SelectionCore.applyStyle) {
+            if (typeof showBgToast === 'function') showBgToast('应用失败：选区服务未就绪');
+            return;
+        }
+
+        if (!SelectionCore.hasUsableSelection()) {
+            if (typeof showBgToast === 'function') showBgToast('请先在文本中选中要加底色的文字');
+            return;
+        }
+
+        const res = SelectionCore.applyStyle([
+            { prop: 'background-color', val: hex },
+            { prop: 'padding', val: '0 2px' },
+            { prop: 'border-radius', val: '3px' }
+        ]);
+
+        if (res && res.ok) {
+            if (typeof showBgToast === 'function') showBgToast('已应用到选中文字底色 ' + hex);
+        } else {
+            if (typeof showBgToast === 'function') showBgToast('应用失败，请重新选中文字后再试');
+        }
     },
 
     // ===== 应用颜色（遍历所有选中图层，target='text' 前景 / 'bg' 背景） =====
@@ -1098,7 +1182,9 @@ const BrandManager = {
     // ===== 删除字体 =====
     async removeBrandFont(f) {
         if (f.assetId && window.AssetRegistry && AssetRegistry.remove) {
-            try { await AssetRegistry.remove(f.assetId); } catch (err) {}
+            try { await AssetRegistry.remove(f.assetId); } catch (err) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Brand] 移除品牌字体资产失败', f.assetId, err);
+            }
         }
         if (document.fonts && document.fonts.forEach) {
             const toDelete = [];
@@ -1106,7 +1192,9 @@ const BrandManager = {
                 const fam = (face.family || '').replace(/^["']|["']$/g, '');
                 if (fam === f.name) toDelete.push(face);
             });
-            toDelete.forEach(face => { try { document.fonts.delete(face); } catch (err) {} });
+            toDelete.forEach(face => { try { document.fonts.delete(face); } catch (err) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Brand] 删除品牌字体 FontFace 失败', err);
+            } });
         }
         this.data.fonts = this.data.fonts.filter(x => x.name !== f.name);
         this.save();
@@ -1124,7 +1212,9 @@ const BrandManager = {
 
     async removeBrandLogo(logo) {
         if (logo.id && window.AssetRegistry && AssetRegistry.remove && String(logo.id).startsWith('image-')) {
-            try { await AssetRegistry.remove(logo.id); } catch (err) {}
+            try { await AssetRegistry.remove(logo.id); } catch (err) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Brand] 移除品牌 Logo 资产失败', logo.id, err);
+            }
         }
         this.data.logos = this.data.logos.filter(l => l.id !== logo.id);
         this.save();

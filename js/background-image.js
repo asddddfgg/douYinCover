@@ -216,7 +216,7 @@ function applyImageBackgroundToCanvases(bg) {
         });
     };
 
-    // 优先使用已缓存 dataUrl
+        // 优先使用已缓存 dataUrl
     if (bg.imageUrl) {
         apply(bg.imageUrl);
     } else if (bg.customImageId !== undefined && bg.customImageId !== null) {
@@ -224,19 +224,26 @@ function applyImageBackgroundToCanvases(bg) {
         if (bgImageCache[cid]) {
             apply(bgImageCache[cid]);
         } else {
-            // 异步取一次
-            BGImageDB.getImageById(cid).then(item => {
-                if (!item) return;
-                bgImageCache[cid] = item.dataUrl;
-                // 二次校验：只有在当前仍是该图片时才应用
-                if (state.background.type === 'image'
-                    && String(state.background.customImageId) === String(cid)) {
-                    apply(item.dataUrl);
-                }
-            }).catch(() => {});
+            // ✅ [6c] 统一走 AssetRegistry；legacy 数字 id 已由迁移脚本转换，不再回查 BGImageDB
+            const key = String(cid);
+            const assetId = key.startsWith('bgImage-')
+                ? key
+                : (JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}')[key] || null);
+            if (!assetId) return;
+            if (window.AssetRegistry && AssetRegistry.get) {
+                AssetRegistry.get(assetId).then(asset => {
+                    if (!asset || !asset.data) return;
+                    bgImageCache[cid] = asset.data;
+                    if (window.state && state.background && state.background.type === 'image'
+                        && String(state.background.customImageId) === String(cid)) {
+                        apply(asset.data);
+                    }
+                }).catch(() => {});
+            }
         }
     }
-}
+}   // ✅ 补上 applyImageBackgroundToCanvases 函数结尾的 }
+
 
 function stopsToCss(stops) {
   return (stops || []).map(s => {
@@ -264,6 +271,7 @@ function hexToRgba(hex, opacity) {
 
 // 被 app.js 的 applyBackgroundToCanvases 调用（见协作说明）
 function applyBackgroundToCanvasesWithImage(bg) {
+    if (!bg) return false;
     if (bg.type === 'image') {
         // 用图片逻辑接管（不使用 backgroundToCss）
         const baseCss = '';
@@ -274,7 +282,7 @@ function applyBackgroundToCanvasesWithImage(bg) {
         // 清理旧 overlay（与新遮罩逻辑保持一致）
         document.querySelectorAll('.cover-canvas').forEach(canvasEl => {
             const overlay = canvasEl.querySelector('.canvas-bg-overlay');
-            const bg2 = state.background;
+            const bg2 = (window.state && state.background) ? state.background : bg;
             const hasOverlay =
                 (bg2.overlayType === 'linear' || bg2.overlayType === 'radial')
                     ? Array.isArray(bg2.overlayStops) && bg2.overlayStops.length > 0
@@ -284,13 +292,9 @@ function applyBackgroundToCanvasesWithImage(bg) {
         return true;
     }
 
-    // 其它类型：清掉图片特有的 filter / transform / overlay
-    document.querySelectorAll('.canvas-bg').forEach(el => {
-        el.style.filter = '';
-        el.style.transform = '';
-        el.style.transformOrigin = '';
-    });
-    document.querySelectorAll('.canvas-bg-overlay').forEach(o => o.remove());
+     // ✅ 断环：非图片类型不再由本函数处理，直接返回 false，
+    //    交给 background-core.js 的 applyBackgroundToCanvases 走新引擎。
+    //    （本函数只负责 bg.type === 'image' 的分支，上面已 early return）
     return false;
 }
 
@@ -303,16 +307,20 @@ function initBackgroundImageModule() {
     const fileInput = document.getElementById('bg-image-file');
     const clearBtn = document.getElementById('bg-image-clear');
 
-    // 1. 点击上传
-    if (dropzone && fileInput) {
-        dropzone.addEventListener('click', () => fileInput.click());
+       // 1 & 2. 点击上传 + dropzone 拖拽上传（统一收口，只绑一次）
+    if (fileInput && fileInput.dataset.boundBgImage !== 'true') {
+        fileInput.dataset.boundBgImage = 'true';
         fileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files || []);
-            files.forEach(file => handleUploadBgImageFile(file));
+            console.log('[BgImage] file input change, files:', files.length);
+            if (!files.length) return;
+            files.forEach(file => handleUploadBgImageFile(file, { applyAsBackground: true }));
             fileInput.value = '';
         });
-
-        // 2. 拖拽上传（面板内的 dropzone）
+    }
+    if (dropzone && fileInput && dropzone.dataset.boundBgImage !== 'true') {
+        dropzone.dataset.boundBgImage = 'true';
+        dropzone.addEventListener('click', () => fileInput.click());
         dropzone.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -328,7 +336,8 @@ function initBackgroundImageModule() {
             dropzone.classList.remove('dragover');
             const files = Array.from(e.dataTransfer.files || []);
             const img = files.find(f => f.type.startsWith('image/'));
-            if (img) handleUploadBgImageFile(img);
+            console.log('[BgImage] dropzone drop, img:', !!img);
+            if (img) handleUploadBgImageFile(img, { applyAsBackground: true });
         });
     }
 
@@ -366,7 +375,11 @@ function initBackgroundImageModule() {
     // 4. "恢复默认背景"
     if (clearBtn) {
         clearBtn.addEventListener('click', () => {
-            state.background = normalizeBackground({
+            const normalize = (window.BG && BG.normalizeBackground) || normalizeBackground;
+            const applyBg = (window.BG && BG.applyBackgroundToCanvases) || applyBackgroundToCanvases;
+            const syncPanel = (window.BG && BG.syncBgPanelInputs) || syncBgPanelInputs;
+            const toast = (window.BG && BG.showBgToast) || showBgToast;
+            state.background = normalize({
                 type: 'gradient',
                 color1: '#ff2442',
                 color2: '#2575fc',
@@ -375,10 +388,10 @@ function initBackgroundImageModule() {
                 texture: 'none',
                 presetId: null
             });
-            applyBackgroundToCanvases(state.background);
-            syncBgPanelInputs(state.background);
+            applyBg(state.background);
+            syncPanel(state.background);
             state.saveState();
-            showBgToast('已恢复默认背景');
+            toast('已恢复默认背景');
         });
     }
 
@@ -388,10 +401,14 @@ function initBackgroundImageModule() {
     // 6. 初次进入：如果有旧图片背景（customImageId）先缓存好
     BGImageDB.getAllImages().then(items => {
         items.forEach(it => { bgImageCache[it.id] = it.dataUrl; });
-    }).catch(() => {});
+    }).catch((e) => {
+        if (window.Utils && Utils.log) Utils.log.warn('[BgImage] 预缓存旧图片背景失败', e);
+    });
 
     // 若当前 state.background 是 image 且带 customImageId，就把控制面板显示出来并同步
-    syncImagePanelVisibility(state.background);
+    if (window.state) {
+        syncImagePanelVisibility(state.background);
+    }
 }
 
 /* ============================================================
@@ -411,8 +428,8 @@ function handleUploadBgImageFile(file, opts) {
     const reader = new FileReader();
     reader.onload = async (evt) => {
         const dataUrl = evt.target.result;
-        try {
-            // ✅ 国际版：先写 AssetRegistry（type:'bgImage'）
+                try {
+            // ✅ v2：AssetRegistry 为主，BGImageDB 只在迁移期做兼容双写
             let assetId = null;
             if (window.AssetRegistry && AssetRegistry.registerBgImage) {
                 assetId = await AssetRegistry.registerBgImage({
@@ -422,17 +439,13 @@ function handleUploadBgImageFile(file, opts) {
                     source: 'user'
                 });
             }
-            const id = await BGImageDB.addImage(file.name || '背景图片', dataUrl);
+            // ✅ [6b] assetId 必为真（registerBgImage 成功才走到这），不再双写 BGImageDB
+            if (!assetId) {
+                throw new Error('AssetRegistry.registerBgImage 失败，无法保存背景');
+            }
+            const id = assetId;
             bgImageCache[id] = dataUrl;
             pushBgImageRecentId(id);
-            // 记录 legacy id → assetId 映射
-            if (assetId && id != null) {
-                try {
-                    const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
-                    map[id] = assetId;
-                    localStorage.setItem('douyin_bgimage_asset_map', JSON.stringify(map));
-                } catch (e) {}
-            }
 
             if (opts.applyAsBackground !== false) {
                 applyUploadedImageAsBackground(id, dataUrl);
@@ -460,7 +473,7 @@ function handleUploadBgImageFile(file, opts) {
  *        而不是按元素合并。传 overlayStops 时请传完整数组。
  */
 function applyUploadedImageAsBackground(id, dataUrl, overrides = {}) {
-    state.background = normalizeBackground(Object.assign({
+    const merged = Object.assign({
         type: 'image',
         imageUrl: dataUrl,
         customImageId: id,
@@ -473,9 +486,33 @@ function applyUploadedImageAsBackground(id, dataUrl, overrides = {}) {
         overlayColor: '#000000',
         overlayOpacity: 0,
         colorFilter: 'none'
-    }, overrides));
-    applyBackgroundToCanvases(state.background);
-    syncBgPanelInputs(state.background);
+    }, overrides);
+    // ✅ 先 normalize 出老字段结构，再显式同步 __v2.base
+    const normalize = (window.BG && BG.normalizeBackground) || normalizeBackground;
+    const normalized = normalize(merged);
+    const v2 = (normalized.__v2 && normalized.__v2.version === 2) ? normalized.__v2 : null;
+    if (v2) {
+        v2.base = Object.assign({}, v2.base, {
+            kind: 'image',
+            imageUrl: dataUrl,
+            customImageId: id,
+            fit: merged.fit,
+            scale: merged.scale,
+            positionX: merged.positionX,
+            positionY: merged.positionY,
+            blur: merged.blur,
+            overlayType: merged.overlayType,
+            overlayColor: merged.overlayColor,
+            overlayOpacity: merged.overlayOpacity,
+            colorFilter: merged.colorFilter
+        });
+        normalized.__v2 = v2;
+    }
+    state.background = normalized;
+    const applyBg = (window.BG && BG.applyBackgroundToCanvases) || applyBackgroundToCanvases;
+    const syncPanel = (window.BG && BG.syncBgPanelInputs) || syncBgPanelInputs;
+    applyBg(state.background);
+    syncPanel(state.background);
     syncImagePanelVisibility(state.background);
     syncImageControlsToState();
     state.saveState();
@@ -504,7 +541,8 @@ function bindImageControlEvents() {
     const update = (mutator, withHistory) => {
         if (state.background.type !== 'image') return;
         mutator(state.background);
-        applyBackgroundToCanvases(state.background);
+        const applyBg = (window.BG && BG.applyBackgroundToCanvases) || applyBackgroundToCanvases;
+        applyBg(state.background);
         if (withHistory) state.saveState();
     };
 
@@ -714,8 +752,53 @@ async function renderBgPresetGridWithUploads() {
     if (!grid) return;
     grid.innerHTML = '';
 
+    // ✅ v2：AssetRegistry 为主，BGImageDB 迁移期兼容合并
     let items = [];
-    try { items = await BGImageDB.getAllImages(); } catch (e) { items = []; }
+    const seen = new Set();
+    try {
+        if (window.AssetRegistry && AssetRegistry.list) {
+            const assets = await AssetRegistry.list({ type: 'bgImage' });
+            assets.forEach(a => {
+                if (!a || !a.id || seen.has(a.id)) return;
+                seen.add(a.id);
+                items.push({
+                    id: a.id,
+                    name: a.name || '背景图片',
+                    dataUrl: a.data,
+                    createdAt: a.createdAt || 0,
+                    _source: 'asset'
+                });
+            });
+        }
+    } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[BgImage] 读取 AssetRegistry 背景图列表失败', e);
+    }
+    try {
+        const legacy = await BGImageDB.getAllImages();
+        legacy.forEach(it => {
+            const key = 'legacy-' + it.id;
+            if (seen.has(key)) return;
+            // 老库里已有 asset 映射的就跳过
+            let mapped = null;
+            try {
+                const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
+                mapped = map[it.id];
+            } catch (e) {
+                if (window.Utils && Utils.log) Utils.log.warn('[BgImage] 解析 legacy asset 映射失败', e);
+            }
+            if (mapped && seen.has(mapped)) return;
+            seen.add(key);
+            items.push({
+                id: it.id,
+                name: it.name || '背景图片',
+                dataUrl: it.dataUrl,
+                createdAt: it.createdAt || 0,
+                _source: 'legacy'
+            });
+        });
+    } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[BgImage] 读取 legacy BGImageDB 失败', e);
+    }
     items.forEach(it => { bgImageCache[it.id] = it.dataUrl; });
     items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
@@ -754,29 +837,40 @@ async function renderBgPresetGridWithUploads() {
                 del.addEventListener('click', async (e) => {
             e.stopPropagation();
             if (!confirm(`确定删除 "${item.name}" 吗？`)) return;
-            try {
-                // ✅ 国际版：从 AssetRegistry 一起删
+                        try {
+                // ✅ v2：AssetRegistry 为主删除，BGImageDB 只在迁移期兜底
                 try {
-                    const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
-                    const assetId = map[item.id];
-                    if (assetId && window.AssetRegistry) {
-                        await AssetRegistry.remove(assetId);
+                    if (typeof item.id === 'string' && item.id.indexOf('bgImage-') === 0 && window.AssetRegistry) {
+                        await AssetRegistry.remove(item.id);
+                    } else {
+                        const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
+                        const assetId = map[item.id];
+                        if (assetId && window.AssetRegistry) {
+                            await AssetRegistry.remove(assetId);
+                        }
+                        delete map[item.id];
+                        localStorage.setItem('douyin_bgimage_asset_map', JSON.stringify(map));
                     }
-                    delete map[item.id];
-                    localStorage.setItem('douyin_bgimage_asset_map', JSON.stringify(map));
-                } catch (err) {}
-                await BGImageDB.deleteImage(item.id);
+                } catch (err) {
+                    if (window.Utils && Utils.log) Utils.log.warn('[BgImage] 删除图片时清理资产失败', err);
+                }
+                if (typeof item.id === 'number') {
+                    await BGImageDB.deleteImage(item.id);
+                }
                 delete bgImageCache[item.id];
                 let recent = getBgImageRecentIds().filter(x => x !== item.id);
                 saveBgImageRecentIds(recent);
                 // 若当前正使用它，切回默认渐变
                 if (String((state.background.customImageId || '')) === String(item.id)) {
-                    state.background = normalizeBackground({
+                    const normalize = (window.BG && BG.normalizeBackground) || normalizeBackground;
+                    const applyBg = (window.BG && BG.applyBackgroundToCanvases) || applyBackgroundToCanvases;
+                    const syncPanel = (window.BG && BG.syncBgPanelInputs) || syncBgPanelInputs;
+                    state.background = normalize({
                         type: 'gradient', color1: '#ff2442', color2: '#2575fc',
                         imageUrl: '', angle: 135, texture: 'none', presetId: null
                     });
-                    applyBackgroundToCanvases(state.background);
-                    syncBgPanelInputs(state.background);
+                    applyBg(state.background);
+                    syncPanel(state.background);
                     syncImagePanelVisibility(state.background);
                 }
                 renderBgPresetGridWithUploads();

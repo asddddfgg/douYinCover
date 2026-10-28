@@ -447,16 +447,238 @@ const AssetRegistry = (function () {
         }
 
         if (xml) return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
-      } catch (e) {}
+      } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[Sticker] AssetRegistry.toSrc 解码 SVG 失败', e);
+      }
 
       return raw;
     }
     return asset.data || '';
   }
 
+  // ============================================================
+  // P2-5：自动清理孤儿资产
+  // ============================================================
+  // 扫当前所有页的图层 + 背景 + 品牌包，收集"现在还在用"的 assetId 集合
+  function collectLiveAssetIds() {
+    const live = new Set();
+    try {
+      const st = window.state;
+      if (!st) return live;
+      // 1) 所有页的图层
+      (st.pages || []).forEach(page => {
+        (page.layers || []).forEach(layer => {
+          if (!layer) return;
+          if (layer.assetId) live.add(layer.assetId);
+          if (layer.backdrop && layer.backdrop.customId != null) {
+            // 底衬 customId 是 legacy 数字 id，需查 douyin_backdrop_asset_map 映射到 assetId
+            try {
+              const map = JSON.parse(localStorage.getItem('douyin_backdrop_asset_map') || '{}');
+              const aid = map[layer.backdrop.customId];
+              if (aid) live.add(aid);
+            } catch (e) { /* ignore */ }
+          }
+        });
+      });
+      // 2) 背景图片
+      const bg = st.background;
+      if (bg) {
+        if (bg.customImageId != null) {
+          const key = String(bg.customImageId);
+          if (key.startsWith('bgImage-')) {
+            live.add(key);
+          } else {
+            try {
+              const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
+              const aid = map[key];
+              if (aid) live.add(aid);
+            } catch (e) { /* ignore */ }
+          }
+        }
+      }
+      // 3) 品牌资产：字体 / Logo
+      if (window.BrandManager && BrandManager.data) {
+        (BrandManager.data.fonts || []).forEach(f => { if (f.assetId) live.add(f.assetId); });
+        (BrandManager.data.logos || []).forEach(l => { if (l.id && String(l.id).startsWith('image-')) live.add(l.id); });
+      }
+    } catch (e) {
+      if (window.Utils && Utils.log) Utils.log.warn('[AssetRegistry] 收集 live 资产失败', e);
+    }
+    return live;
+  }
+
+  // 清理孤儿资产：默认只清 source=user/migrated 且超过 7 天没被引用的
+  // 返回 { removed, keptBuiltin, keptRecent, keptLive, totalBytes }，不实际删（dryRun=true）
+  async function cleanupUnused(opts) {
+    opts = opts || {};
+    const dryRun = opts.dryRun !== false;
+    const minAgeDays = opts.minAgeDays != null ? opts.minAgeDays : 7;
+    const now = Date.now();
+    const minAgeMs = minAgeDays * 24 * 60 * 60 * 1000;
+
+    await openDB();
+    const all = Array.from(memoryCache.values());
+    const live = collectLiveAssetIds();
+    const toRemove = [];
+    let keptBuiltin = 0;
+    let keptRecent = 0;
+    let keptLive = 0;
+    let totalBytes = 0;
+
+    for (const a of all) {
+      // 内置素材永久保留
+      if (a.source === 'builtin' || a.source === 'api') { keptBuiltin++; continue; }
+      // 还在用
+      if (live.has(a.id)) { keptLive++; continue; }
+      // 太新（最近 minAgeDays 天新增的），先不删，防止误删
+      const createdAt = a.createdAt || 0;
+      if (now - createdAt < minAgeMs) { keptRecent++; continue; }
+      // 计算大小（data 是字符串，按 UTF-16 2 字节估算）
+      const dataLen = (a.data && typeof a.data === 'string') ? a.data.length * 2 : 0;
+      totalBytes += dataLen;
+      toRemove.push(a);
+    }
+
+    if (!dryRun) {
+      for (const a of toRemove) {
+        try {
+          memoryCache.delete(a.id);
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            const req = tx.objectStore(STORE).delete(a.id);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+          });
+        } catch (e) {
+          if (window.Utils && Utils.log) Utils.log.warn('[AssetRegistry] 删除孤儿资产失败', a.id, e);
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      removed: toRemove.length,
+      keptBuiltin,
+      keptRecent,
+      keptLive,
+      totalBytes,
+      items: toRemove.map(a => ({
+        id: a.id, type: a.type, name: a.name || '',
+        bytes: (a.data && typeof a.data === 'string') ? a.data.length * 2 : 0
+      }))
+    };
+  }
+
+
+
+0000000000000000000000000000
+    // ============================================================
+  // P2-5：自动清理孤儿资产
+  // ============================================================
+  // 扫当前所有页的图层 + 背景 + 品牌包，收集"现在还在用"的 assetId 集合
+  function collectLiveAssetIds() {
+    const live = new Set();
+    try {
+      const st = window.state;
+      if (!st) return live;
+      (st.pages || []).forEach(page => {
+        (page.layers || []).forEach(layer => {
+          if (!layer) return;
+          if (layer.assetId) live.add(layer.assetId);
+          if (layer.backdrop && layer.backdrop.customId != null) {
+            try {
+              const map = JSON.parse(localStorage.getItem('douyin_backdrop_asset_map') || '{}');
+              const aid = map[layer.backdrop.customId];
+              if (aid) live.add(aid);
+            } catch (e) { /* ignore */ }
+          }
+        });
+      });
+      const bg = st.background;
+      if (bg) {
+        if (bg.customImageId != null) {
+          const key = String(bg.customImageId);
+          if (key.startsWith('bgImage-')) {
+            live.add(key);
+          } else {
+            try {
+              const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
+              const aid = map[key];
+              if (aid) live.add(aid);
+            } catch (e) { /* ignore */ }
+          }
+        }
+      }
+      if (window.BrandManager && BrandManager.data) {
+        (BrandManager.data.fonts || []).forEach(f => { if (f.assetId) live.add(f.assetId); });
+        (BrandManager.data.logos || []).forEach(l => { if (l.id && String(l.id).startsWith('image-')) live.add(l.id); });
+      }
+    } catch (e) {
+      if (window.Utils && Utils.log) Utils.log.warn('[AssetRegistry] 收集 live 资产失败', e);
+    }
+    return live;
+  }
+
+  async function cleanupUnused(opts) {
+    opts = opts || {};
+    const dryRun = opts.dryRun !== false;
+    const minAgeDays = opts.minAgeDays != null ? opts.minAgeDays : 7;
+    const now = Date.now();
+    const minAgeMs = minAgeDays * 24 * 60 * 60 * 1000;
+
+    await openDB();
+    const all = Array.from(memoryCache.values());
+    const live = collectLiveAssetIds();
+    const toRemove = [];
+    let keptBuiltin = 0;
+    let keptRecent = 0;
+    let keptLive = 0;
+    let totalBytes = 0;
+
+    for (const a of all) {
+      if (a.source === 'builtin' || a.source === 'api') { keptBuiltin++; continue; }
+      if (live.has(a.id)) { keptLive++; continue; }
+      const createdAt = a.createdAt || 0;
+      if (now - createdAt < minAgeMs) { keptRecent++; continue; }
+      const dataLen = (a.data && typeof a.data === 'string') ? a.data.length * 2 : 0;
+      totalBytes += dataLen;
+      toRemove.push(a);
+    }
+
+    if (!dryRun) {
+      for (const a of toRemove) {
+        try {
+          memoryCache.delete(a.id);
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            const req = tx.objectStore(STORE).delete(a.id);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+          });
+        } catch (e) {
+          if (window.Utils && Utils.log) Utils.log.warn('[AssetRegistry] 删除孤儿资产失败', a.id, e);
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      removed: toRemove.length,
+      keptBuiltin,
+      keptRecent,
+      keptLive,
+      totalBytes,
+      items: toRemove.map(a => ({
+        id: a.id, type: a.type, name: a.name || '',
+        bytes: (a.data && typeof a.data === 'string') ? a.data.length * 2 : 0
+      }))
+    };
+  }
+
   return {
     init: openDB,
     register, registerBatch, get, list, remove, toSrc,
+    collectLiveAssetIds, cleanupUnused,
     isReady: () => !!db
   };
 })();
@@ -609,7 +831,9 @@ function initStickerPanelDrag() {
                 left: panel.style.left,
                 top: panel.style.top
             }));
-        } catch (err) {}
+        } catch (err) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Sticker] 保存贴纸面板位置失败', err);
+        }
     }
 }
 
@@ -624,7 +848,9 @@ function restoreStickerPanelPosition() {
             panel.style.right = 'auto';
             panel.style.bottom = 'auto';
         }
-    } catch (err) {}
+    } catch (err) {
+        if (window.Utils && Utils.log) Utils.log.warn('[Sticker] 恢复贴纸面板位置失败', err);
+    }
 }
 
 // ---------- 面板构建 ----------
@@ -764,7 +990,10 @@ function createStickerItemEl(asset) {
         el.innerText = asset.data;
     } else {
         let src = '';
-        try { src = AssetRegistry.toSrc(asset, asset.colorable ? '#ffffff' : null); } catch (e) { src = ''; }
+        try { src = AssetRegistry.toSrc(asset, asset.colorable ? '#ffffff' : null); } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Sticker] toSrc 生成贴纸源失败', asset && asset.id, e);
+            src = '';
+        }
         if (src && src.startsWith('<svg')) {
             src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src);
         }
@@ -1099,7 +1328,9 @@ window.DouyinCover.listByType = AssetRegistry.listByType;
                             console.warn('[AssetRegistry] 字体入库失败:', err);
                         });
                     }
-                } catch (err) {}
+                } catch (err) {
+                    if (window.Utils && Utils.log) Utils.log.warn('[Sticker] 字体入库同步失败', err);
+                }
             }, 300);
         }, true);
     });
@@ -1135,6 +1366,11 @@ window.DouyinCover.listByType = AssetRegistry.listByType;
                     const displayName = asset.name;
                     const fontDataUrl = asset.data;
 
+                    if (!fontDataUrl || typeof fontDataUrl !== 'string' || !fontDataUrl.startsWith('data:')) {
+                        console.warn('[FontGuard] 字体资产缺少有效 data，跳过:', asset.name, asset.id);
+                        continue;
+                    }
+
                     try {
                         const res = await fetch(fontDataUrl);
                         const buffer = await res.arrayBuffer();
@@ -1160,13 +1396,151 @@ window.DouyinCover.listByType = AssetRegistry.listByType;
                             list.push({ fontName, displayName, assetId: asset.id });
                             localStorage.setItem('douyin_cover_custom_fonts', JSON.stringify(list));
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                        if (window.Utils && Utils.log) Utils.log.warn('[Sticker] FontGuard 写回 localStorage 失败', e);
+                    }
                 }
-            } catch (err) {
+                        } catch (err) {
                 console.warn('[FontGuard] 字体恢复流程出错:', err);
             }
         }, 1500);
     });
+})();
+
+
+// ============================================================
+// P2-5 步骤 2：清理未使用资产 按钮 → 弹窗 → 确认 → 真删
+// ============================================================
+(function initAssetCleanupUI() {
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('btn-cleanup-assets');
+        if (!btn) return;
+        btn.addEventListener('click', async () => {
+            if (!window.AssetRegistry || typeof AssetRegistry.cleanupUnused !== 'function') {
+                alert('AssetRegistry 未就绪，请刷新后重试');
+                return;
+            }
+            btn.disabled = true;
+            const oldHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 扫描中…';
+            try {
+                const r = await AssetRegistry.cleanupUnused({ dryRun: true });
+                btn.disabled = false;
+                btn.innerHTML = oldHtml;
+                showAssetCleanupModal(r);
+            } catch (err) {
+                btn.disabled = false;
+                btn.innerHTML = oldHtml;
+                alert('扫描失败：' + (err && err.message ? err.message : err));
+            }
+        });
+    });
+
+    function fmtBytes(n) {
+        if (!n || n <= 0) return '0 B';
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        return (n / 1024 / 1024).toFixed(2) + ' MB';
+    }
+
+    function showAssetCleanupModal(result) {
+        const old = document.getElementById('asset-cleanup-modal');
+        if (old) old.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'asset-cleanup-modal';
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#161b22;border:1px solid #30363d;border-radius:10px;width:520px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;color:#c9d1d9;box-shadow:0 20px 50px rgba(0,0,0,0.8);font-size:12px;overflow:hidden;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding:12px 16px;border-bottom:1px solid #30363d;background:#1c2128;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;';
+        header.innerHTML = '<h3 style="margin:0;color:#f1e05a;font-size:13px;"><i class="fa-solid fa-broom"></i> 清理未使用资产</h3>';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'tool-btn';
+        closeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        closeBtn.addEventListener('click', () => modal.remove());
+        header.appendChild(closeBtn);
+
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:14px 16px;overflow-y:auto;flex:1 1 auto;min-height:0;';
+
+        if (result.removed === 0) {
+            body.innerHTML =
+                '<div style="text-align:center;padding:24px 0;line-height:1.8;">' +
+                '<div style="font-size:32px;margin-bottom:8px;">✨</div>' +
+                '<div style="font-size:13px;color:#7ee787;font-weight:600;margin-bottom:6px;">没有可清理的孤儿资产</div>' +
+                '<div style="font-size:11px;color:#8b949e;line-height:1.8;">' +
+                '内置素材 ' + result.keptBuiltin + ' 个（永久保留）<br>' +
+                '最近新增 ' + result.keptRecent + ' 个（7 天内不删）<br>' +
+                '正在使用 ' + result.keptLive + ' 个' +
+                '</div></div>';
+        } else {
+            let listHtml = '<div style="margin-bottom:10px;line-height:1.7;color:#c9d1d9;">' +
+                '可释放 <b style="color:#7ee787;">' + fmtBytes(result.totalBytes) + '</b>，共 <b style="color:#ff7b72;">' + result.removed + '</b> 个孤儿资产：' +
+                '</div>';
+            listHtml += '<div style="max-height:260px;overflow-y:auto;border:1px solid #30363d;border-radius:6px;background:#0d1117;">';
+            result.items.forEach((it, idx) => {
+                listHtml += '<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 10px;' +
+                    (idx > 0 ? 'border-top:1px solid #21262d;' : '') + 'font-size:11px;">' +
+                    '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (it.id || '') + '">' +
+                    '[' + it.type + '] ' + (it.name || '(无名)') + '</span>' +
+                    '<span style="color:#8b949e;flex-shrink:0;">' + fmtBytes(it.bytes) + '</span>' +
+                    '</div>';
+            });
+            listHtml += '</div>';
+            listHtml += '<div style="margin-top:10px;font-size:11px;color:#8b949e;line-height:1.7;">' +
+                '只删：不在任何页、背景、品牌包里的资产，且创建超过 7 天。<br>' +
+                '不会删：内置素材、最近 7 天新增的、正在被引用的。' +
+                '</div>';
+            body.innerHTML = listHtml;
+        }
+
+        const footer = document.createElement('div');
+        footer.style.cssText = 'padding:12px 16px;border-top:1px solid #30363d;background:#1c2128;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;';
+
+        const btnCancel = document.createElement('button');
+        btnCancel.className = 'btn';
+        btnCancel.textContent = result.removed === 0 ? '关闭' : '取消';
+        btnCancel.addEventListener('click', () => modal.remove());
+        footer.appendChild(btnCancel);
+
+        if (result.removed > 0) {
+            const btnConfirm = document.createElement('button');
+            btnConfirm.className = 'btn btn-primary';
+            btnConfirm.innerHTML = '<i class="fa-solid fa-trash"></i> 确认清理 ' + result.removed + ' 个';
+            btnConfirm.addEventListener('click', async () => {
+                btnConfirm.disabled = true;
+                btnConfirm.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 清理中…';
+                try {
+                    const r2 = await AssetRegistry.cleanupUnused({ dryRun: false });
+                    btnConfirm.disabled = false;
+                    btnConfirm.innerHTML = '<i class="fa-solid fa-check"></i> 已清理 ' + r2.removed + ' 个';
+                    if (typeof showBgToast === 'function') {
+                        showBgToast('已清理 ' + r2.removed + ' 个孤儿资产，释放 ' + fmtBytes(r2.totalBytes) + ' ✓');
+                    }
+                    setTimeout(() => modal.remove(), 1200);
+                } catch (err) {
+                    btnConfirm.disabled = false;
+                    btnConfirm.innerHTML = '<i class="fa-solid fa-trash"></i> 重试';
+                    alert('清理失败：' + (err && err.message ? err.message : err));
+                }
+            });
+            footer.appendChild(btnConfirm);
+        }
+
+        box.appendChild(header);
+        box.appendChild(body);
+        box.appendChild(footer);
+        modal.appendChild(box);
+        document.body.appendChild(modal);
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
+    }
 })();
 
 

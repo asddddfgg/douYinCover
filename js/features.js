@@ -18,40 +18,23 @@ const Features = (function () {
     // ============================================================
 
     // ============================================================
-    // 行内标记：只标记选中的文字（复用 text-layers.js 的选区系统）
+    // 行内标记：只标记选中的文字（走 SelectionCore）
     // ============================================================
     function applyInlineMark(kind) {
-        // 必须有正在编辑的文字图层 + 非折叠选区
-        let ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
-        if (!ctx || ctx.collapsed) {
-            // 没有选区 → 看看有没有冻结快照
-            if (typeof _savedSelectionContext !== 'undefined' && _savedSelectionContext) {
-                const r = _savedSelectionContext.range;
-                try {
-                    r.startContainer; r.endContainer;
-                    if (!r.collapsed && _savedSelectionContext.el && document.body.contains(_savedSelectionContext.el)) {
-                        ctx = {
-                            el: _savedSelectionContext.el,
-                            range: r,
-                            sel: null,
-                            collapsed: false
-                        };
-                    }
-                } catch (e) {}
-            }
-            if (!ctx || ctx.collapsed) {
-                // ✅ 正在编辑文字但选区折叠：提示用户先选中文字，不退回整层标记
-                if (state.editingLayerId) {
-                    if (typeof showBgToast === 'function') {
-                        showBgToast('请先选中要强调的文字，再点标记');
-                    }
-                    return;
+        // ✅ P0：正在编辑文字但无选区 → 提示，不退回整层
+        if (state.editingLayerId) {
+            if (typeof SelectionCore === 'undefined' || !SelectionCore.hasUsableSelection || !SelectionCore.hasUsableSelection()) {
+                if (typeof showBgToast === 'function') {
+                    showBgToast('请先选中要强调的文字，再点标记');
                 }
-                // 真的没有编辑态 → 才退回整层标记
-                return applyMark(kind);
+                return;
             }
+        } else {
+            // 真的没有编辑态 → 才退回整层标记
+            return applyMark(kind);
         }
-                // 圈/框这类“外框”在行内用 border 表现；下划线/高亮用装饰/背景
+
+        // 圈/框这类“外框”在行内用 border 表现；下划线/高亮用装饰/背景
         const styleList = [];
         if (kind === 'circle' || kind === 'box') {
             styleList.push({ prop: 'border', val: `${markWidth}px solid ${markColor}` });
@@ -66,16 +49,13 @@ const Features = (function () {
             styleList.push({ prop: 'border-radius', val: '3px' });
             styleList.push({ prop: 'padding', val: '0 2px' });
         } else if (kind === 'wavy') {
-            // 波浪下划线：CSS 原生 text-decoration-style: wavy
             styleList.push({ prop: 'text-decoration', val: `underline wavy ${markColor}` });
             styleList.push({ prop: 'text-decoration-thickness', val: `${markWidth}px` });
             styleList.push({ prop: 'text-underline-offset', val: '2px' });
         } else if (kind === 'strike') {
-            // 删除线
             styleList.push({ prop: 'text-decoration', val: `line-through ${markColor}` });
             styleList.push({ prop: 'text-decoration-thickness', val: `${markWidth}px` });
         } else if (kind === 'block') {
-            // 关键词底色块：不透明底 + 反白字
             styleList.push({ prop: 'background-color', val: markColor });
             styleList.push({ prop: 'color', val: '#ffffff' });
             styleList.push({ prop: 'padding', val: `0 ${Math.max(2, markWidth)}px` });
@@ -83,7 +63,6 @@ const Features = (function () {
             styleList.push({ prop: 'box-decoration-break', val: 'clone' });
             styleList.push({ prop: '-webkit-box-decoration-break', val: 'clone' });
         } else if (kind === 'marker') {
-            // 真马克笔荧光：两端渐隐 + 轻微倾斜 + 多层叠加
             const base = hexToRgba(markColor, 0.45);
             const soft = hexToRgba(markColor, 0.18);
             styleList.push({
@@ -95,40 +74,17 @@ const Features = (function () {
             styleList.push({ prop: 'box-decoration-break', val: 'clone' });
             styleList.push({ prop: '-webkit-box-decoration-break', val: 'clone' });
         } else if (kind === 'stroke') {
-            // 行内描边：-webkit-text-stroke + paint-order 保证描边在字下方
             styleList.push({ prop: '-webkit-text-stroke', val: `${Math.max(1, markWidth / 2)}px ${markColor}` });
             styleList.push({ prop: 'paint-order', val: 'stroke fill' });
         }
-        // ✅ 修复：不再先 clear 再 wrap（清空 DOM 会破坏选区），
-        //    直接把标记叠加到当前选区（国际做法：标记可叠加，清除由「清除标记」按钮负责）
-        const targetCtx = ctx;
-        if (!targetCtx || targetCtx.collapsed) {
-            if (typeof showBgToast === 'function') {
-                showBgToast('请先选中要强调的文字，再点标记');
-            }
-            return;
-        }
-        // 用 wrapSelectionWithStyle 给选区包 span（传入已冻结的 ctx，避免再查一次选区丢失）
-        let wrapped = false;
-        if (typeof wrapSelectionWithStyle === 'function') {
-            wrapped = wrapSelectionWithStyle(styleList, true, targetCtx);
-        }
-        if (!wrapped) {
+
+        const res = SelectionCore.applyStyle(styleList);
+        if (!res || !res.ok) {
             console.warn('[InlineMark] 包裹失败');
             if (typeof showBgToast === 'function') {
                 showBgToast('标记应用失败，请重新选中文字后再试');
             }
-            return;
         }
-        // 写回 layer.content（用 targetCtx.el）
-        const layer = state.layers.find(l => l.id === state.editingLayerId);
-        if (layer) {
-            layer.content = targetCtx.el.innerHTML;
-        }
-        if (typeof updateTopToolbarUI === 'function') {
-            updateTopToolbarUI(state.getSelectedLayer());
-        }
-        state.saveState();
     }
 
 
@@ -282,33 +238,11 @@ const Features = (function () {
         const markPopover = document.getElementById('mark-popover');
         const tbMark = document.getElementById('tb-mark');
 
-        // 冻结选区快照：点按钮前先把当前选区存下来，防止焦点移走后丢失
-        let _markSavedCtx = null;
-
-        function snapshotSelection() {
-            _markSavedCtx = null;
-            if (typeof getActiveSelectionRange !== 'function') return;
-            const ctx = getActiveSelectionRange();
-            if (!ctx || ctx.collapsed) return;
-            try {
-                _markSavedCtx = {
-                    layerId: state.editingLayerId || '',
-                    el: ctx.el,
-                    range: ctx.range.cloneRange()
-                };
-            } catch (e) { _markSavedCtx = null; }
-        }
-
-        function restoreSnapshot() {
-            if (!_markSavedCtx) return false;
-            if (typeof _savedSelectionContext === 'undefined') return false;
-            // 把快照塞回 text-layers.js 的全局变量，让它以为选区还在
-            _savedSelectionContext = {
-                layerId: _markSavedCtx.layerId || state.editingLayerId || '',
-                el: _markSavedCtx.el,
-                range: _markSavedCtx.range
-            };
-            return true;
+        // ✅ P0：选区冻结统一走 SelectionCore.freezeFromEvent，不再自己维护 _markSavedCtx
+        function freezeMarkSelection(e) {
+            if (typeof SelectionCore !== 'undefined' && SelectionCore.freezeFromEvent) {
+                SelectionCore.freezeFromEvent(e);
+            }
         }
 
         function openMarkPopover(anchorEl) {
@@ -322,11 +256,11 @@ const Features = (function () {
             if (markPopover) markPopover.style.display = 'none';
         }
 
-                if (tbMark) {
+        if (tbMark) {
             tbMark.addEventListener('mousedown', (e) => {
-                // mousedown 阶段冻结选区，此时焦点还在编辑区
+                // mousedown 阶段冻结选区（此时焦点还在编辑区）
                 e.preventDefault();
-                snapshotSelection();
+                freezeMarkSelection(e);
             });
             tbMark.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -344,18 +278,19 @@ const Features = (function () {
         });
 
         // 面板里的种类按钮：有选区走行内，无选区走整层
-                if (markPopover) {
+        if (markPopover) {
             markPopover.querySelectorAll('.mark-kind-btn').forEach(btn => {
                 btn.addEventListener('mousedown', (e) => {
-                    // 防止 mousedown 把焦点从编辑区抢走
+                    // 防止 mousedown 把焦点从编辑区抢走，同时冻结当前选区
                     e.preventDefault();
+                    freezeMarkSelection(e);
                 });
                 btn.addEventListener('click', () => {
                     const kind = btn.dataset.mark;
-                    // 先恢复快照，再看有没有选区
-                    restoreSnapshot();
-                    const ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
-                    if (ctx && !ctx.collapsed) {
+                    const hasSel = (typeof SelectionCore !== 'undefined' && SelectionCore.hasUsableSelection)
+                        ? SelectionCore.hasUsableSelection()
+                        : false;
+                    if (hasSel) {
                         applyInlineMark(kind);
                     } else if (state.editingLayerId) {
                         // 编辑态但无选区：提示，不退回整层
@@ -365,7 +300,6 @@ const Features = (function () {
                     } else {
                         applyMark(kind);
                     }
-                    // ✅ 不立即清空快照，让用户可连续标记；下一次点按钮时会覆盖
                     closeMarkPopover();
                 });
             });

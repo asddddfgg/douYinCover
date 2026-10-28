@@ -1,4 +1,164 @@
+// ============================================================
+// text-layers.js — 文字编辑 + 工具栏 + 选区写入落地
+// 职责边界：
+//   ✅ 负责：SelectionCore（唯一选区入口）、wrapSelectionWithStyle、
+//            工具栏事件（字体/字号/颜色/加粗/对齐/行高……）、右键菜单、
+//            外部粘贴、initTextLayersModule
+//   ❌ 不负责：底衬面板（已迁到 backdrop-panel.js，本文件同名函数被覆盖）
+//   ❌ 不负责：背景 v2（已迁到 background-core.js）
+//   ❌ 不负责：画布渲染、导出
+// 依赖：state、SelectionCore 消费者（brand-manager / features / app）
+// 被依赖：brand-manager.js（品牌色作用于选区）、features.js（行内标记）
+// ============================================================
 // Canva Standard Rich Text Formatting on Selection & Top Toolbar Controls
+
+/* ============================================================
+   SelectionCore —— 选区能力的唯一收口入口（P0）
+   规则：
+     1) 取选区：只允许调 SelectionCore.getCtx()
+     2) 写样式：只允许调 SelectionCore.applyStyle(styleList)
+     3) 冻结：只允许调 SelectionCore.freezeFromEvent(e)
+     4) 任何模块不得再自定义 _savedSelectionContext，不得自己调 execCommand 做行内样式
+   ============================================================ */
+const SelectionCore = (function () {
+    // 内部冻结快照（原 _savedSelectionContext 收口到这里）
+    let _saved = null;
+
+    // 内部：把 Window Selection 转成 ctx
+    function _fromLiveSelection() {
+        if (!window.state || !state.editingLayerId) return null;
+        const el = document.querySelector(
+            `.canvas-layer[data-id="${state.editingLayerId}"] .text-content-editable`
+        );
+        if (!el || !el.isContentEditable) return null;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return null;
+        const range = sel.getRangeAt(0);
+        if (!el.contains(range.commonAncestorContainer)) return null;
+        return { el, range, sel, collapsed: range.collapsed, source: 'live' };
+    }
+
+    // 内部：把冻结快照转成 ctx
+    function _fromSaved() {
+        if (!_saved) return null;
+        if (!window.state || !state.editingLayerId) return null;
+        if (_saved.layerId !== state.editingLayerId) return null;
+        if (!document.body.contains(_saved.el)) return null;
+        const r = _saved.range;
+        try {
+            r.startContainer; r.endContainer;
+        } catch (e) {
+            _saved = null;
+            return null;
+        }
+        return { el: _saved.el, range: r, sel: null, collapsed: r.collapsed, source: 'saved' };
+    }
+
+    // 唯一取选区入口
+    function getCtx() {
+        return _fromSaved() || _fromLiveSelection();
+    }
+
+    // 唯一冻结入口：mousedown capture 阶段调用
+    function freezeFromEvent(e) {
+        if (!window.state || !state.editingLayerId) return false;
+        // 排除底衬卡片（sidebar 内的交互不应冻结选区）
+        if (e && e.target && e.target.closest && e.target.closest('.backdrop-card')) return false;
+
+        const live = _fromLiveSelection();
+        if (!live || live.collapsed) return false;
+
+        _saved = {
+            layerId: state.editingLayerId,
+            el: live.el,
+            range: live.range.cloneRange()
+        };
+        return true;
+    }
+
+    // 清空冻结快照
+    function clearSaved() {
+        _saved = null;
+    }
+
+    // 判断当前是否可用于写入（有非折叠选区）
+    function hasUsableSelection() {
+        const ctx = getCtx();
+        return !!(ctx && !ctx.collapsed && ctx.el && ctx.range);
+    }
+
+    // 唯一写入入口：只走 wrapSelectionWithStyle，禁止 execCommand
+    // 返回 { ok: boolean, ctx: ctx|null }
+    function applyStyle(styleList, options) {
+        options = options || {};
+        const ctx = options.ctx || getCtx();
+        if (!ctx || ctx.collapsed || !ctx.el || !ctx.range) {
+            return { ok: false, ctx: null };
+        }
+        if (!ctx.el.isContentEditable || !document.body.contains(ctx.el)) {
+            return { ok: false, ctx: null };
+        }
+        try {
+            if (!ctx.el.contains(ctx.range.commonAncestorContainer)) {
+                return { ok: false, ctx: null };
+            }
+        } catch (e) {
+            return { ok: false, ctx: null };
+        }
+        if (typeof wrapSelectionWithStyle !== 'function') {
+            return { ok: false, ctx };
+        }
+
+        let wrapped = false;
+        try {
+            wrapped = wrapSelectionWithStyle(styleList, options.markAsEffect !== false, ctx);
+        } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Text] SelectionCore.applyStyle 包裹选区失败', e);
+            wrapped = false;
+        }
+
+        if (!wrapped) return { ok: false, ctx };
+
+        // 写回图层内容
+        const layerId = ctx.el && state.editingLayerId;
+        let layer = state.layers.find(l => l.id === layerId);
+        if (!layer) {
+            for (const p of state.pages) {
+                const found = p.layers.find(l => l.id === layerId);
+                if (found) { layer = found; break; }
+            }
+        }
+        if (layer) {
+            layer.content = ctx.el.innerHTML;
+            if (typeof hasLocalInlineColor === 'function') {
+                ctx.el.classList.toggle('has-local-color', hasLocalInlineColor(layer.content));
+            }
+        }
+
+        // 应用完清掉冻结快照，避免下次误用
+        _saved = null;
+
+        if (typeof state.saveState === 'function') state.saveState();
+        if (typeof updateTopToolbarUI === 'function') updateTopToolbarUI(state.getSelectedLayer());
+
+        return { ok: true, ctx };
+    }
+
+    // 供兼容层用：把 ctx 塞回冻结快照（例如 clearLocalFormat 需要临时恢复）
+    function setSavedContext(layerId, el, range) {
+        _saved = { layerId, el, range };
+    }
+
+    return {
+        getCtx,
+        freezeFromEvent,
+        clearSaved,
+        hasUsableSelection,
+        applyStyle,
+        setSavedContext
+    };
+})();
+window.SelectionCore = SelectionCore;
 
 function initTextLayersModule() {
     setupTopToolbarEvents();
@@ -16,12 +176,12 @@ function applyFormattingToSelection(command, value = null) {
    ============================================================ */
 
 // mousedown 阶段冻结选区快照（防焦点丢失）
+// ✅ P0 收口：冻结逻辑统一走 SelectionCore.freezeFromEvent()，不再自己维护 _savedSelectionContext
+// _savedSelectionContext 保留为空壳变量，供旧代码引用不报错
 let _savedSelectionContext = null;
 
 document.addEventListener('mousedown', (e) => {
-    if (!state.editingLayerId) return;
-    const ctx = getActiveSelectionRange();
-    if (!ctx || ctx.collapsed) return;
+    if (!window.state || !state.editingLayerId) return;
 
     // 底衬在 sidebar 内：必须先排除，否则 .sidebar-right 仍会 preventDefault
     if (e.target.closest('.backdrop-card')) {
@@ -29,17 +189,22 @@ document.addEventListener('mousedown', (e) => {
     }
 
     if (e.target.closest('.effect-card, .btn, .tool-btn, .sidebar-left, .sidebar-right, .top-text-toolbar')) {
-        _savedSelectionContext = {
-            layerId: state.editingLayerId,
-            el: ctx.el,
-            range: ctx.range.cloneRange()
-        };
-        e.preventDefault();
+        const frozen = (typeof SelectionCore !== 'undefined')
+            ? SelectionCore.freezeFromEvent(e)
+            : false;
+        if (frozen) {
+            e.preventDefault();
+        }
     }
 }, true);
 
 // 取当前编辑容器内选区（优先用快照）
+// ✅ P0：统一委托给 SelectionCore.getCtx()；旧名保留作别名，避免全项目大范围替换
 function getActiveSelectionRange() {
+    if (typeof SelectionCore !== 'undefined' && SelectionCore && SelectionCore.getCtx) {
+        return SelectionCore.getCtx();
+    }
+    // 兜底：SelectionCore 未加载时用原逻辑
     if (!state.editingLayerId) return null;
 
     if (_savedSelectionContext &&
@@ -93,7 +258,10 @@ function hasLocalInlineColor(html) {
 
 // 确保 styleWithCSS
 function ensureStyleWithCSS() {
-    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {
+        // eslint-disable-next-line no-empty
+        // 合法降级：部分浏览器不支持 styleWithCSS 命令，忽略即可
+    }
 }
 
 // 用 Range 逐文本节点切割 + 包 span（跨行安全）
@@ -134,7 +302,9 @@ function wrapSelectionWithStyle(styleList, markAsEffect = false, passedCtx = nul
         const span = document.createElement('span');
         if (markAsEffect) span.dataset.effectSpan = '1';
         styleList.forEach(({ prop, val }) => {
-            try { span.style.setProperty(prop, val); } catch (e) {}
+            try { span.style.setProperty(prop, val); } catch (e) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Text] 应用选区样式属性失败', prop, val, e);
+            }
         });
         span.textContent = selectedText;
         parent.insertBefore(span, node);
@@ -156,7 +326,9 @@ function wrapSelectionWithStyle(styleList, markAsEffect = false, passedCtx = nul
                     sel.addRange(newRange);
                 }
             }
-        } catch (e) { /* ignore */ }
+        } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Text] 恢复选区失败（不影响已应用样式）', e);
+        }
     }
     _savedSelectionContext = null;
     return tasks.length > 0;
@@ -269,7 +441,9 @@ function restoreSelectionByTextOffset(root, start, end) {
         r.setEnd(endNode, Math.min(endOff, endNode.nodeValue.length));
         sel.removeAllRanges();
         sel.addRange(r);
-    } catch (e) { /* 恢复失败不抛 */ }
+    } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[Text] restoreSelectionByTextOffset 恢复选区失败', e);
+    }
 }
 
 /* ============================================================
@@ -345,6 +519,7 @@ function splitAndClearEffectSpan(sp, root, range) {
         try {
             intersects = range.intersectsNode(c.node);
         } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Text] intersectsNode 判断失败，回退到字符级判断', e);
             intersects = c.selected;
         }
 
@@ -369,6 +544,7 @@ function splitAndClearEffectSpan(sp, root, range) {
                 }
                 if (e <= s) { s = 0; e = c.text.length; }
             } catch (err) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Text] 字符级选区范围计算失败，回退到整段', err);
                 s = 0;
                 e = c.text.length;
             }
@@ -642,7 +818,10 @@ function applyEffectToSelection(eff) {
     rules.forEach(({ prop, val }) => {
         const p = prop.toLowerCase();
         if (toggleCmds[p]) {
-            try { toggleCmds[p](val); } catch (e) {}
+            try { toggleCmds[p](val); } catch (e) {
+                // eslint-disable-next-line no-empty
+                // 合法降级：个别浏览器不支持该 execCommand 命令，静默跳过
+            }
         } else {
             manualList.push({ prop, val });
         }
@@ -682,7 +861,9 @@ function handleEffectClick(eff) {
             if (!r.collapsed && _savedSelectionContext.el && document.body.contains(_savedSelectionContext.el)) {
                 ctx = { el: _savedSelectionContext.el, range: r, sel: null, collapsed: false };
             }
-        } catch (e) {}
+        } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Text] 恢复冻结选区快照失败', e);
+        }
     }
     const hasSelection = ctx && !ctx.collapsed;
 
@@ -736,7 +917,10 @@ function setupTopToolbarEvents() {
                 const ctx = getActiveSelectionRange();
                 if (ctx && !ctx.collapsed) {
                     ensureStyleWithCSS();
-                    try { document.execCommand('fontName', false, val); } catch (err) {}
+                    try { document.execCommand('fontName', false, val); } catch (err) {
+                        // eslint-disable-next-line no-empty
+                        // 合法降级：个别浏览器不支持 fontName 命令，改走选区包裹逻辑
+                    }
                     const layer = state.layers.find(l => l.id === state.editingLayerId);
                     if (layer) {
                         layer.content = ctx.el.innerHTML;
@@ -796,17 +980,18 @@ function setupTopToolbarEvents() {
     const bgColorPicker = document.getElementById('tb-bgcolor');
     if (bgColorPicker) {
         bgColorPicker.addEventListener('input', (e) => {
-            const ctx = getActiveSelectionRange();
-            if (ctx && !ctx.collapsed) {
-                ensureStyleWithCSS();
-                document.execCommand('hiliteColor', false, e.target.value);
-                const layer = state.layers.find(l => l.id === state.editingLayerId);
-                if (layer) layer.content = ctx.el.innerHTML;
-                updateTopToolbarUI(state.getSelectedLayer());
-            } else {
-                const layer = state.getSelectedLayer();
-                if (layer) { layer.bgColor = e.target.value; state.saveState(); renderCanvas(); }
+            const color = e.target.value;
+            // ✅ P0：有选区走 SelectionCore.applyStyle（纯 Range 包 span，不依赖焦点）；无选区回退整层 bgColor
+            if (typeof SelectionCore !== 'undefined' && SelectionCore.hasUsableSelection && SelectionCore.hasUsableSelection()) {
+                const res = SelectionCore.applyStyle([
+                    { prop: 'background-color', val: color },
+                    { prop: 'padding', val: '0 2px' },
+                    { prop: 'border-radius', val: '3px' }
+                ]);
+                if (res && res.ok) return;
             }
+            const layer = state.getSelectedLayer();
+            if (layer) { layer.bgColor = color; state.saveState(); renderCanvas(); }
         });
     }
 
@@ -1102,7 +1287,9 @@ function updateTopToolbarUI(layer) {
                 opt.innerText = targetFont;
                 fontSelectEl.appendChild(opt);
             }
-            try { fontSelectEl.value = targetFont; } catch (e) {}
+            try { fontSelectEl.value = targetFont; } catch (e) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Text] 回填字体下拉值失败', targetFont, e);
+            }
         }
     }
     document.getElementById('tb-fontsize').value = layer.fontSize || '28px';
@@ -1273,7 +1460,9 @@ function setupContextMenuEvents() {
                         collapsed: false
                     };
                 }
-            } catch (err) {}
+            } catch (err) {
+                if (window.Utils && Utils.log) Utils.log.warn('[Text] 冻结行内清除选区失败', err);
+            }
         }, true);
         clearInlineItem.addEventListener('click', (e) => {
             e.preventDefault();
@@ -1348,6 +1537,23 @@ function setupContextMenuEvents() {
 /* ============================================================
    文字底衬面板
    ============================================================ */
+
+// ⚠️ [PARTIALLY DEPRECATED — moved to backdrop-panel.js]
+// 下面的函数声明（setupBackdropPanel / renderBackdropGrid / createBackdropCard /
+// renderCustomBackdropGrid / uploadBackdropImage / refreshCustomBackdropCache /
+// syncBackdropPanelToLayer / showBackdropFormatModal / copyToClipboard /
+// fallbackCopy / _sanitizeSvg / _svgToWhiteMaskDataUrl / _pathToSvg /
+// _parseShapeInput / _importShapesFromText / setupBackdropImport）
+// 已被 backdrop-panel.js 里的同名函数覆盖，实际执行的是 backdrop-panel.js 的版本。
+//
+// ⚠️ 但下面这些【数据 / 常量】不能删 —— backdrop-panel.js 里仍在读它们：
+//   - BACKDROP_PRESETS
+//   - currentBackdropCategory
+//   - backdropCache
+//   - SHAPE_FORMAT / SHAPE_MASK_SIZE
+//   - SVG_ALLOWED_TAGS / SVG_ALLOWED_ATTRS
+// 物理删除函数声明时，务必保留这些数据声明。
+// ============================================================
 
 const BACKDROP_PRESETS = [
     // 纸质
@@ -1856,21 +2062,17 @@ function showBackdropFormatModal() {
     });
 }
 
+// ✅ P0-1：copyToClipboard / fallbackCopy 已合并到 Utils.clipboard.copy
+//    这里保留一个薄别名，兼容本文件内部老调用点
 function copyToClipboard(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
-    } else {
-        fallbackCopy(text);
+    if (window.Utils && Utils.clipboard && Utils.clipboard.copy) {
+        return Utils.clipboard.copy(text);
     }
-}
-function fallbackCopy(text) {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); } catch (e) {}
-    document.body.removeChild(ta);
+    // 兜底：Utils 未加载时用原生 API（不应发生）
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).catch(() => {});
+    }
+    return Promise.resolve();
 }
 
 /* ============================================================
