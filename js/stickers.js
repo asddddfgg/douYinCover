@@ -690,8 +690,11 @@ window.AssetRegistry = AssetRegistry;
 // 初始化
 // ============================================================
 async function initStickersModule() {
+    // btn-add-sticker 已从顶栏删除，改由左栏 sticker 工具通过 LeftRail 触发
+    // 这里仍然初始化贴纸模块（AssetRegistry 注册、面板构建），只是不绑按钮
+    // 面板的打开由 left-rail.js 的 openStickerPanel() 调用
+    // 兼容：如果按钮存在（老版本）就绑定
     const btn = document.getElementById('btn-add-sticker');
-    if (!btn) return;
 
     await AssetRegistry.init();
     await seedBuiltinStickers();
@@ -701,17 +704,22 @@ async function initStickersModule() {
     restoreStickerPanelPosition();
     initStickerPanelDrag();
 
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const panel = document.getElementById('sticker-panel');
-        if (panel) {
-            panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
-        }
-    });
+    if (btn) {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const panel = document.getElementById('sticker-panel');
+            if (panel) {
+                panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+            }
+        });
+    }
 
-    document.getElementById('sticker-panel-close').addEventListener('click', () => {
-        document.getElementById('sticker-panel').style.display = 'none';
-    });
+    const _closeBtn = document.getElementById('sticker-panel-close');
+    if (_closeBtn) {
+        _closeBtn.addEventListener('click', () => {
+            document.getElementById('sticker-panel').style.display = 'none';
+        });
+    }
 
     const searchInput = document.getElementById('sticker-search');
     if (searchInput) {

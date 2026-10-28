@@ -58,4 +58,5 @@ window.AppRuntime.errorBanner = null;
     });
 
     console.log('[AppRuntime] ✅ 全局错误捕获已就位');
+// toolbar-context 由 app.js 的 updateToolbarContext 驱动，无需本文件参与
 })();

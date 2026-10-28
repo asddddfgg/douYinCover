@@ -16,6 +16,23 @@ function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
     return Math.sqrt(ex * ex + ey * ey);
 }
 
+function isPointInShapeLayer(pageX, pageY, layer) {
+    if (!layer || layer.type !== 'shape') return false;
+    // 考虑旋转：把点转到图层内部坐标
+    let lx = pageX - layer.x;
+    let ly = pageY - layer.y;
+    const rot = (layer.rotation || 0) * Math.PI / 180;
+    if (rot) {
+        const cx = layer.width / 2;
+        const cy = layer.height / 2;
+        const dx = lx - cx, dy = ly - cy;
+        const cos = Math.cos(-rot), sin = Math.sin(-rot);
+        lx = cx + dx * cos - dy * sin;
+        ly = cy + dx * sin + dy * cos;
+    }
+    return lx >= 0 && ly >= 0 && lx <= layer.width && ly <= layer.height;
+}
+
 function isPointNearDrawLayer(pageX, pageY, layer) {
     if (!layer || layer.type !== 'draw' || !Array.isArray(layer.segments)) return false;
     const tol = Math.max(layer.strokeWidth || 4, 10) + 6; // 容差：至少 16px
@@ -276,10 +293,16 @@ if (cornerHandle) {
                     // 从上层往下层找（数组末尾 = 上层）
                     for (let i = page.layers.length - 1; i >= 0; i--) {
                         const l = page.layers[i];
-                        if (l.type !== 'draw') continue;
-                        if (isPointNearDrawLayer(px, py, l)) {
-                            drawHitEl = canvasEl.querySelector(`.canvas-layer[data-id="${l.id}"]`);
-                            if (drawHitEl) break;
+                        if (l.type === 'draw') {
+                            if (isPointNearDrawLayer(px, py, l)) {
+                                drawHitEl = canvasEl.querySelector(`.canvas-layer[data-id="${l.id}"]`);
+                                if (drawHitEl) break;
+                            }
+                        } else if (l.type === 'shape') {
+                            if (isPointInShapeLayer(px, py, l)) {
+                                drawHitEl = canvasEl.querySelector(`.canvas-layer[data-id="${l.id}"]`);
+                                if (drawHitEl) break;
+                            }
                         }
                     }
                 }
@@ -376,6 +399,10 @@ if (cornerHandle) {
             renderCanvas();
             renderLayerList();
             updateTopToolbarUI(state.getSelectedLayer());
+            // 多选时不显示浮动工具条
+            if (window.FloatingToolbar && typeof FloatingToolbar.sync === 'function') {
+                try { FloatingToolbar.sync(); } catch (err) {}
+            }
             return;
         }
 
@@ -466,6 +493,10 @@ if (cornerHandle) {
         didCrossPage = false;
         startX = e.clientX; startY = e.clientY;
         initX = dragLayer.x; initY = dragLayer.y;
+        // 拖动时隐藏浮动工具条，避免遮挡
+        if (window.FloatingToolbar && typeof FloatingToolbar.hide === 'function') {
+            try { FloatingToolbar.hide(); } catch (e) {}
+        }
 
         // 记录多选整体拖拽初始位置
         if (window.MultiSelect) {
@@ -729,6 +760,13 @@ if (cornerHandle) {
                     const textEl = el.querySelector('.text-content-editable');
                     if (textEl) textEl.style.fontSize = dragLayer.fontSize;
                 }
+                if (dragLayer.type === 'shape' && window.Shapes && typeof Shapes.buildShapeDom === 'function') {
+                    try {
+                        const oldInner = el.querySelector('.shape-layer-inner');
+                        if (oldInner) oldInner.remove();
+                        el.appendChild(Shapes.buildShapeDom(dragLayer));
+                    } catch (e) {}
+                }
             }
             return;
         }
@@ -892,6 +930,10 @@ multiResizeInit = null;    // ← 新增
 
 
             updateTopToolbarUI(state.getSelectedLayer());
+        }
+        // 无论是否有移动，都尝试恢复浮动工具条（若 renderCanvas 已恢复则为无操作）
+        if (window.FloatingToolbar && typeof FloatingToolbar.sync === 'function') {
+            try { FloatingToolbar.sync(); } catch (e) {}
         }
     });
 

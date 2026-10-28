@@ -70,7 +70,11 @@ const AutoContrast = (function () {
         const btn = document.getElementById('btn-auto-contrast');
         if (btn && !btn.dataset.bound) {
             btn.dataset.bound = '1';
-            btn.addEventListener('click', applyToSelected);
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                applyToSelected();
+                document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            });
         }
         console.log('[AutoContrast] 初始化完成');
     }

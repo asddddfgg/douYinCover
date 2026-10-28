@@ -893,6 +893,8 @@ function handleEffectClick(eff) {
 function setupTopToolbarEvents() {
     const fontSelect = document.getElementById('tb-font');
     if (fontSelect) {
+        fontSelect.addEventListener('mousedown', (e) => e.stopPropagation());
+        fontSelect.addEventListener('click', (e) => e.stopPropagation());
         fontSelect.addEventListener('change', (e) => {
             let val = e.target.value;
             if (!val) return;
@@ -946,6 +948,8 @@ function setupTopToolbarEvents() {
 
     const fontSizeSelect = document.getElementById('tb-fontsize');
     if (fontSizeSelect) {
+        fontSizeSelect.addEventListener('mousedown', (e) => e.stopPropagation());
+        fontSizeSelect.addEventListener('click', (e) => e.stopPropagation());
         fontSizeSelect.addEventListener('change', (e) => {
             const ctx = getActiveSelectionRange();
             if (ctx && !ctx.collapsed) {
@@ -962,6 +966,8 @@ function setupTopToolbarEvents() {
 
     const colorPicker = document.getElementById('tb-color');
     if (colorPicker) {
+        colorPicker.addEventListener('mousedown', (e) => e.stopPropagation());
+        colorPicker.addEventListener('click', (e) => e.stopPropagation());
         colorPicker.addEventListener('input', (e) => {
             const ctx = getActiveSelectionRange();
             if (ctx && !ctx.collapsed) {
@@ -993,6 +999,8 @@ function setupTopToolbarEvents() {
             const layer = state.getSelectedLayer();
             if (layer) { layer.bgColor = color; state.saveState(); renderCanvas(); }
         });
+        bgColorPicker.addEventListener('click', (e) => e.stopPropagation());
+        bgColorPicker.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
     const bgRadius = document.getElementById('tb-bg-radius');
@@ -1006,11 +1014,14 @@ function setupTopToolbarEvents() {
                 renderCanvas();
             }
         });
+        bgRadius.addEventListener('click', (e) => e.stopPropagation());
+        bgRadius.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
     const btnBgClear = document.getElementById('btn-bgcolor-clear');
     if (btnBgClear) {
-        btnBgClear.addEventListener('click', () => {
+        btnBgClear.addEventListener('click', (e) => {
+            e.stopPropagation();
             const layer = state.getSelectedLayer();
             if (!layer || layer.type !== 'text') {
                 if (typeof showBgToast === 'function') showBgToast('请先选中一个文字图层');
@@ -1027,7 +1038,8 @@ function setupTopToolbarEvents() {
     const bindCommand = (id, cmd) => {
         const btn = document.getElementById(id);
         if (btn) {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const ctx = getActiveSelectionRange();
                 if (ctx && !ctx.collapsed) {
                     ensureStyleWithCSS();
@@ -1038,6 +1050,7 @@ function setupTopToolbarEvents() {
                 } else {
                     const layer = state.getSelectedLayer();
                     if (layer) {
+                        // ✅ 修复：propMap 用 cmd 作 key，cmd='strikeThrough' 对应 layer 字段 'strike'
                         const propMap = { bold: 'bold', italic: 'italic', underline: 'underline', strikeThrough: 'strike' };
                         const prop = propMap[cmd];
                         if (prop) layer[prop] = !layer[prop];
@@ -1055,29 +1068,34 @@ function setupTopToolbarEvents() {
 
     const bulletBtn = document.getElementById('tb-bullet');
     if (bulletBtn) {
-        bulletBtn.addEventListener('click', () => {
+        bulletBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
             const ctx = getActiveSelectionRange();
             if (ctx && !ctx.collapsed) {
                 document.execCommand('insertUnorderedList');
                 const layer = state.layers.find(l => l.id === state.editingLayerId);
                 if (layer) layer.content = ctx.el.innerHTML;
             }
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
         });
     }
 
     ['left', 'center', 'right'].forEach(align => {
         const btn = document.getElementById(`tb-align-${align}`);
         if (btn) {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const layer = state.getSelectedLayer();
                 if (layer) { layer.align = align; state.saveState(); renderCanvas(); }
+                document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
             });
         }
     });
 
     const verticalBtn = document.getElementById('tb-vertical');
     if (verticalBtn) {
-        verticalBtn.addEventListener('click', () => {
+        verticalBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
             const layer = state.getSelectedLayer();
             if (layer) { layer.vertical = !layer.vertical; state.saveState(); renderCanvas(); }
         });
@@ -1094,6 +1112,9 @@ function setupTopToolbarEvents() {
             state.saveState();
             renderCanvas();
         });
+        // 防止拖拽结束后 click 冒泡触发菜单关闭
+        letterSpacing.addEventListener('click', (e) => e.stopPropagation());
+        letterSpacing.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
     const lineHeight = document.getElementById('tb-line-height');
@@ -1102,6 +1123,8 @@ function setupTopToolbarEvents() {
             const layer = state.getSelectedLayer();
             if (layer) { layer.lineHeight = e.target.value; state.saveState(); renderCanvas(); }
         });
+        lineHeight.addEventListener('click', (e) => e.stopPropagation());
+        lineHeight.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
     // 精确行高输入框（0.8 ~ 3.0，数字输入）
@@ -1119,6 +1142,7 @@ function setupTopToolbarEvents() {
                 renderCanvas();
             }
         });
+        lineHeightExact.addEventListener('click', (e) => e.stopPropagation());
     }
 
     // F5 预览快捷键
@@ -1133,20 +1157,7 @@ function setupTopToolbarEvents() {
         }
     });
 
-    // 同步精确行高：当选中的图层变化时，把 layer.lineHeight 回填到数字输入
-    const _origUpdateToolbar = window.updateTopToolbarUI;
-    if (typeof _origUpdateToolbar === 'function' && !window.__lineHeightExactSynced) {
-        window.__lineHeightExactSynced = true;
-        window.updateTopToolbarUI = function (layer) {
-            const ret = _origUpdateToolbar.apply(this, arguments);
-            const exact = document.getElementById('tb-line-height-exact');
-            if (exact && layer && layer.type === 'text') {
-                const v = parseFloat(layer.lineHeight) || 1.2;
-                exact.value = v.toFixed(2);
-            }
-            return ret;
-        };
-    }
+    // ✅ 精确行高回填逻辑已直接写入 updateTopToolbarUI 函数体末尾（不再用 wrapper 覆盖）
 
 
 
@@ -1186,6 +1197,8 @@ function setupTopToolbarEvents() {
         opacity.addEventListener('change', () => {
             state.saveState();
         });
+        opacity.addEventListener('click', (e) => e.stopPropagation());
+        opacity.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
     // 清除局部样式：右键粗体按钮
@@ -1194,6 +1207,21 @@ function setupTopToolbarEvents() {
         boldBtn.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             clearLocalFormat();
+        });
+    }
+
+    // 菜单内一次性动作（排版预设 / 自动对比色）：触发后关闭菜单
+    const typePresetSelect = document.getElementById('tb-type-preset');
+    if (typePresetSelect) {
+        typePresetSelect.addEventListener('change', () => {
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+        });
+    }
+    const autoContrastBtn = document.getElementById('btn-auto-contrast');
+    if (autoContrastBtn) {
+        autoContrastBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
         });
     }
 }
@@ -1292,7 +1320,10 @@ function updateTopToolbarUI(layer) {
             }
         }
     }
-    document.getElementById('tb-fontsize').value = layer.fontSize || '28px';
+    const _fsEl = document.getElementById('tb-fontsize');
+    if (_fsEl && _fsEl.offsetParent !== null) {
+        _fsEl.value = layer.fontSize || '28px';
+    }
         // 安全地把颜色值写入 <input type="color">（只接受 #rrggbb，其余归一化或跳过）
 
     safeSetColorInput('tb-color', layer.color, '#ffffff');
@@ -1321,7 +1352,18 @@ function updateTopToolbarUI(layer) {
     document.getElementById('tb-line-height').value = layer.lineHeight || 1.2;
     document.getElementById('tb-opacity').value = layer.opacity !== undefined ? layer.opacity : 1;
 
+    // ✅ 精确行高回填（原 wrapper 逻辑内联到这里，避免递归）
+    const _exactLH = document.getElementById('tb-line-height-exact');
+    if (_exactLH) {
+        const v = parseFloat(layer.lineHeight) || 1.2;
+        _exactLH.value = v.toFixed(2);
+    }
+
     syncBackdropPanelToLayer(layer);
+
+    if (typeof window.updateToolbarContext === 'function') {
+        window.updateToolbarContext();
+    }
 }
 
 // 选区变化时刷新工具栏

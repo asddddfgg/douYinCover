@@ -28,6 +28,9 @@ const BatchEdit = (function () {
         } else {
             badge.style.display = 'none';
         }
+        if (typeof window.updateToolbarContext === 'function') {
+            window.updateToolbarContext();
+        }
     }
 
     function applyToAllSelected(mutator) {

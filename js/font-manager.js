@@ -41,14 +41,19 @@ function initCustomFontUpload() {
     const btnUpload = document.getElementById('btn-upload-font');
     const fileInput = document.getElementById('local-font-file');
     const fontSelect = document.getElementById('tb-font');
-    if (!btnUpload || !fileInput || !fontSelect) return;
+    if (!fileInput || !fontSelect) return;
 
     loadCachedCustomFonts(fontSelect);
-    btnUpload.addEventListener('click', () => fileInput.click());
 
-    // ✅ 管理字体：列出所有本地自定义字体，可单独删除
+    // ✅ 上传按钮已迁入「文件▾」菜单，事件由 app.js 的 rebindToolbarMenuActions 绑定
+    //    这里只在 btnUpload 仍存在且未被 rebind 时兜底绑定
+    if (btnUpload && !btnUpload.dataset.rebound) {
+        btnUpload.addEventListener('click', () => fileInput.click());
+    }
+
+    // ✅ 管理字体：按钮已迁入菜单，事件由 app.js 的 rebind 绑定
     const btnManage = document.getElementById('btn-manage-font');
-    if (btnManage) {
+    if (btnManage && !btnManage.dataset.rebound) {
         btnManage.addEventListener('click', () => openFontManagerModal());
     }
 

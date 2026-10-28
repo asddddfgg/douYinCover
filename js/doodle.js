@@ -452,6 +452,10 @@ const Doodle = (function () {
         const btn = document.getElementById('btn-doodle');
         if (btn) btn.classList.toggle('active', on);
         if (on) redrawDrawLayers();
+        // 同步左侧工具条激活态
+        if (window.LeftRail && typeof LeftRail.setActive === 'function') {
+            try { LeftRail.setActive(on ? 'draw' : 'select'); } catch (e) {}
+        }
     }
 
     // ---------- 初始化 ----------

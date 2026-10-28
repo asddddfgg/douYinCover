@@ -18,23 +18,38 @@
             </div>
 
             <div id="text-toolbar" class="top-text-toolbar is-inactive">
-    <!-- 组 1：字体 -->
-    <div class="toolbar-group">
-        <select id="tb-font" title="字体">
+    <!-- 区域② 全局菜单：文件 / 视图（低频项收进下拉） -->
+    <div class="toolbar-group" data-ctx="always">
+        <div class="menu-dropdown">
+            <button class="menu-trigger" data-menu="file" data-tooltip="文件菜单"><i class="fa-solid fa-folder" data-icon="folder"></i> 文件 <i class="fa-solid fa-chevron-down" data-icon="chevron-down"></i></button>
+            <div class="menu-panel" id="menu-file-panel">
+                <button class="menu-item" id="btn-projects" data-tooltip="打开项目列表"><i class="fa-solid fa-folder-open"></i> 我的项目</button>
+                <button class="menu-item" id="btn-save-project" data-tooltip="保存当前项目"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                <button class="menu-item" id="btn-saveas-project" data-tooltip="另存为新项目"><i class="fa-solid fa-file-export"></i> 另存为</button>
+                <div class="menu-divider"></div>
+                <button class="menu-item" id="btn-upload-font" data-tooltip="上传 .ttf/.otf 字体"><i class="fa-solid fa-upload"></i> 上传字体</button>
+                <button class="menu-item" id="btn-manage-font" data-tooltip="管理已上传字体"><i class="fa-solid fa-list"></i> 管理字体</button>
+            </div>
+        </div>
+        <div class="menu-dropdown">
+            <button class="menu-trigger" data-menu="view" data-tooltip="视图菜单"><i class="fa-solid fa-eye" data-icon="eye"></i> 视图 <i class="fa-solid fa-chevron-down" data-icon="chevron-down"></i></button>
+            <div class="menu-panel" id="menu-view-panel">
+                <button class="menu-item" id="btn-toggle-snap" data-tooltip="切换吸附对齐"><i class="fa-solid fa-magnet"></i> 吸附对齐</button>
+                <button class="menu-item" id="btn-clear-guides" data-tooltip="清除所有参考线"><i class="fa-solid fa-xmark"></i> 清除参考线</button>
+            </div>
+        </div>
+        <input type="file" id="local-font-file" accept=".ttf,.otf" style="display: none;">
+    </div>
+
+    <!-- 区域③ 文字格式组：选中文字时显示 -->
+    <div class="toolbar-group" data-ctx="text" id="toolbar-text-group">
+        <select id="tb-font" data-tooltip="选择字体">
             <option value="sans-serif">系统黑体</option>
             <option value="serif">宋体/衬线体</option>
             <option value="monospace">等宽体</option>
             <option value="cursive">手写艺术体</option>
         </select>
-        <button id="btn-upload-font" class="tool-btn" title="上传本地手写字体 (.ttf/.otf)" style="width: auto; padding: 0 6px; font-size: 10px;">
-            <i class="fa-solid fa-upload"></i> 自定义字体
-        </button>
-        <button id="btn-manage-font" class="tool-btn" title="管理已上传的字体（可删除）" style="width: auto; padding: 0 6px; font-size: 10px;">
-            <i class="fa-solid fa-list"></i> 管理
-        </button>
-        <input type="file" id="local-font-file" accept=".ttf,.otf" style="display: none;">
-
-        <select id="tb-fontsize" title="字号">
+        <select id="tb-fontsize" data-tooltip="字号大小">
             <option value="16px">16px</option>
             <option value="20px">20px</option>
             <option value="24px">24px</option>
@@ -47,95 +62,104 @@
         <div class="color-picker-wrapper color-picker-lg">
             <input type="color" id="tb-color" value="#ffffff" title="文字颜色（点击选色）">
         </div>
-        <div class="color-picker-wrapper color-picker-lg">
-            <input type="color" id="tb-bgcolor" value="#000000" title="背景底色（点击选色）">
-        </div>
-        <button id="btn-bgcolor-clear" class="tool-btn" title="清除背景色（无背景）"><i class="fa-solid fa-ban"></i></button>
-        <div class="slider-group" title="背景色块圆角">
-            <span>圆角</span>
-            <input type="range" id="tb-bg-radius" min="0" max="40" value="6" step="1">
+        <button id="tb-bold" class="tool-btn" title="粗体 (Ctrl+B)"><i class="fa-solid fa-bold" data-icon="bold"></i></button>
+        <button id="tb-italic" class="tool-btn" title="斜体 (Ctrl+I)"><i class="fa-solid fa-italic" data-icon="italic"></i></button>
+        <button id="tb-underline" class="tool-btn" title="下划线 (Ctrl+U)"><i class="fa-solid fa-underline" data-icon="underline"></i></button>
+        <button id="tb-strike" class="tool-btn" title="删除线"><i class="fa-solid fa-strikethrough" data-icon="strike"></i></button>
+        <div class="menu-dropdown">
+            <button class="menu-trigger" data-menu="text-more" data-tooltip="更多文字设置"><i class="fa-solid fa-ellipsis" data-icon="ellipsis"></i></button>
+            <div class="menu-panel" id="menu-text-more-panel" style="min-width:240px;">
+                <div style="padding:4px 10px 6px; font-size:11px; color:#6e7681; border-bottom:1px solid #30363d; margin-bottom:6px;">
+                    <i class="fa-solid fa-info-circle" style="font-size:10px;"></i> 需要先选中一个文字图层
+                </div>
+                <div class="menu-section-label">对齐</div>
+                <div class="menu-row">
+                    <button id="tb-align-left" class="tool-btn" title="左对齐"><i class="fa-solid fa-align-left"></i></button>
+                    <button id="tb-align-center" class="tool-btn" title="居中"><i class="fa-solid fa-align-center"></i></button>
+                    <button id="tb-align-right" class="tool-btn" title="右对齐"><i class="fa-solid fa-align-right"></i></button>
+                    <button id="tb-bullet" class="tool-btn" title="项目符号"><i class="fa-solid fa-list-ul"></i></button>
+                    <button id="tb-vertical" class="tool-btn" title="竖排文字"><i class="fa-solid fa-grip-lines-vertical"></i></button>
+                </div>
+                <div class="menu-divider"></div>
+                <div class="menu-section-label">间距</div>
+                <div class="menu-slider-row"><span>字距</span><input type="range" id="tb-letter-spacing" min="-5" max="30" value="0" step="1"></div>
+                <div class="menu-slider-row"><span>行距</span><input type="range" id="tb-line-height" min="1" max="3" value="1.2" step="0.1"></div>
+                <div class="menu-slider-row"><span>行高</span><input type="number" id="tb-line-height-exact" min="0.8" max="3.0" step="0.05" value="1.2" style="width:52px;"></div>
+                <div class="menu-slider-row"><span>透明</span><input type="range" id="tb-opacity" min="0.1" max="1" value="1" step="0.05"></div>
+                <div class="menu-divider"></div>
+                <div class="menu-section-label">背景</div>
+                <div class="menu-row">
+                    <div class="color-picker-wrapper color-picker-lg"><input type="color" id="tb-bgcolor" value="#000000" title="背景底色"></div>
+                    <button id="btn-bgcolor-clear" class="tool-btn" title="清除背景色"><i class="fa-solid fa-ban"></i></button>
+                    <div class="slider-group" title="背景色块圆角"><span>圆角</span><input type="range" id="tb-bg-radius" min="0" max="40" value="6" step="1"></div>
+                </div>
+                <div class="menu-divider"></div>
+                <div class="menu-section-label">标记 & 智能</div>
+                <div class="menu-row">
+                    <button id="tb-mark" class="tool-btn" title="文字强调标记"><i class="fa-solid fa-circle-notch"></i></button>
+                    <button id="tb-mark-clear" class="tool-btn" title="清除标记"><i class="fa-solid fa-eraser"></i></button>
+                    <button id="btn-auto-contrast" class="tool-btn" title="自动对比色"><i class="fa-solid fa-circle-half-stroke"></i></button>
+                </div>
+                <div class="menu-divider"></div>
+                <div class="menu-section-label">排版预设</div>
+                <select id="tb-type-preset" style="width:100%;">
+                    <option value="">选择预设</option>
+                    <option value="title">大标题</option>
+                    <option value="subtitle">副标题</option>
+                    <option value="body">正文</option>
+                    <option value="caption">注释小字</option>
+                </select>
+            </div>
         </div>
     </div>
 
-    <!-- 组 2：样式 -->
-    <div class="toolbar-group">
-        <button id="tb-mark" class="tool-btn" title="文字强调标记（选中文字时只标记选区，未选中时标记整层）"><i class="fa-solid fa-circle-notch"></i></button>
-        <button id="tb-mark-clear" class="tool-btn" title="清除标记"><i class="fa-solid fa-eraser"></i></button>
-        <button id="tb-bold" class="tool-btn" title="粗体"><i class="fa-solid fa-bold"></i></button>
-        <button id="tb-italic" class="tool-btn" title="斜体"><i class="fa-solid fa-italic"></i></button>
-        <button id="tb-underline" class="tool-btn" title="下划线"><i class="fa-solid fa-underline"></i></button>
-        <button id="tb-strike" class="tool-btn" title="删除线"><i class="fa-solid fa-strikethrough"></i></button>
-
-        <button id="tb-align-left" class="tool-btn" title="左对齐"><i class="fa-solid fa-align-left"></i></button>
-        <button id="tb-align-center" class="tool-btn" title="居中"><i class="fa-solid fa-align-center"></i></button>
-        <button id="tb-align-right" class="tool-btn" title="右对齐"><i class="fa-solid fa-align-right"></i></button>
-        <button id="tb-bullet" class="tool-btn" title="项目符号"><i class="fa-solid fa-list-ul"></i></button>
-
-        <button id="tb-vertical" class="tool-btn" title="竖排文字"><i class="fa-solid fa-grip-lines-vertical"></i></button>
-
-        <button id="btn-doodle" class="tool-btn" title="涂鸦画笔"><i class="fa-solid fa-paintbrush"></i></button>
-        
-        <div class="slider-group" title="字间距">
-            <span>字距</span>
-            <input type="range" id="tb-letter-spacing" min="-5" max="30" value="0" step="1">
-        </div>
-        <div class="slider-group" title="行间距">
-            <span>行距</span>
-            <input type="range" id="tb-line-height" min="1" max="3" value="1.2" step="0.1">
-        </div>
-        <div class="slider-group" title="透明度">
-            <span>透明</span>
-            <input type="range" id="tb-opacity" min="0.1" max="1" value="1" step="0.05">
-        </div>
-
-        <button id="btn-toggle-snap" class="tool-btn active" title="吸附开启"><i class="fa-solid fa-magnet"></i></button>
-        <button id="btn-clear-guides" class="tool-btn" title="清除所有参考线"><i class="fa-solid fa-eraser"></i></button>
-    </div>
-
-    <!-- 组 3：批量对齐 / 分布 / 排版 / 对比色 / 行高 -->
-    <div class="toolbar-group">
-        <button id="btn-align-left-multi" class="tool-btn" title="左对齐（Alt+A）"><i class="fa-solid fa-align-left"></i></button>
-        <button id="btn-align-center-multi" class="tool-btn" title="水平居中（Alt+H）"><i class="fa-solid fa-align-center"></i></button>
-        <button id="btn-align-right-multi" class="tool-btn" title="右对齐（Alt+D）"><i class="fa-solid fa-align-right"></i></button>
-        <button id="btn-align-top-multi" class="tool-btn" title="顶对齐（Alt+W）"><i class="fa-solid fa-arrows-up-to-line"></i></button>
-        <button id="btn-align-middle-multi" class="tool-btn" title="垂直居中（Alt+V）"><i class="fa-solid fa-arrows-left-right"></i></button>
-        <button id="btn-align-bottom-multi" class="tool-btn" title="底对齐（Alt+S）"><i class="fa-solid fa-arrows-down-to-line"></i></button>
-        <button id="btn-distribute-h" class="tool-btn" title="水平等间距分布"><i class="fa-solid fa-grip-lines"></i></button>
-        <button id="btn-distribute-v" class="tool-btn" title="垂直等间距分布"><i class="fa-solid fa-grip-lines-vertical"></i></button>
-
-        <button id="btn-auto-contrast" class="tool-btn" title="自动对比色（根据背景主色）"><i class="fa-solid fa-circle-half-stroke"></i></button>
-
-        <select id="tb-type-preset" title="排版预设" style="background:#161b22; border:1px solid #30363d; color:#c9d1d9; padding:4px 6px; border-radius:4px; font-size:12px; outline:none; cursor:pointer;">
-            <option value="">排版预设</option>
-            <option value="title">大标题</option>
-            <option value="subtitle">副标题</option>
-            <option value="body">正文</option>
-            <option value="caption">注释小字</option>
-        </select>
-
-        <div class="slider-group" title="精确行高（点击数字可输入）">
-            <span>行高</span>
-            <input type="number" id="tb-line-height-exact" min="0.8" max="3.0" step="0.05" value="1.2" style="width:52px; background:#161b22; border:1px solid #30363d; color:#c9d1d9; padding:2px 4px; border-radius:4px; font-size:11px; text-align:center;">
-        </div>
+    <!-- 区域④ 图层组：多选时显示，图标带虚线框区分文字对齐 -->
+    <div class="toolbar-group" data-ctx="multi" id="toolbar-layer-group">
+        <button id="btn-align-left-multi" class="tool-btn layer-align" title="图层左对齐（Alt+A）"><i class="fa-solid fa-align-left"></i></button>
+        <button id="btn-align-center-multi" class="tool-btn layer-align" title="图层水平居中（Alt+H）"><i class="fa-solid fa-align-center"></i></button>
+        <button id="btn-align-right-multi" class="tool-btn layer-align" title="图层右对齐（Alt+D）"><i class="fa-solid fa-align-right"></i></button>
+        <button id="btn-align-top-multi" class="tool-btn layer-align" title="图层顶对齐（Alt+W）"><i class="fa-solid fa-arrows-up-to-line"></i></button>
+        <button id="btn-align-middle-multi" class="tool-btn layer-align" title="图层垂直居中（Alt+V）"><i class="fa-solid fa-arrows-up-down"></i></button>
+        <button id="btn-align-bottom-multi" class="tool-btn layer-align" title="图层底对齐（Alt+S）"><i class="fa-solid fa-arrows-down-to-line"></i></button>
+        <button id="btn-distribute-h" class="tool-btn layer-align" title="水平等间距分布"><i class="fa-solid fa-arrows-left-right"></i></button>
+        <button id="btn-distribute-v" class="tool-btn layer-align" title="垂直等间距分布"><i class="fa-solid fa-arrows-up-down"></i></button>
+        <span id="multi-edit-badge" style="display:none; font-size:11px; color:#00e5ff; background:rgba(0,229,255,0.12); border:1px solid rgba(0,229,255,0.35); padding:3px 8px; border-radius:4px; white-space:nowrap;">
+            <i class="fa-solid fa-layer-group"></i> 批量编辑 <span id="multi-edit-count">0</span>
+        </span>
     </div>
 </div>
 
             <div class="actions">
-                <span id="multi-edit-badge" style="display:none; font-size:11px; color:#00e5ff; background:rgba(0,229,255,0.12); border:1px solid rgba(0,229,255,0.35); padding:3px 8px; border-radius:4px; white-space:nowrap;">
-                    <i class="fa-solid fa-layer-group"></i> 批量编辑 <span id="multi-edit-count">0</span>
-                </span>
-                <button id="btn-history" class="btn" title="设计历史"><i class="fa-solid fa-clock-rotate-left"></i></button>
-                <button id="btn-projects" class="btn"><i class="fa-solid fa-folder"></i> 我的项目</button>
-                <button id="btn-save-project" class="btn"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
-                <button id="btn-saveas-project" class="btn" title="另存为"><i class="fa-solid fa-file-export"></i></button>
                 <span id="project-title" style="font-size:12px;color:#8b949e;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
-                <button id="btn-add-text" class="btn"><i class="fa-solid fa-heading"></i> 添加文本</button>
-                <button id="btn-add-sticker" class="btn"><i class="fa-solid fa-face-smile"></i> 添加贴纸</button>
+                <button id="btn-history" class="btn" title="设计历史"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                <button id="btn-ai-suggest" class="btn btn-ai" title="根据内容智能推荐背景与特效"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 推荐</button>
                 <button id="btn-export" class="btn btn-primary"><i class="fa-solid fa-download"></i> 导出封面</button>
             </div>
         </header>
 
         <div class="workspace">
+            <!-- 左侧工具条：选择 / 文本 / 贴纸 / 画笔 / 形状 + 底部设置 -->
+            <div class="left-rail" id="left-rail" role="toolbar" aria-label="工具">
+                <button class="rail-btn active" data-tool="select" title="选择 (V)" data-tooltip="选择 / 拖动">
+                    <i class="fa-solid fa-arrow-pointer" data-icon="pointer"></i>
+                </button>
+                <button class="rail-btn" data-tool="text" title="添加文本 (T)" data-tooltip="添加文本">
+                    <i class="fa-solid fa-font" data-icon="font"></i>
+                </button>
+                <button class="rail-btn" data-tool="sticker" title="贴纸库 (S)" data-tooltip="打开贴纸库">
+                    <i class="fa-regular fa-face-smile" data-icon="smile"></i>
+                </button>
+                <button class="rail-btn" data-tool="draw" title="涂鸦画笔 (P)" data-tooltip="涂鸦画笔">
+                    <i class="fa-solid fa-paintbrush" data-icon="paintbrush"></i>
+                </button>
+                <button class="rail-btn" data-tool="shape" title="形状 (R)" data-tooltip="矩形 / 圆 / 线 / 箭头">
+                    <i class="fa-solid fa-shapes" data-icon="shapes"></i>
+                </button>
+                <div class="rail-spacer"></div>
+                <button class="rail-btn" data-tool="settings" title="设置" data-tooltip="设计设置">
+                    <i class="fa-solid fa-sliders" data-icon="sliders"></i>
+                </button>
+            </div>
                         <aside class="sidebar-left">
                 <div class="panel-section" id="cover-templates-panel">
                     <h3><i class="fa-solid fa-table-cells-large"></i> 封面模板库</h3>
@@ -391,10 +415,6 @@
                 </div>
                 <input type="file" id="bg-extract-file" accept="image/*" style="display:none;">
 
-                <div class="panel-section">
-
-
-
                 <div class="panel-section" id="doodle-panel-section">
                     <h3><i class="fa-solid fa-paintbrush"></i> 涂鸦画笔</h3>
                     <p class="hint">点顶部画笔按钮进入绘制模式，在画布上拖动即可绘制</p>
@@ -421,11 +441,10 @@
                     </div>
                 </div>
 
+                </div>
+
+                <div class="panel-section" id="backdrop-panel-section">
                     <h3><i class="fa-solid fa-note-sticky"></i> 文字底衬特效</h3>
-
-
-
-
                     <p class="hint">选中文字图层后，点击底衬卡片即可叠加到文字背后</p>
 
                     <div class="backdrop-tabs" id="backdrop-tabs">
@@ -470,9 +489,9 @@
 
 
                     <div class="control-group" id="backdrop-color-group">
-    <label>底衬颜色</label>
-    <input type="color" id="backdrop-color" value="#fff8dc" style="...">
-</div>
+                        <label>底衬颜色</label>
+                        <input type="color" id="backdrop-color" value="#fff8dc" style="width:100%;height:32px;border:1px solid #30363d;border-radius:4px;background:none;cursor:pointer;">
+                    </div>
                     <div class="control-group">
                         <label>外扩边距 <span id="backdrop-pad-val">12</span>px</label>
                         <input type="range" id="backdrop-padding" min="0" max="40" value="12" style="width:100%;accent-color:#ff2442;">
@@ -627,61 +646,10 @@
         </div>
     </div>
 
-    <div id="history-panel" class="history-panel" style="display:none;">
-        <div class="history-panel-header">
-            <h3><i class="fa-solid fa-clock-rotate-left"></i> 设计历史</h3>
-            <button id="history-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div id="history-list" class="history-list"></div>
-    </div>
 
-    <div id="preview-overlay" class="preview-overlay" style="display:none;">
-        <div class="preview-controls">
-            <button id="preview-prev" class="btn"><i class="fa-solid fa-chevron-left"></i> 上一页</button>
-            <span id="preview-page-indicator">1 / 1</span>
-            <button id="preview-next" class="btn">下一页 <i class="fa-solid fa-chevron-right"></i></button>
-            <button id="preview-close" class="btn btn-primary"><i class="fa-solid fa-xmark"></i> 退出预览</button>
-        </div>
-        <div id="preview-stage" class="preview-stage"></div>
-    </div>
-
-    <div id="history-panel" class="history-panel" style="display:none;">
-        <div class="history-panel-header">
-            <h3><i class="fa-solid fa-clock-rotate-left"></i> 设计历史</h3>
-            <button id="history-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div id="history-list" class="history-list"></div>
-    </div>
-
-    <div id="preview-overlay" class="preview-overlay" style="display:none;">
-        <div class="preview-controls">
-            <button id="preview-prev" class="btn"><i class="fa-solid fa-chevron-left"></i> 上一页</button>
-            <span id="preview-page-indicator">1 / 1</span>
-            <button id="preview-next" class="btn">下一页 <i class="fa-solid fa-chevron-right"></i></button>
-            <button id="preview-close" class="btn btn-primary"><i class="fa-solid fa-xmark"></i> 退出预览</button>
-        </div>
-        <div id="preview-stage" class="preview-stage"></div>
-    </div>
-
-    <div id="history-panel" class="history-panel" style="display:none;">
-        <div class="history-panel-header">
-            <h3><i class="fa-solid fa-clock-rotate-left"></i> 设计历史</h3>
-            <button id="history-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div id="history-list" class="history-list"></div>
-    </div>
-
-    <div id="preview-overlay" class="preview-overlay" style="display:none;">
-        <div class="preview-controls">
-            <button id="preview-prev" class="btn"><i class="fa-solid fa-chevron-left"></i> 上一页</button>
-            <span id="preview-page-indicator">1 / 1</span>
-            <button id="preview-next" class="btn">下一页 <i class="fa-solid fa-chevron-right"></i></button>
-            <button id="preview-close" class="btn btn-primary"><i class="fa-solid fa-xmark"></i> 退出预览</button>
-        </div>
-        <div id="preview-stage" class="preview-stage"></div>
-    </div>
 
     <script src="js/utils.js"></script>
+    <script src="js/icons.js"></script>
     <script src="js/app-runtime.js"></script>
     <script src="js/namespaces.js"></script>
     <script src="js/background-presets.js"></script>
@@ -717,6 +685,9 @@
     <script src="js/tooltip.js"></script>
     <script src="js/hex-input.js"></script>
     <script src="js/cover-templates.js"></script>
+    <script src="js/floating-toolbar.js"></script>
+    <script src="js/left-rail.js"></script>
+    <script src="js/shapes.js"></script>
 
 
 <div id="export-panel" class="export-panel" style="display:none;">
@@ -748,6 +719,54 @@
     </div>
 </div>
 
+
+<script>
+(function fixSidebarLayout() {
+    function fix() {
+        const sr = document.querySelector('.sidebar-right');
+        const app = document.querySelector('.app-container');
+        if (!sr || !app) return false;
+        let moved = 0;
+        Array.from(app.children).forEach(c => {
+            if (c.classList && c.classList.contains('panel-section')) {
+                sr.appendChild(c);
+                moved++;
+            }
+        });
+        if (moved > 0) {
+            console.log('[Layout] ✅ .panel-section 归位完成（移动了 ' + moved + ' 个）');
+        }
+        return true;
+    }
+    
+    // 立即尝试
+    if (!fix()) {
+        // DOM 未就绪 → 等 DOMContentLoaded
+        document.addEventListener('DOMContentLoaded', fix);
+    }
+})();
+</script>
+
+
+<!-- 设计历史面板 -->
+<div id="history-panel" class="history-panel" style="display:none;">
+    <div class="history-panel-header">
+        <h3><i class="fa-solid fa-clock-rotate-left"></i> 设计历史</h3>
+        <button id="history-panel-close" class="tool-btn"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div id="history-list" class="history-list"></div>
+</div>
+
+<!-- 预览模式面板 -->
+<div id="preview-overlay" class="preview-overlay" style="display:none;">
+    <div class="preview-controls">
+        <button id="preview-prev" class="btn"><i class="fa-solid fa-chevron-left"></i> 上一页</button>
+        <span id="preview-page-indicator">1 / 1</span>
+        <button id="preview-next" class="btn">下一页 <i class="fa-solid fa-chevron-right"></i></button>
+        <button id="preview-close" class="btn btn-primary"><i class="fa-solid fa-xmark"></i> 退出预览</button>
+    </div>
+    <div id="preview-stage" class="preview-stage"></div>
+</div>
 
 </body>
 </html>

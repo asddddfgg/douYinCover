@@ -46,6 +46,14 @@ const TooltipModule = (function () {
         el.style.top = top + 'px';
     }
 
+    // 菜单打开时立即隐藏 tooltip（避免遮挡菜单项）
+    function hideTipImmediate() {
+        if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        hide(true);
+    }
+    window.__hideTooltipImmediate = hideTipImmediate;
+
     function show(target, text) {
         const el = ensureTip();
         el.textContent = text;
@@ -125,6 +133,8 @@ const TooltipModule = (function () {
             const isInteractive = tag === 'button' || tag === 'a' || isColorInput ||
                 el.classList.contains('tool-btn') ||
                 el.classList.contains('btn') ||
+                el.classList.contains('menu-trigger') ||
+                el.classList.contains('menu-item') ||
                 el.classList.contains('brand-logo-act-btn') ||
                 el.classList.contains('sticker-panel-close');
             if (!isInteractive) return;
@@ -134,6 +144,15 @@ const TooltipModule = (function () {
 
     function init() {
         scan(document);
+
+        // 菜单面板打开时立即隐藏 tooltip（避免遮挡菜单项）
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('.menu-trigger')) {
+                if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+                hide(true);
+            }
+        }, true);
+
         // 监听 DOM 变化，自动接管新元素（比如 renderCanvas 重建的按钮）
         const mo = new MutationObserver((mutations) => {
             let needScan = false;

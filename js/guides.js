@@ -310,19 +310,12 @@ const Guides = (function () {
         const btn = document.getElementById('btn-toggle-snap');
         if (btn) {
             btn.classList.toggle('active', state.snapEnabled);
-            btn.title = state.snapEnabled ? '吸附开启（点按关闭）' : '吸附关闭（点按开启）';
         }
     }
 
     function initSnapButton() {
-        const btn = document.getElementById('btn-toggle-snap');
-        if (btn) btn.addEventListener('click', toggleSnap);
-        const btnClear = document.getElementById('btn-clear-guides');
-        if (btnClear) btnClear.addEventListener('click', () => {
-            state.guides = [];
-            renderGuides();
-            state.saveState();
-        });
+        // 吸附开关 / 清除参考线按钮已迁入「视图▾」菜单，事件由 app.js 的 rebindToolbarMenuActions 绑定
+        // 这里只做 UI 状态同步兜底，避免重复绑定
         updateSnapButtonUI();
     }
 

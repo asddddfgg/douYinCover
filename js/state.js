@@ -218,6 +218,19 @@ class AppState {
         // ✅ 自动补齐新字段，兼容老数据
         if (layer.locked === undefined) layer.locked = false;
         if (layer.groupId === undefined) layer.groupId = null;
+        // ✅ shape 类型默认字段补齐
+        if (layer.type === 'shape') {
+            if (!layer.shapeKind) layer.shapeKind = 'rect';
+            if (layer.fill === undefined) layer.fill = '#ff2442';
+            if (layer.stroke === undefined) layer.stroke = '#000000';
+            if (layer.strokeWidth === undefined) layer.strokeWidth = 0;
+            if (layer.cornerRadius === undefined) layer.cornerRadius = 8;
+            if (layer.arrowHead === undefined) layer.arrowHead = (layer.shapeKind === 'arrow' ? 'end' : 'none');
+            if (layer.rotation === undefined) layer.rotation = 0;
+            if (layer.opacity === undefined) layer.opacity = 1;
+            if (layer.flipH === undefined) layer.flipH = false;
+            if (layer.flipV === undefined) layer.flipV = false;
+        }
         this.layers.push(layer);
         this.selectedLayerId = layer.id;
         if (this.selectedLayerIds) this.selectedLayerIds = [layer.id];

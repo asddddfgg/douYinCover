@@ -47,7 +47,9 @@ const TypePresets = (function () {
                 if (!key) return;
                 applyPreset(key);
                 e.target.value = '';
+                document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
             });
+            sel.addEventListener('click', (ev) => ev.stopPropagation());
         }
         console.log('[TypePresets] 初始化完成');
     }

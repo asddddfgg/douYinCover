@@ -28,26 +28,31 @@ document.addEventListener('DOMContentLoaded', () => {
     initPaginationModule();
     initCustomFontUpload();
     renderAll();
-    document.getElementById('btn-add-text').addEventListener('click', () => {
-        const newLayer = {
-            id: 'text-' + Date.now(),
-            type: 'text',
-            content: '双击插入光标编辑文本',
-            fontSize: '20px',
-            fontFamily: 'sans-serif',
-            color: '#ffffff',
-            bgColor: 'transparent',
-            bold: false, italic: false, underline: false, strike: false,
-            align: 'left', vertical: false,
-            letterSpacing: 0, lineHeight: 1.2, opacity: 1,
-            effectClass: 'effect-black-stroke',
-            rotation: 0, flipH: false, flipV: false,
-            x: 35, y: 250, width: 290, height: 48,
-            heightMode: 'auto'
-        };
-        state.addLayer(newLayer);
-        renderAll();
-    });
+    // btn-add-text 已从顶栏删除，改由左栏 text 工具接管（见 left-rail.js）
+    // 这里保留兼容：如果按钮存在（老版本）才绑定
+    const _btnAddText = document.getElementById('btn-add-text');
+    if (_btnAddText) {
+        _btnAddText.addEventListener('click', () => {
+            const newLayer = {
+                id: 'text-' + Date.now(),
+                type: 'text',
+                content: '双击插入光标编辑文本',
+                fontSize: '20px',
+                fontFamily: 'sans-serif',
+                color: '#ffffff',
+                bgColor: 'transparent',
+                bold: false, italic: false, underline: false, strike: false,
+                align: 'left', vertical: false,
+                letterSpacing: 0, lineHeight: 1.2, opacity: 1,
+                effectClass: 'effect-black-stroke',
+                rotation: 0, flipH: false, flipV: false,
+                x: 35, y: 250, width: 290, height: 48,
+                heightMode: 'auto'
+            };
+            state.addLayer(newLayer);
+            renderAll();
+        });
+    }
         initExportPanel();
     renderCanvas();
     renderLayerList();
@@ -58,21 +63,396 @@ document.addEventListener('DOMContentLoaded', () => {
     try { Guides.init(); } catch (err) { console.warn('Guides init failed:', err); }
     try { ProjectManager.init(); } catch (err) { console.warn('ProjectManager init failed:', err); }
     try { Doodle.init(); } catch (err) { console.warn('Doodle init failed:', err); }
-    try { Features.init(); } catch (err) { console.warn('Features init failed:', err); }
+    try { Features.init(); } catch (err) { console.warn('Features.init failed:', err); }
+
+    // ===== 顶栏菜单按钮重新绑定（原 actions 区已迁入菜单） =====
+    try { rebindToolbarMenuActions(); } catch (err) { console.warn('[App] rebindToolbarMenuActions failed:', err); }
+
+    // ===== 顶栏常驻 AI 推荐按钮（HTML 里没有则自动注入） =====
+    try { ensureAiButton(); } catch (err) { console.warn('[App] ensureAiButton failed:', err); }
+
+    // ===== 形状模块初始化（内部会 install 渲染补丁） =====
+    setTimeout(() => {
+        try {
+            if (window.Shapes && typeof Shapes.init === 'function') Shapes.init();
+        } catch (err) { console.warn('[App] Shapes.init failed:', err); }
+    }, 350);
 });
+
+/* ============================================================
+   顶栏常驻 AI 推荐按钮：如果 HTML 没写，自动注入到「添加文本」前
+   ============================================================ */
+function ensureAiButton() {
+    if (document.getElementById('btn-ai-suggest')) return;
+    const actions = document.querySelector('.app-header .actions');
+    if (!actions) return;
+    const btn = document.createElement('button');
+    btn.id = 'btn-ai-suggest';
+    btn.className = 'btn btn-ai';
+    btn.title = '根据内容智能推荐背景与特效';
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI 推荐';
+    // 插到「添加文本」前面
+    const addTextBtn = document.getElementById('btn-add-text');
+    if (addTextBtn && addTextBtn.parentNode === actions) {
+        actions.insertBefore(btn, addTextBtn);
+    } else {
+        actions.appendChild(btn);
+    }
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const layer = (window.state && state.getSelectedLayer) ? state.getSelectedLayer() : null;
+        if (!layer && typeof window.handleEmptyStateAI === 'function') {
+            window.handleEmptyStateAI();
+        } else if (typeof window.handleSmartRecommend === 'function') {
+            window.handleSmartRecommend();
+        } else if (typeof showBgToast === 'function') {
+            showBgToast('AI 推荐功能尚未就绪');
+        }
+    });
+}
+
+/* ============================================================
+   顶栏菜单动作重新绑定
+   原 actions 区的 btn-projects / btn-save-project / btn-saveas-project
+   已迁入「文件▾」菜单，btn-toggle-snap / btn-clear-guides 已迁入「视图▾」菜单。
+   ProjectManager.init / Guides.init 只对旧位置按钮做了绑定，迁移后需补绑。
+   ============================================================ */
+function rebindToolbarMenuActions() {
+    // 项目列表
+    const btnProjects = document.getElementById('btn-projects');
+    if (btnProjects && !btnProjects.dataset.rebound) {
+        btnProjects.dataset.rebound = '1';
+        btnProjects.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            if (window.ProjectManager && ProjectManager.openPanel) ProjectManager.openPanel();
+        });
+    }
+    // 保存
+    const btnSave = document.getElementById('btn-save-project');
+    if (btnSave && !btnSave.dataset.rebound) {
+        btnSave.dataset.rebound = '1';
+        btnSave.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            if (window.ProjectManager && ProjectManager.save) ProjectManager.save();
+        });
+    }
+    // 另存为
+    const btnSaveAs = document.getElementById('btn-saveas-project');
+    if (btnSaveAs && !btnSaveAs.dataset.rebound) {
+        btnSaveAs.dataset.rebound = '1';
+        btnSaveAs.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            if (window.ProjectManager && ProjectManager.saveAs) ProjectManager.saveAs();
+        });
+    }
+    // 上传字体
+    const btnUploadFont = document.getElementById('btn-upload-font');
+    if (btnUploadFont && !btnUploadFont.dataset.rebound) {
+        btnUploadFont.dataset.rebound = '1';
+        btnUploadFont.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            const fileInput = document.getElementById('local-font-file');
+            if (fileInput) fileInput.click();
+        });
+    }
+    // 管理字体
+    const btnManageFont = document.getElementById('btn-manage-font');
+    if (btnManageFont && !btnManageFont.dataset.rebound) {
+        btnManageFont.dataset.rebound = '1';
+        btnManageFont.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            if (typeof openFontManagerModal === 'function') openFontManagerModal();
+        });
+    }
+    // 吸附开关
+    const btnSnap = document.getElementById('btn-toggle-snap');
+    if (btnSnap && !btnSnap.dataset.rebound) {
+        btnSnap.dataset.rebound = '1';
+        btnSnap.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Guides.toggleSnap 内部会调 updateSnapButtonUI 更新 active 状态，此处不再手动翻转
+            if (window.Guides && Guides.toggleSnap) Guides.toggleSnap();
+        });
+    }
+    // 清参考线
+    const btnClearGuides = document.getElementById('btn-clear-guides');
+    if (btnClearGuides && !btnClearGuides.dataset.rebound) {
+        btnClearGuides.dataset.rebound = '1';
+        btnClearGuides.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            if (window.state) {
+                state.guides = [];
+                if (window.Guides && Guides.renderGuides) Guides.renderGuides();
+                if (state.saveState) state.saveState();
+            }
+        });
+    }
+
+    // 「视图」菜单打开时同步吸附开关按钮的 active 态
+    const viewMenuTrigger = document.querySelector('.menu-trigger[data-menu="view"]');
+    if (viewMenuTrigger && !viewMenuTrigger.dataset.rebound) {
+        viewMenuTrigger.dataset.rebound = '1';
+        viewMenuTrigger.addEventListener('click', () => {
+            const snap = document.getElementById('btn-toggle-snap');
+            if (snap && window.state) snap.classList.toggle('active', state.snapEnabled !== false);
+        });
+    }
+
+    // 首次加载时同步一次吸附开关的初始态
+    const snap0 = document.getElementById('btn-toggle-snap');
+    if (snap0 && window.state) {
+        snap0.classList.toggle('active', state.snapEnabled !== false);
+    }
+}
 
 function renderAll() {
     renderCanvas();
     renderLayerList();
     renderPageList();
     updateBackgroundView();
-    updateTopToolbarUI(state.getSelectedLayer());
+    if (typeof updateTopToolbarUI === 'function') {
+        try { updateTopToolbarUI(state.getSelectedLayer()); }
+        catch (e) {
+            console.error('[renderAll] updateTopToolbarUI 抛错:', e);
+            if (window.Utils && Utils.log) Utils.log.error('[renderAll] updateTopToolbarUI 抛错', e);
+        }
+    }
+    updateToolbarContext();
     if (window.BatchEdit && typeof BatchEdit.updateBadge === 'function') {
         try { BatchEdit.updateBadge(); } catch (e) {
             if (window.Utils && Utils.log) Utils.log.warn('[App] BatchEdit.updateBadge 失败', e);
         }
     }
 }
+
+/* ============================================================
+   工具栏上下文显隐（P1）
+   规则：data-ctx="always" 永远显示；"text" 仅单选文字；"multi" 仅多选
+   ============================================================ */
+function updateToolbarContext() {
+    const toolbar = document.getElementById('text-toolbar');
+    if (!toolbar) return;
+
+    const layer = (window.state && state.getSelectedLayer) ? state.getSelectedLayer() : null;
+    const selectedCount = (window.state && state.selectedLayerIds) ? state.selectedLayerIds.length : 0;
+    const isMulti = selectedCount > 1;
+    const isText = !!(layer && layer.type === 'text');
+
+    // 有选中任何东西时，工具栏激活（去掉 is-inactive）
+    const shouldActivate = !!layer || isMulti;
+    toolbar.classList.toggle('is-inactive', !shouldActivate);
+
+    toolbar.querySelectorAll('.toolbar-group[data-ctx]').forEach(group => {
+        const ctx = group.dataset.ctx;
+        let show = false;
+        if (ctx === 'always') show = true;
+        else if (ctx === 'text') show = isText && !isMulti;  // 多选时让位于图层组
+        else if (ctx === 'multi') show = isMulti;
+        group.hidden = !show;
+    });
+
+    // 空状态引导：未选中时在文字组位置显示提示 + AI 推荐入口（幂等，只创建一次）
+    let emptyHint = toolbar.querySelector('.toolbar-empty-hint');
+    if (!emptyHint) {
+        emptyHint = document.createElement('div');
+        emptyHint.className = 'toolbar-empty-hint';
+        emptyHint.style.cssText = 'display:flex; align-items:center; gap:10px; color:#6e7681; font-size:12px; padding:0 12px; height:32px; white-space:nowrap;';
+        emptyHint.innerHTML =
+            '<span style="display:inline-flex;align-items:center;gap:6px;"><i class="fa-solid fa-arrow-pointer" style="font-size:11px;"></i> 点击画布中的图层开始编辑</span>' +
+            '<span style="width:1px;height:14px;background:#30363d;"></span>' +
+            '<button type="button" class="toolbar-ai-btn" title="根据当前内容智能匹配背景与特效"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 智能生成</button>';
+        // 插到 always 组（全局菜单）后面，而不是工具栏末尾
+        const alwaysGroup = toolbar.querySelector('.toolbar-group[data-ctx="always"]');
+        if (alwaysGroup && alwaysGroup.nextSibling) {
+            toolbar.insertBefore(emptyHint, alwaysGroup.nextSibling);
+        } else if (alwaysGroup) {
+            toolbar.appendChild(emptyHint);
+        } else {
+            toolbar.appendChild(emptyHint);
+        }
+        // AI 推荐按钮绑定（空状态时走 handleEmptyStateAI，有选中时走 handleSmartRecommend）
+        const aiBtn = emptyHint.querySelector('.toolbar-ai-btn');
+        if (aiBtn) {
+            aiBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const layer = (window.state && state.getSelectedLayer) ? state.getSelectedLayer() : null;
+                if (!layer && typeof window.handleEmptyStateAI === 'function') {
+                    window.handleEmptyStateAI();
+                } else if (typeof window.handleSmartRecommend === 'function') {
+                    window.handleSmartRecommend();
+                } else if (typeof showBgToast === 'function') {
+                    showBgToast('AI 推荐功能尚未就绪');
+                }
+            });
+        }
+    }
+    emptyHint.hidden = shouldActivate;
+
+    // 文字更多菜单触发按钮：无文字图层时灰显禁用（用 class 控制，disabled 会丢 tooltip）
+    const moreTrigger = toolbar.querySelector('.menu-trigger[data-menu="text-more"]');
+    if (moreTrigger) {
+        moreTrigger.classList.toggle('is-disabled', !isText);
+        moreTrigger.setAttribute('aria-disabled', String(!isText));
+    }
+
+    // 图层组里的多选徽章：仅在多选时显示
+    const multiBadge = document.getElementById('multi-edit-badge');
+    if (multiBadge) {
+        multiBadge.style.display = (isMulti && layer) ? 'inline-flex' : 'none';
+    }
+}
+
+/* ============================================================
+   空状态 AI 推荐：无选中图层时，先新建文字图层 → 套智能背景
+   ============================================================ */
+function handleEmptyStateAI() {
+    if (!window.state) return;
+    // 先补一个文字图层（用户能看到“变化”）
+    const newLayer = {
+        id: 'text-' + Date.now(),
+        type: 'text',
+        content: '🔥 双击编辑爆款标题',
+        fontSize: '32px',
+        fontFamily: 'sans-serif',
+        color: '#ffffff',
+        bgColor: 'transparent',
+        bold: true, italic: false, underline: false, strike: false,
+        align: 'center', vertical: false,
+        letterSpacing: 0, lineHeight: 1.2, opacity: 1,
+        effectClass: 'effect-viral',
+        rotation: 0, flipH: false, flipV: false,
+        x: 35, y: 220, width: 290, height: 120,
+        heightMode: 'auto'
+    };
+    state.addLayer(newLayer);
+    if (typeof renderAll === 'function') renderAll();
+    // 再套智能背景
+    if (typeof window.handleSmartRecommend === 'function') {
+        setTimeout(() => { try { window.handleSmartRecommend(); } catch (e) {} }, 100);
+    }
+}
+window.handleEmptyStateAI = handleEmptyStateAI;
+
+/* ============================================================
+   工具栏菜单下拉（文件 / 视图 / 文字更多）
+   ============================================================ */
+function initToolbarMenus() {
+    if (window.__toolbarMenusInited) return;
+    window.__toolbarMenusInited = true;
+
+    function positionPanel(trigger, panel) {
+        // ✅ 用 fixed 定位相对视口，避免被顶栏 overflow 裁切
+        panel.classList.add('open');
+        panel.style.visibility = 'hidden';
+        panel.style.position = 'fixed';
+        panel.style.left = '0px';
+        panel.style.top = '0px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+
+        const pr = panel.getBoundingClientRect();
+        const tr = trigger.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        let left = tr.left;
+        let top = tr.bottom + 6;
+
+        // 右侧溢出 → 靠右对齐
+        if (left + pr.width > vw - 8) {
+            left = Math.max(8, tr.right - pr.width);
+        }
+        // 下方溢出 → 向上弹出
+        if (top + pr.height > vh - 8 && tr.top - pr.height - 6 > 8) {
+            top = tr.top - pr.height - 6;
+        }
+
+        panel.style.left = left + 'px';
+        panel.style.top = top + 'px';
+        panel.style.visibility = '';
+    }
+
+    const triggers = document.querySelectorAll('.menu-trigger');
+    triggers.forEach(trigger => {
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (trigger.classList.contains('is-disabled')) return;
+            const menuName = trigger.dataset.menu;
+            const panel = document.getElementById(`menu-${menuName}-panel`);
+            if (!panel) return;
+            const isOpen = panel.classList.contains('open');
+            // 先关掉所有其它面板
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            if (!isOpen) {
+                if (typeof window.__hideTooltipImmediate === 'function') {
+                    window.__hideTooltipImmediate();
+                }
+                positionPanel(trigger, panel);
+            }
+        });
+    });
+
+    // 点击面板外关闭（mark-popover / 顶栏自身 / 菜单内点击 不计入外部）
+    document.addEventListener('click', (e) => {
+        if (e.target.closest('.menu-dropdown')) return;
+        if (e.target.closest('#mark-popover')) return;
+        if (e.target.closest('.mark-popover')) return;
+        // 点击顶栏其它按钮（如 B/I/U/S）不应关闭已经打开的菜单
+        if (e.target.closest('#text-toolbar') && !e.target.closest('.menu-panel')) return;
+        document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+    });
+
+    // 菜单内部的一次性动作按钮（非 range/color/select）：点击后自动关闭菜单
+    document.addEventListener('click', (e) => {
+        const menuPanel = e.target.closest('.menu-panel');
+        if (!menuPanel) return;
+        const tag = (e.target.tagName || '').toLowerCase();
+        if (tag === 'input' && (e.target.type === 'range' || e.target.type === 'color' || e.target.type === 'number')) return;
+        if (tag === 'select') return;
+        if (tag === 'option') return;
+        // 点击的按钮若显式声明 data-keep-open，则保留菜单
+        if (e.target.closest('[data-keep-open]')) return;
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        // 与 menu-trigger 同级的触发按钮不关闭（切菜单时由 trigger 逻辑控制）
+        if (btn.classList.contains('menu-trigger')) return;
+        menuPanel.classList.remove('open');
+    });
+
+    // ESC 关闭
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+        }
+    });
+
+    // 窗口尺寸变化时关闭已打开菜单，避免锚点漂移（若焦点在滑块/颜色控件则保留）
+    window.addEventListener('resize', () => {
+        const ae = document.activeElement;
+        if (ae && ae.tagName === 'INPUT' && (ae.type === 'range' || ae.type === 'color')) return;
+        document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+    });
+    // 只在画布容器滚动时关闭菜单，避免顶栏自身横滚（overflow-x:auto）触发菜单关闭
+    const canvasContainerEl = document.querySelector('.canvas-container');
+    if (canvasContainerEl) {
+        canvasContainerEl.addEventListener('scroll', () => {
+            if (document.querySelector('.menu-panel.open')) {
+                document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
+            }
+        }, { passive: true });
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initToolbarMenus();
+    setTimeout(() => { try { updateToolbarContext(); } catch (e) {} }, 200);
+});
 
 function initPaginationModule() {
     const btnAddPage = document.getElementById('btn-add-page');
@@ -115,6 +495,10 @@ function enterTextEditMode(layerId) {
         state.selectedLayerIds = [layerId];
     }
     state.editingLayerId = layerId;
+
+    if (window.FloatingToolbar && typeof FloatingToolbar.hide === 'function') {
+        try { FloatingToolbar.hide(); } catch (e) {}
+    }
 
     renderCanvas();
     renderLayerList();
@@ -889,6 +1273,18 @@ if (bgBoxEffectId) {
     el.style.fontSize = _fontSizePx + 'px';
     el.style.pointerEvents = 'auto';
 }
+} else if (layer.type === 'shape') {
+    // 形状图层：内层 DOM 由 Shapes 模块构建；这里先挂占位，Shapes 的 render patch 会补
+    el.style.background = 'transparent';
+    el.style.border = 'none';
+    el.style.overflow = 'visible';
+    if (window.Shapes && typeof Shapes.buildShapeDom === 'function') {
+        try {
+            el.appendChild(Shapes.buildShapeDom(layer));
+        } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[App] Shapes.buildShapeDom 失败', e);
+        }
+    }
 }
 
             ['nw', 'ne', 'sw', 'se'].forEach(dir => {
@@ -937,6 +1333,12 @@ if (bgBoxEffectId) {
     container.scrollLeft = _prevScrollLeft;
     // 重建 DOM 后重绘涂鸦画布
     if (window.Doodle) Doodle.redrawDrawLayers();
+    // 同步浮动工具条位置与显隐
+    if (window.FloatingToolbar && typeof FloatingToolbar.sync === 'function') {
+        try { FloatingToolbar.sync(); } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[App] FloatingToolbar.sync 失败', e);
+        }
+    }
 
 }
 
@@ -953,8 +1355,16 @@ function renderLayerList() {
         item.className = `layer-item ${isSel ? 'active' : ''}`;
                 const cleanContent = layer.type === 'draw'
             ? `${layer.mode === 'eraser' ? '橡皮' : (layer.mode === 'highlighter' ? '高亮' : '笔迹')}`
-            : (layer.content || '').replace(/<[^>]*>/g, '').substring(0, 10);
-                const iconName = layer.type === 'text' ? 'fa-font' : (layer.type === 'draw' ? 'fa-paintbrush' : 'fa-face-smile');
+            : layer.type === 'shape'
+                ? ({ rect: '矩形', ellipse: '圆形', line: '直线', arrow: '箭头' }[layer.shapeKind] || '形状')
+                : (layer.content || '').replace(/<[^>]*>/g, '').substring(0, 10);
+        const iconName = layer.type === 'text'
+            ? 'fa-font'
+            : layer.type === 'draw'
+                ? 'fa-paintbrush'
+                : layer.type === 'shape'
+                    ? ({ rect: 'fa-square', ellipse: 'fa-circle', line: 'fa-minus', arrow: 'fa-arrow-right' }[layer.shapeKind] || 'fa-shapes')
+                    : 'fa-face-smile';
         const typeLabel = layer.type === 'sticker' ? `[${layer.stickerType || 'emoji'}]` : '';
         const lockBadge = layer.locked
             ? '<span class="layer-lock-badge" title="已锁定">🔒</span>'

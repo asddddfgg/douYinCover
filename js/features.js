@@ -249,8 +249,20 @@ const Features = (function () {
             if (!markPopover || !anchorEl) return;
             const rect = anchorEl.getBoundingClientRect();
             markPopover.style.display = 'block';
-            markPopover.style.left = Math.max(8, rect.left) + 'px';
-            markPopover.style.top = (rect.bottom + 6) + 'px';
+            // 先展示测宽高，再决定左右/上下翻转
+            markPopover.style.visibility = 'hidden';
+            markPopover.style.left = '0px';
+            markPopover.style.top = '0px';
+            const pr = markPopover.getBoundingClientRect();
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            let left = Math.max(8, rect.left);
+            let top = rect.bottom + 6;
+            if (left + pr.width > vw - 8) left = Math.max(8, vw - pr.width - 8);
+            if (top + pr.height > vh - 8) top = Math.max(8, rect.top - pr.height - 6);
+            markPopover.style.left = left + 'px';
+            markPopover.style.top = top + 'px';
+            markPopover.style.visibility = '';
         }
         function closeMarkPopover() {
             if (markPopover) markPopover.style.display = 'none';
@@ -260,20 +272,24 @@ const Features = (function () {
             tbMark.addEventListener('mousedown', (e) => {
                 // mousedown 阶段冻结选区（此时焦点还在编辑区）
                 e.preventDefault();
+                e.stopPropagation();
                 freezeMarkSelection(e);
             });
             tbMark.addEventListener('click', (e) => {
                 e.stopPropagation();
+                e.preventDefault();
                 const isOpen = markPopover && markPopover.style.display === 'block';
                 if (isOpen) closeMarkPopover();
                 else openMarkPopover(tbMark);
             });
         }
-        // 点击面板外面关闭
+        // 点击面板外面关闭（菜单内其它控件不触发关闭）
         document.addEventListener('click', (e) => {
             if (!markPopover || markPopover.style.display !== 'block') return;
             if (markPopover.contains(e.target)) return;
             if (e.target.closest('#tb-mark')) return;
+            // 菜单面板内的交互不关闭标记 popover
+            if (e.target.closest('.menu-panel')) return;
             closeMarkPopover();
         });
 
@@ -308,8 +324,11 @@ const Features = (function () {
         // 顶部工具栏的“清除标记”按钮：唯一清除入口
         const tbMarkClear = document.getElementById('tb-mark-clear');
         if (tbMarkClear) {
-            tbMarkClear.addEventListener('click', () => {
+            tbMarkClear.addEventListener('click', (e) => {
+                e.stopPropagation();
                 clearMark();
+                // 关闭任何打开的菜单面板
+                document.querySelectorAll('.menu-panel.open').forEach(p => p.classList.remove('open'));
             });
         }
         const markColorInput = document.getElementById('mark-color');
