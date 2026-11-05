@@ -13,12 +13,26 @@
 //         normalizeBackground / renderBgPresetGrid / updateBackgroundView）
 // 加载顺序：必须晚于 app.js（本文件函数声明覆盖 app.js 同名旧声明）
 // ============================================================
-
 window.__BACKGROUND_CORE_READY__ = true;
 
+/* ============================================================
+   背景模块当前状态（国际化精简版）
+   ------------------------------------------------------------
+   ✅ 保留：我的收藏网格、高级自定义（渐变/纯色/图片）、
+            快捷收藏条、图片背景上传、叠加层面板、品牌预设
+   🚫 已删 UI：智能推荐按钮、随机高级背景按钮、从图片提取按钮、
+              拖拽提示条、9 个分类 Tab（热门/清新/暗黑/炫彩/纯色/
+              节日/知识/最近）
+   📦 底层保留：BG_PRESETS 全量数据、handleSmartRecommend、
+              handleRandomAdvanced、handleExtractColorClick、
+              initExtractFileInput（供 AI 契约 / 品牌模板 / 未来
+              恢复按钮直接复用，勿删）
+   🔧 分类固定：currentBgCategory = 'fav'（setBgCategory 强制
+              写 'fav'）
+   ============================================================ */
+
 // ============================================================
-// 第一组：背景状态归一化 + CSS 生成 + 应用到画布
-// 从 app.js 逐字迁入，函数名不变，覆盖 app.js 里的同名声明
+// 第一组：背景状态归一化 + CSS 生成 + 应用到画布// 从 app.js 逐字迁入，函数名不变，覆盖 app.js 里的同名声明
 // ============================================================
 
 function normalizeBackground(bg) {
@@ -116,6 +130,29 @@ function normalizeBackground(bg) {
     base.overlayStops = hardDefaults.overlayStops.map(s => ({...s}));
   }
   base.overlayCenter = Object.assign({ x: 50, y: 40 }, base.overlayCenter || {});
+
+  // ✅ 修复：presetId 有值就无条件用预设颜色覆盖（避免 migrateLegacy 填的默认色干扰）
+  if (base.presetId) {
+    try {
+      const allPresets = (typeof getAllBgPresets === 'function') ? getAllBgPresets() : (window.BG_PRESETS || []);
+      const preset = allPresets.find(p => p.id === base.presetId);
+      if (preset && preset.color1) {
+        base.color1 = preset.color1;
+        base.color2 = preset.color2 || preset.color1;
+        if (preset.angle != null) base.angle = preset.angle;
+        if (preset.texture) base.texture = preset.texture;
+        base.type = preset.type || (preset.color2 && preset.color2 !== preset.color1 ? 'gradient' : 'solid');
+        if (base.__v2 && base.__v2.base) {
+          base.__v2.base.color1 = preset.color1;
+          base.__v2.base.color2 = preset.color2 || preset.color1;
+          if (preset.angle != null) base.__v2.base.angle = preset.angle;
+          if (preset.type) base.__v2.base.kind = preset.type === 'solid' ? 'solid' : 'gradient';
+        }
+      }
+    } catch (e) {
+      if (window.Utils && Utils.log) Utils.log.warn('[BG] presetId 反查颜色失败', e);
+    }
+  }
 
   return base;
 }
@@ -287,7 +324,8 @@ function pushRecentPresetId(id) {
 }
 
 function findPresetById(id) {
-    return (window.BG_PRESETS || []).find(p => p.id === id)
+    const all = (typeof getAllBgPresets === 'function') ? getAllBgPresets() : (window.BG_PRESETS || []);
+    return all.find(p => p.id === id)
         || getCustomBgFavs().find(p => p.id === id)
         || null;
 }
@@ -332,7 +370,6 @@ function applyPresetToState(preset) {
     pushRecentPresetId(preset.id);
     state.saveState();
 }
-
 function renderBgPresetGrid() {
     const grid = document.getElementById('bg-preset-grid');
     if (!grid) return;
@@ -341,127 +378,24 @@ function renderBgPresetGrid() {
     const favIds = getFavPresetIds();
     const currentPresetId = (state.background && state.background.presetId) || null;
     const store = (typeof getFavImageStore === 'function') ? getFavImageStore() : {};
-    const currentBgCategory = (typeof window.__currentBgCategory !== 'undefined')
-        ? window.__currentBgCategory
-        : (window.currentBgCategory || 'hot');
 
-    if (currentBgCategory === 'fav') {
-        const presetList = favIds.map(id => findPresetById(id)).filter(Boolean);
-        const imgKeys = favIds.filter(id => store[id] && (id.startsWith('img-') || id.startsWith('url-')));
-
-        if (presetList.length === 0 && imgKeys.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'bg-preset-empty';
-            empty.innerHTML = '还没有收藏任何背景<br><small style="color:#6e7681;">点击任意预设右上角 ★ 或「收藏当前背景」即可收藏</small>';
-            grid.appendChild(empty);
-            return;
-        }
-
-        presetList.forEach(preset => {
-            const card = document.createElement('div');
-            card.className = 'bg-preset-card';
-            card.dataset.presetId = preset.id;
-            if (preset.id === currentPresetId) card.classList.add('active');
-            if (favIds.includes(preset.id)) card.classList.add('fav-on');
-
-            const swatch = document.createElement('div');
-            swatch.className = 'bp-swatch';
-            swatch.style.background = backgroundToCss(preset);
-            if (preset.texture === 'grid') swatch.style.backgroundSize = '22px 22px, 22px 22px, 100% 100%';
-            if (preset.texture === 'dots') swatch.style.backgroundSize = '14px 14px, 100% 100%';
-            card.appendChild(swatch);
-
-            const label = document.createElement('div');
-            label.className = 'bp-label';
-            label.textContent = preset.name;
-            card.appendChild(label);
-
-            const star = document.createElement('div');
-            star.className = 'bp-star';
-            star.innerHTML = '★';
-            star.title = '取消收藏';
-            star.addEventListener('click', (e) => {
-                e.stopPropagation();
-                toggleFavPreset(preset.id);
-            });
-            card.appendChild(star);
-
-            card.addEventListener('click', () => applyPresetToState(preset));
-            grid.appendChild(card);
-        });
-
-        imgKeys.forEach(key => {
-            const entry = store[key];
-            if (!entry) return;
-
-            const card = document.createElement('div');
-            card.className = 'bg-preset-card is-uploaded';
-            card.dataset.presetId = key;
-
-            const curBg = state.background;
-            if (curBg && curBg.type === 'image' &&
-                ((curBg.customImageId && ('img-' + curBg.customImageId) === key) ||
-                 (!curBg.customImageId && curBg.imageUrl === entry.dataUrl))) {
-                card.classList.add('active');
-            }
-
-            const swatch = document.createElement('div');
-            swatch.className = 'bp-swatch';
-            if (entry.dataUrl) {
-                swatch.style.background = `url(${entry.dataUrl}) center/cover no-repeat`;
-            } else {
-                swatch.style.background = '#30363d';
-            }
-            card.appendChild(swatch);
-
-            const label = document.createElement('div');
-            label.className = 'bp-label';
-            label.textContent = '图片背景';
-            card.appendChild(label);
-
-            const del = document.createElement('div');
-            del.className = 'bp-star';
-            del.style.background = '#f85149';
-            del.style.color = '#fff';
-            del.innerHTML = '×';
-            del.title = '移出收藏';
-            del.style.display = 'flex';
-            del.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (confirm('从收藏夹移除这张图片背景？')) {
-                    toggleFavPreset(key);
-                }
-            });
-            card.appendChild(del);
-
-            card.addEventListener('click', () => {
-                applyFavImageEntry(key);
-            });
-
-            grid.appendChild(card);
-        });
-
-        return;
-    }
-
-    const list = getPresetsByCategory(currentBgCategory);
-
-    if (list.length === 0) {
+    // 空收藏 → 引导卡片
+    if (favIds.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'bg-preset-empty';
-        empty.innerHTML = currentBgCategory === 'recent'
-            ? '暂无最近使用记录<br><small style="color:#6e7681;">应用任意预设后会自动出现在这里</small>'
-            : '暂无预设';
+        empty.innerHTML = '🎨 还没有收藏任何背景<br><small style="color:#6e7681;">用下面的「高级自定义」调一个，然后点「收藏当前背景 ⭐」</small>';
         grid.appendChild(empty);
         return;
     }
 
-    list.forEach(preset => {
+    // 收藏的预设
+    const presetList = favIds.map(id => findPresetById(id)).filter(Boolean);
+    presetList.forEach(preset => {
         const card = document.createElement('div');
         card.className = 'bg-preset-card';
         card.dataset.presetId = preset.id;
         if (preset.id === currentPresetId) card.classList.add('active');
-        if (favIds.includes(preset.id)) card.classList.add('fav-on');
+        card.classList.add('fav-on');
 
         const swatch = document.createElement('div');
         swatch.className = 'bp-swatch';
@@ -478,7 +412,7 @@ function renderBgPresetGrid() {
         const star = document.createElement('div');
         star.className = 'bp-star';
         star.innerHTML = '★';
-        star.title = '收藏 / 取消收藏';
+        star.title = '取消收藏';
         star.addEventListener('click', (e) => {
             e.stopPropagation();
             toggleFavPreset(preset.id);
@@ -488,111 +422,78 @@ function renderBgPresetGrid() {
         card.addEventListener('click', () => applyPresetToState(preset));
         grid.appendChild(card);
     });
-}
 
-function getPresetsByCategory(cat) {
-    if (cat === 'fav') {
+    // 收藏的图片背景
+    const imgKeys = favIds.filter(id => store[id] && (id.startsWith('img-') || id.startsWith('url-')));
+    imgKeys.forEach(key => {
+        const entry = store[key];
+        if (!entry) return;
+        const card = document.createElement('div');
+        card.className = 'bg-preset-card is-uploaded';
+        card.dataset.presetId = key;
+
+        const curBg = state.background;
+        if (curBg && curBg.type === 'image' &&
+            ((curBg.customImageId && ('img-' + curBg.customImageId) === key) ||
+             (!curBg.customImageId && curBg.imageUrl === entry.dataUrl))) {
+            card.classList.add('active');
+        }
+
+        const swatch = document.createElement('div');
+        swatch.className = 'bp-swatch';
+        if (entry.dataUrl) swatch.style.background = `url(${entry.dataUrl}) center/cover no-repeat`;
+        else swatch.style.background = '#30363d';
+        card.appendChild(swatch);
+
+        const label = document.createElement('div');
+        label.className = 'bp-label';
+        label.textContent = '图片背景';
+        card.appendChild(label);
+
+        const del = document.createElement('div');
+        del.className = 'bp-star';
+        del.style.background = '#f85149';
+        del.style.color = '#fff';
+        del.innerHTML = '×';
+        del.title = '移出收藏';
+        del.style.display = 'flex';
+        del.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (confirm('从收藏夹移除这张图片背景？')) toggleFavPreset(key);
+        });
+        card.appendChild(del);
+
+        card.addEventListener('click', () => applyFavImageEntry(key));
+        grid.appendChild(card);
+    });
+
+    return;
+}
+/* 旧分类渲染逻辑已删除（currentBgCategory 永远 = 'fav'，不可达） */
+
+function getPresetsByCategory(cat) {if (cat === 'fav') {
         const favIds = getFavPresetIds();
         return favIds.map(id => findPresetById(id)).filter(Boolean);
     }
     if (cat === 'recent') {
         return getRecentPresetIds().map(id => findPresetById(id)).filter(Boolean);
     }
-    return (window.BG_PRESETS || []).filter(p => p.cat === cat);
+    const all = (typeof getAllBgPresets === 'function') ? getAllBgPresets() : (window.BG_PRESETS || []);
+    return all.filter(p => p.cat === cat);
 }
-
 function renderFavBackgrounds() {
-    const listEl = document.getElementById('fav-bg-list');
-    if (!listEl) return;
-    listEl.innerHTML = '';
-
-    const favIds = getFavPresetIds();
-    const store = (typeof getFavImageStore === 'function') ? getFavImageStore() : {};
-
-    if (favIds.length === 0) {
-        const demo = (window.BG_PRESETS || []).filter(p => p.cat === 'hot').slice(0, 4);
-        demo.forEach(preset => listEl.appendChild(buildFavQuickItem(preset, false)));
-        return;
-    }
-
-    favIds.forEach(id => {
-        if (store[id] && (id.startsWith('img-') || id.startsWith('url-'))) {
-            listEl.appendChild(buildFavQuickImageItem(id, store[id], true));
-            return;
-        }
-        const preset = findPresetById(id);
-        if (preset) listEl.appendChild(buildFavQuickItem(preset, true));
-    });
+    // 方案 A：已删除 fav-bg-list，收藏展示统一由 renderBgPresetGrid 负责
+    // （收藏当前背景按钮会主动调 renderBgPresetGrid，把新收藏推进横滑条）
+    return;
 }
+/* 方案 A 后：buildFavQuickItem / buildFavQuickImageItem 已无调用方（fav-bg-list 已删）
+   如需恢复「快捷收藏」小色块列表，从 git 历史恢复本段 */
 
-function buildFavQuickItem(preset, showDelete) {
-    const item = document.createElement('div');
-    item.style.cssText = 'height: 32px; border-radius: 4px; border: 1px solid #30363d; cursor: pointer; position: relative; overflow: hidden;';
-    item.style.background = backgroundToCss(preset);
-    if (preset.texture === 'grid') item.style.backgroundSize = '22px 22px, 22px 22px, 100% 100%';
-    if (preset.texture === 'dots') item.style.backgroundSize = '14px 14px, 100% 100%';
-    item.title = `点击应用「${preset.name}」`;
-
-    item.addEventListener('click', () => applyPresetToState(preset));
-
-    if (showDelete) {
-        const del = document.createElement('div');
-        del.innerHTML = '×';
-        del.title = '取消收藏';
-        del.style.cssText = 'position:absolute;top:1px;right:1px;width:14px;height:14px;background:#f85149;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;z-index:5;font-weight:bold;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,0.5);';
-        del.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (confirm(`把「${preset.name}」从收藏夹移除？`)) {
-                toggleFavPreset(preset.id);
-            }
-        });
-        item.appendChild(del);
-    }
-
-    return item;
-}
-
-function buildFavQuickImageItem(key, entry, showDelete) {
-    const item = document.createElement('div');
-    item.dataset.favImgKey = key;
-    item.style.cssText = 'height: 32px; border-radius: 4px; border: 1px solid #30363d; cursor: pointer; position: relative; overflow: hidden;';
-    if (entry.dataUrl) {
-        item.style.background = `url(${entry.dataUrl}) center/cover no-repeat`;
-    } else {
-        item.style.background = '#30363d';
-    }
-    item.title = '点击应用这张图片背景';
-
-    item.addEventListener('click', () => applyFavImageEntry(key));
-
-    if (showDelete) {
-        const del = document.createElement('div');
-        del.innerHTML = '×';
-        del.title = '取消收藏';
-        del.style.cssText = 'position:absolute;top:1px;right:1px;width:14px;height:14px;background:#f85149;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;z-index:5;font-weight:bold;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,0.5);';
-        del.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (confirm('把这张图片背景从收藏夹移除？')) {
-                toggleFavPreset(key);
-            }
-        });
-        item.appendChild(del);
-    }
-
-    return item;
-}
-
-window.getCustomBgFavs = getCustomBgFavs;
-window.applyPresetToState = applyPresetToState;
+window.getCustomBgFavs = getCustomBgFavs;window.applyPresetToState = applyPresetToState;
 window.renderBgPresetGrid = renderBgPresetGrid;
 window.getPresetsByCategory = getPresetsByCategory;
 window.renderFavBackgrounds = renderFavBackgrounds;
-window.buildFavQuickItem = buildFavQuickItem;
-window.buildFavQuickImageItem = buildFavQuickImageItem;
-
-console.log('[BackgroundCore] 第三组函数已接管：预设网格渲染 / 应用预设 / 自定义收藏');
-
-// ============================================================
+/* 方案 A 后：buildFavQuickItem / buildFavQuickImageItem 已无调用方（fav-bg-list 已删），不再导出到 window */console.log('[BackgroundCore] 第三组函数已接管：预设网格渲染 / 应用预设 / 自定义收藏');// ============================================================
 // 第四组（最终块）：分类状态同步 + 收藏切换 + 智能推荐/随机/提取 + toast + 面板初始化
 // ============================================================
 
@@ -600,22 +501,20 @@ console.log('[BackgroundCore] 第三组函数已接管：预设网格渲染 / �
 if (typeof window.__currentBgCategory === 'undefined') {
     window.__currentBgCategory = 'hot';
 }
-function setBgCategory(cat) {
-    window.__currentBgCategory = cat;
+function setBgCategory(_cat) {
+    // 参数已废弃（分类固定 'fav'），保留签名兼容旧调用
+    window.__currentBgCategory = 'fav';
     if (typeof window.currentBgCategory !== 'undefined') {
-        try { window.currentBgCategory = cat; } catch (e) {
+        try { window.currentBgCategory = 'fav'; } catch (e) {
             if (window.Utils && Utils.log) Utils.log.warn('[BG] 同步 currentBgCategory 失败', e);
         }
     }
 }
-function getBgCategory() {
-    return window.__currentBgCategory || 'hot';
+function getBgCategory() {return window.__currentBgCategory || 'fav';
 }
-
 function toggleFavPreset(id) {
     let favIds = getFavPresetIds();
-    if (favIds.includes(id)) {
-        favIds = favIds.filter(x => x !== id);
+    if (favIds.includes(id)) {favIds = favIds.filter(x => x !== id);
         if (id.startsWith('img-') || id.startsWith('url-')) {
             if (typeof removeFavImageEntry === 'function') removeFavImageEntry(id);
         }
@@ -636,13 +535,16 @@ function toggleFavPreset(id) {
     }
     saveFavPresetIds(favIds);
     renderBgPresetGrid();
-    renderFavBackgrounds();
+    if (typeof renderFavBackgrounds === 'function') renderFavBackgrounds();
 }
 
+/* ============================================================
+   以下 3 个函数保留但当前无 UI 入口（预设库已移除）保留原因：AI 契约、品牌模板、未来一键恢复按钮时直接复用
+   ============================================================ */
 function handleSmartRecommend() {
     const layer = state.getSelectedLayer && state.getSelectedLayer();
     let candidates = [];
-    const presets = window.BG_PRESETS || [];
+    const presets = (typeof getAllBgPresets === 'function') ? getAllBgPresets() : (window.BG_PRESETS || []);
     const kwMap = window.SMART_KEYWORD_MAP || [];
     const fxMap = window.SMART_EFFECT_MAP || {};
 
@@ -675,18 +577,15 @@ function handleSmartRecommend() {
     const preset = findPresetById(pickId);
     if (preset) {
         applyPresetToState(preset);
-        showBgToast(`智能推荐：<b>${preset.name}</b> ✨`);
-        setTimeout(() => {
-            const card = document.querySelector(`.bg-preset-card[data-preset-id="${preset.id}"]`);
-            if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }, 80);
+        showBgToast('智能推荐：<b>' + preset.name + '</b> ✨');
     }
 }
 
+// 保留供 AI 契约 / 品牌模板调用，当前无 UI 入口
 function handleRandomAdvanced() {
-    const presets = window.BG_PRESETS || [];
+    const presets = (typeof getAllBgPresets === 'function') ? getAllBgPresets() : (window.BG_PRESETS || []);
     const pool = presets.filter(p =>
-        ['hot', 'fresh', 'dark', 'neon', 'festival', 'knowledge'].includes(p.cat)
+        ['hot', 'fresh', 'dark', 'neon', 'festival', 'knowledge', 'brand'].includes(p.cat)
     );
     const currentId = state.background && state.background.presetId;
     const filtered = pool.filter(p => p.id !== currentId);
@@ -694,15 +593,16 @@ function handleRandomAdvanced() {
     const pick = finalPool[Math.floor(Math.random() * finalPool.length)];
     if (pick) {
         applyPresetToState(pick);
-        showBgToast(`随机高级背景：<b>${pick.name}</b> 🎲`);
+        showBgToast('随机高级背景：<b>' + pick.name + '</b> 🎲');
     }
 }
 
+// 保留供 AI 契约 / 品牌模板调用，当前无 UI 入口
 function handleExtractColorClick() {
     const layer = state.getSelectedLayer && state.getSelectedLayer();
     if (layer && layer.type === 'sticker' && layer.content) {
         if (layer.content.startsWith('data:image') || /^https?:/.test(layer.content)) {
-            extractColorsFromImageSrc(layer.content, `贴纸「${layer.stickerType || 'image'}」`);
+            extractColorsFromImageSrc(layer.content, '贴纸「' + (layer.stickerType || 'image') + '」');
             return;
         }
     }
@@ -720,21 +620,23 @@ function extractColorsFromImageSrc(src, sourceLabel) {
                 showBgToast('未能提取到足够颜色，请换一张图试试', 3000);
                 return;
             }
-            const [c1, c2] = buildHarmoniousGradientColors(colors);
+            const hc = buildHarmoniousGradientColors(colors);
+            const c1 = hc[0];
+            const c2 = hc[1];
             const angle = 90 + Math.floor(Math.random() * 90);
             state.background = normalizeBackground({
                 type: 'gradient',
                 color1: c1,
                 color2: c2,
                 imageUrl: '',
-                angle,
+                angle: angle,
                 texture: 'none',
                 presetId: null
             });
             applyBackgroundToCanvases(state.background);
             syncBgPanelInputs(state.background);
             state.saveState();
-            showBgToast(`已从${sourceLabel}提取主色生成渐变 🎨`);
+            showBgToast('已从' + sourceLabel + '提取主色生成渐变 🎨');
         } catch (err) {
             console.error(err);
             showBgToast('提取失败：' + err.message, 3200);
@@ -744,8 +646,7 @@ function extractColorsFromImageSrc(src, sourceLabel) {
     img.src = src;
 }
 
-function extractDominantColors(img, count) {
-    const maxW = 120, maxH = 120;
+function extractDominantColors(img, count) {const maxW = 120, maxH = 120;
     let w = img.naturalWidth || img.width;
     let h = img.naturalHeight || img.height;
     if (!w || !h) throw new Error('图片尺寸为 0');
@@ -875,21 +776,9 @@ function buildHarmoniousGradientColors(extracted) {
     const c2 = rgbToHex(hslToRgb(h2, s2, l2));
     return [c1, c2];
 }
-
+// 保留供未来恢复「从图片提取」按钮时复用，当前无 UI 入口
 function initExtractFileInput() {
-    const input = document.getElementById('bg-extract-file');
-    if (!input || input.dataset.bound === 'true') return;
-    input.dataset.bound = 'true';
-    input.addEventListener('change', (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-            extractColorsFromImageSrc(evt.target.result, `图片「${file.name}」`);
-        };
-        reader.readAsDataURL(file);
-        input.value = '';
-    });
+    // 无 UI 入口，空壳保留
 }
 
 function showBgToast(html, duration) {
@@ -912,26 +801,10 @@ function showBgToast(html, duration) {
 function initBackgroundPanelV2() {
     state.background = normalizeBackground(state.background);
 
-    const bAi = document.getElementById('bg-smart-recommend');
-    const bRand = document.getElementById('bg-random-advanced');
-    const bExtract = document.getElementById('bg-extract-color');
-    if (bAi) bAi.addEventListener('click', handleSmartRecommend);
-    if (bRand) bRand.addEventListener('click', handleRandomAdvanced);
-    if (bExtract) bExtract.addEventListener('click', handleExtractColorClick);
-    initExtractFileInput();
+    // 分类固定为「收藏」（防外部残留 'hot' 等值）
+    window.__currentBgCategory = 'fav';
 
-    const tabsEl = document.getElementById('bg-category-tabs');
-    if (tabsEl && tabsEl.dataset.bound !== 'true') {
-        tabsEl.dataset.bound = 'true';
-        tabsEl.querySelectorAll('.bg-cat-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                tabsEl.querySelectorAll('.bg-cat-tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                setBgCategory(tab.dataset.cat);
-                renderBgPresetGrid();
-            });
-        });
-    }
+    // 智能推荐 / 随机高级背景 / 从图片提取按钮 + 分类 Tab 已从 UI 移除，不再绑定
 
     const advToggle = document.getElementById('bg-advanced-toggle');
     const advBody = document.getElementById('bg-advanced-body');
@@ -943,10 +816,9 @@ function initBackgroundPanelV2() {
         });
     }
 
-        const bgType = document.getElementById('bg-type');
+    const bgType = document.getElementById('bg-type');
     if (bgType) {
-        bgType.addEventListener('change', (e) => {
-            const newType = e.target.value;
+        bgType.addEventListener('change', (e) => {const newType = e.target.value;
             // ✅ 显式构造新对象，并把 __v2.base.kind 一起改，避免 normalizeBackground 回退
             const old = state.background || {};
             const v2 = (old.__v2 && old.__v2.version === 2) ? old.__v2 : null;
@@ -1123,16 +995,15 @@ function initBackgroundPanelV2() {
             showBgToast('当前自定义背景已加入收藏 ⭐');
         });
     }
-
+    // 分类已固定为「收藏」，同步一次避免外部残留 'hot'/'recent' 等旧值
+    window.__currentBgCategory = 'fav';
     renderBgPresetGrid();
     renderFavBackgrounds();
     syncBgPanelInputs(state.background);
     applyBackgroundToCanvases(state.background);
 
-    if (typeof window.syncImagePanelVisibility === 'function') {
-        window.syncImagePanelVisibility(state.background);
-    }
-    if (typeof window.syncImageControlsToState === 'function') {
+    if (typeof window.syncImagePanelVisibility === 'function') {window.syncImagePanelVisibility(state.background);
+    }if (typeof window.syncImageControlsToState === 'function') {
         window.syncImageControlsToState();
     }
 }
@@ -1140,10 +1011,9 @@ function initBackgroundPanelV2() {
 window.setBgCategory = setBgCategory;
 window.getBgCategory = getBgCategory;
 window.toggleFavPreset = toggleFavPreset;
-window.handleSmartRecommend = handleSmartRecommend;
-window.handleRandomAdvanced = handleRandomAdvanced;
-window.handleExtractColorClick = handleExtractColorClick;
-window.extractColorsFromImageSrc = extractColorsFromImageSrc;
+console.log('[BackgroundCore] ✅ 收藏切换导出：toggleFavPreset / setBgCategory / getBgCategory');
+window.handleSmartRecommend = handleSmartRecommend;window.handleRandomAdvanced = handleRandomAdvanced;
+window.handleExtractColorClick = handleExtractColorClick;window.extractColorsFromImageSrc = extractColorsFromImageSrc;
 window.extractDominantColors = extractDominantColors;
 window.colorDistance = colorDistance;
 window.rgbToHex = rgbToHex;
@@ -1186,11 +1056,8 @@ console.log('[BackgroundCore] ✅ 背景 v2 全部接管完成：面板初始化
     BG.renderBgPresetGrid = renderBgPresetGrid;
     BG.getPresetsByCategory = getPresetsByCategory;
     BG.renderFavBackgrounds = renderFavBackgrounds;
-    BG.buildFavQuickItem = buildFavQuickItem;
-    BG.buildFavQuickImageItem = buildFavQuickImageItem;
 
-    // 第四组：分类 + 收藏切换 + 智能推荐 + 随机 + 提取色
-    BG.setBgCategory = setBgCategory;
+    // 第四组：分类 + 收藏切换 + 智能推荐 + 随机 + 提取色BG.setBgCategory = setBgCategory;
     BG.getBgCategory = getBgCategory;
     BG.toggleFavPreset = toggleFavPreset;
     BG.handleSmartRecommend = handleSmartRecommend;
@@ -1206,12 +1073,12 @@ console.log('[BackgroundCore] ✅ 背景 v2 全部接管完成：面板初始化
     BG.initExtractFileInput = initExtractFileInput;
     BG.showBgToast = showBgToast;
     BG.initBackgroundPanelV2 = initBackgroundPanelV2;
-
     console.log('[BG] ✅ background-core.js 已收口到 window.BG（' +
         Object.keys(BG).length + ' 个函数）');
-
-    // ✅ 加载顺序自检：若 app.js 后加载覆盖了本文件的 applyBackgroundToCanvases，
-    //    会静默降级到旧实现（不报错但背景系统坏）。这里打 warn 提示。
+    console.log('[BG] 关键校验：BG.applyBackgroundToCanvases=' + typeof BG.applyBackgroundToCanvases
+        + ' / BG.renderBgPresetGrid=' + typeof BG.renderBgPresetGrid
+        + ' / BG.initBackgroundPanelV2=' + typeof BG.initBackgroundPanelV2);
+    // ✅ 加载顺序自检：若 app.js 后加载覆盖了本文件的 applyBackgroundToCanvases，//    会静默降级到旧实现（不报错但背景系统坏）。这里打 warn 提示。
     if (typeof window.applyBackgroundToCanvases === 'function'
         && !String(window.applyBackgroundToCanvases).includes('BackgroundEngine')) {
         console.warn('[BG] ⚠️ 加载顺序错误：background-core.js 没有覆盖 app.js 的 applyBackgroundToCanvases，请检查 <script> 顺序');

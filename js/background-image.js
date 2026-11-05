@@ -728,92 +728,16 @@ async function renderUploadedBgImages() {
         renderBgPresetGridWithUploads();
     }
 }
-
 function ensureUploadedTabExists() {
-    const tabsEl = document.getElementById('bg-category-tabs');
-    if (!tabsEl) return;
-    if (tabsEl.querySelector('.bg-cat-tab[data-cat="uploaded"]')) return;
-
-    const tab = document.createElement('div');
-    tab.className = 'bg-cat-tab';
-    tab.dataset.cat = 'uploaded';
-    tab.textContent = '我的上传';
-    tab.addEventListener('click', () => {
-        tabsEl.querySelectorAll('.bg-cat-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        currentBgCategory = 'uploaded';
-        renderBgPresetGridWithUploads();
-    });
-    tabsEl.appendChild(tab);
+    // Tab 栏已移除，不再需要动态插入「我的上传」
+    return;
+}async function renderBgPresetGridWithUploads() {
+    // 收藏网格由 background-core.js 的 renderBgPresetGrid 统一渲染，这里不再重复渲染
+    return;
 }
 
-async function renderBgPresetGridWithUploads() {
-    const grid = document.getElementById('bg-preset-grid');
-    if (!grid) return;
-    grid.innerHTML = '';
-
-    // ✅ v2：AssetRegistry 为主，BGImageDB 迁移期兼容合并
-    let items = [];
-    const seen = new Set();
-    try {
-        if (window.AssetRegistry && AssetRegistry.list) {
-            const assets = await AssetRegistry.list({ type: 'bgImage' });
-            assets.forEach(a => {
-                if (!a || !a.id || seen.has(a.id)) return;
-                seen.add(a.id);
-                items.push({
-                    id: a.id,
-                    name: a.name || '背景图片',
-                    dataUrl: a.data,
-                    createdAt: a.createdAt || 0,
-                    _source: 'asset'
-                });
-            });
-        }
-    } catch (e) {
-        if (window.Utils && Utils.log) Utils.log.warn('[BgImage] 读取 AssetRegistry 背景图列表失败', e);
-    }
-    try {
-        const legacy = await BGImageDB.getAllImages();
-        legacy.forEach(it => {
-            const key = 'legacy-' + it.id;
-            if (seen.has(key)) return;
-            // 老库里已有 asset 映射的就跳过
-            let mapped = null;
-            try {
-                const map = JSON.parse(localStorage.getItem('douyin_bgimage_asset_map') || '{}');
-                mapped = map[it.id];
-            } catch (e) {
-                if (window.Utils && Utils.log) Utils.log.warn('[BgImage] 解析 legacy asset 映射失败', e);
-            }
-            if (mapped && seen.has(mapped)) return;
-            seen.add(key);
-            items.push({
-                id: it.id,
-                name: it.name || '背景图片',
-                dataUrl: it.dataUrl,
-                createdAt: it.createdAt || 0,
-                _source: 'legacy'
-            });
-        });
-    } catch (e) {
-        if (window.Utils && Utils.log) Utils.log.warn('[BgImage] 读取 legacy BGImageDB 失败', e);
-    }
-    items.forEach(it => { bgImageCache[it.id] = it.dataUrl; });
-    items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-    if (items.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'bg-preset-empty';
-        empty.innerHTML = '还没有上传过图片<br><small style="color:#6e7681;">点击上方「高级自定义 → 点击或拖拽图片」上传</small>';
-        grid.appendChild(empty);
-        return;
-    }
-
-    const currentId = (state.background && state.background.customImageId) || null;
-
-    items.forEach(item => {
-        const card = document.createElement('div');
+async function _legacyRenderBgPresetGridWithUploads_UNUSED() {
+    items.forEach(item => {const card = document.createElement('div');
         card.className = 'bg-preset-card is-uploaded';
         card.dataset.presetId = 'uploaded-' + item.id;
         if (String(item.id) === String(currentId)) card.classList.add('active');
@@ -894,22 +818,9 @@ async function renderBgPresetGridWithUploads() {
 // （在 app.js 里它调用的 getPresetsByCategory('uploaded') 会返回空数组，
 //  所以我们在切分类时直接拦截：见下面 patch）
 (function patchCategorySwitching() {
-    document.addEventListener('DOMContentLoaded', () => {
-        const orig = window.renderBgPresetGrid;
-        // 不覆写原函数，只是额外观察：每次点击分类后如果是 uploaded，重新渲染
-        const tabsEl = document.getElementById('bg-category-tabs');
-        if (!tabsEl) return;
-        tabsEl.addEventListener('click', (e) => {
-            const tab = e.target.closest('.bg-cat-tab');
-            if (!tab) return;
-            if (tab.dataset.cat === 'uploaded') {
-                setTimeout(() => renderBgPresetGridWithUploads(), 0);
-            }
-        });
-    });
-})();
-
-window.applyImageBackgroundToCanvases = applyImageBackgroundToCanvases;
+    // Tab 栏已删除，不再需要动态插入「我的上传」分类
+    return;
+})();window.applyImageBackgroundToCanvases = applyImageBackgroundToCanvases;
 window.applyBackgroundToCanvasesWithImage = applyBackgroundToCanvasesWithImage;
 window.syncImagePanelVisibility = syncImagePanelVisibility;
 window.syncImageControlsToState = syncImageControlsToState;

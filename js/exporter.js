@@ -113,9 +113,52 @@ function _drawTextToDataUrl(el, layerStyle) {
     const cs = window.getComputedStyle(styleTarget);
 
     const fontSize = parseFloat(cs.fontSize) || 28;
-    const fontFamily = cs.fontFamily || 'sans-serif';
+    let fontFamily = cs.fontFamily || 'sans-serif';
     const fontWeight = cs.fontWeight || 'normal';
     const fontStyle = cs.fontStyle || 'normal';
+
+    // ✅ 字体优先级（从高到低）：
+    //    1) 图层数据里的 fontFamily（最权威，不受特效 CSS 干扰）
+    //    2) 沿 DOM 祖先链找第一个具体字体名
+    //    3) computedStyle 兜底
+    //    手写体 Xiaolai 被 effect-chalk 等特效的 font-family:cursive 覆盖时，
+    //    仅靠 computedStyle 会拿到 cursive → canvas 画出黑体，这里必须从图层数据拿。
+    (function resolveRealFont() {
+        const generic = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system|inherit|initial|unset)$/i;
+
+        // 1) 优先从图层数据取
+        const layerEl = el.closest && el.closest('.canvas-layer');
+        if (layerEl && layerEl.dataset && layerEl.dataset.id && window.state) {
+            const layerId = layerEl.dataset.id;
+            let layer = null;
+            for (const p of (state.pages || [])) {
+                const found = (p.layers || []).find(l => l.id === layerId);
+                if (found) { layer = found; break; }
+            }
+            if (layer && layer.fontFamily) {
+                const safe = (typeof window._safeFontFamily === 'function')
+                    ? window._safeFontFamily(layer.fontFamily)
+                    : layer.fontFamily;
+                fontFamily = safe;
+                return;
+            }
+        }
+
+        // 2) computedStyle 是通用回退 → 沿祖先链找
+        const first = fontFamily.split(',')[0].replace(/["']/g, '').trim();
+        if (!generic.test(first)) return;
+        let node = el;
+        while (node && node !== document.body) {
+            const ncs = window.getComputedStyle(node);
+            const nf = (ncs.fontFamily || '').split(',')[0].replace(/["']/g, '').trim();
+            if (nf && !generic.test(nf)) {
+                fontFamily = ncs.fontFamily;
+                return;
+            }
+            if (node === layerEl) break;
+            node = node.parentElement;
+        }
+    })();
     const letterSpacing = parseFloat(cs.letterSpacing) || 0;
     const lineHeightRaw = cs.lineHeight;
     let lineHeight = fontSize * 1.2;

@@ -25,11 +25,23 @@ const BrandManager = {
     TEMPLATE_STORAGE_KEY: 'douyin_brand_templates_v1',
 
     data: {
-        palettes: [{ id: 'palette-default', name: '主品牌色', colors: ['#FF0050', '#00F2FE', '#111111', '#FFFFFF'] }],
+        palettes: [{
+            id: 'palette-default',
+            name: '主品牌色',
+            colors: ['#FF0050', '#00F2FE', '#111111', '#FFFFFF'],
+            bgPresets: [
+                { id: 'brand-warm-cream', name: '暖米白', type: 'solid', color1: '#F5F1E8', angle: 135, texture: 'none' },
+                { id: 'brand-soft-white', name: '柔和暖白', type: 'solid', color1: '#FCFAF5', angle: 135, texture: 'none' },
+                { id: 'brand-soft-gray', name: '柔和米灰', type: 'solid', color1: '#E6E0D5', angle: 135, texture: 'none' },
+                { id: 'brand-light-sage', name: '浅鼠尾草绿', type: 'solid', color1: '#DDE4D7', angle: 135, texture: 'none' }
+            ]
+        }],
         activePaletteId: 'palette-default',
         fonts: [],
         logos: [],
-        strictMode: false
+        strictMode: false,
+        strictColors: true,
+        strictFonts: false
     },
 
     templates: [],
@@ -39,11 +51,15 @@ const BrandManager = {
         this.loadTemplates();
         this.bindEvents();
         this.render();
+        // 首次加载时把 strictColors 同步到复选框，避免界面显示旧值
+        const strictCb = document.getElementById('brand-strict-mode');
+        if (strictCb) strictCb.checked = !!this.data.strictColors;
         this.applyStrictModeToUI();
         setTimeout(() => {
             this.injectBrandColorsToControls();
             this.injectBrandFontsToSelect();
             this.applyStrictModeToUI();
+            this.refreshBrandDownstream();
         }, 300);
     },
 
@@ -61,12 +77,23 @@ const BrandManager = {
                         activePaletteId: saved.activePaletteId || this.data.palettes[0].id,
                         fonts: Array.isArray(saved.fonts) ? saved.fonts : [],
                         logos: Array.isArray(saved.logos) ? saved.logos : [],
-                        strictMode: !!saved.strictMode
+                        strictMode: !!saved.strictMode,
+                        strictColors: saved.strictColors !== undefined ? !!saved.strictColors : !!saved.strictMode,
+                        strictFonts: !!saved.strictFonts
                     };
                     // 颜色结构迁移：string → { hex, label }
                     this.data.palettes.forEach(p => {
                         if (!Array.isArray(p.colors)) p.colors = [];
                         p.colors = p.colors.map(c => this.normalizeColorItem(c)).filter(Boolean);
+                        // 旧数据没有 bgPresets → 注入默认的 4 个品牌预设
+                        if (!Array.isArray(p.bgPresets) || p.bgPresets.length === 0) {
+                            p.bgPresets = [
+                                { id: 'brand-warm-cream', name: '暖米白', type: 'solid', color1: '#F5F1E8', angle: 135, texture: 'none' },
+                                { id: 'brand-soft-white', name: '柔和暖白', type: 'solid', color1: '#FCFAF5', angle: 135, texture: 'none' },
+                                { id: 'brand-soft-gray', name: '柔和米灰', type: 'solid', color1: '#E6E0D5', angle: 135, texture: 'none' },
+                                { id: 'brand-light-sage', name: '浅鼠尾草绿', type: 'solid', color1: '#DDE4D7', angle: 135, texture: 'none' }
+                            ];
+                        }
                     });
                     return;
                 }
@@ -135,6 +162,45 @@ const BrandManager = {
         return Array.from(set);
     },
 
+    // ===== 派生 API（下游只准调这些，禁止读常量数组）=====
+    getActiveColors() {
+        const p = this.getActivePalette();
+        return (p && p.colors || [])
+            .map(c => (typeof c === 'string' ? c : (c && c.hex) || ''))
+            .map(c => String(c).toUpperCase())
+            .filter(Boolean);
+    },
+
+    getActiveBgPresets() {
+        const p = this.getActivePalette();
+        return ((p && p.bgPresets) || []).slice();
+    },
+
+    getActiveBgPresetIds() {
+        return this.getActiveBgPresets().map(b => b && b.id).filter(Boolean);
+    },
+
+    isStrictColors() {
+        return !!this.data.strictColors;
+    },
+
+    isStrictFonts() {
+        return !!this.data.strictFonts;
+    },
+
+    // 品牌变更后，通知下游刷新（背景预设网格 / 画布 / 色条 / AI 契约在生成时自动读新值）
+    refreshBrandDownstream() {
+        try {
+            if (window.BG && BG.renderBgPresetGrid) BG.renderBgPresetGrid();
+        } catch (e) {}
+        try {
+            const applyBg = (window.BG && BG.applyBackgroundToCanvases) || window.applyBackgroundToCanvases;
+            if (typeof applyBg === 'function' && window.state) applyBg(state.background);
+        } catch (e) {}
+        try { this.injectBrandColorsToControls(); } catch (e) {}
+        try { this.applyStrictModeToUI(); } catch (e) {}
+    },
+
     // 把颜色项统一成 { hex, label } 对象
     normalizeColorItem(item) {
         if (!item) return null;
@@ -176,13 +242,15 @@ const BrandManager = {
         // 严格模式
         const strictCb = document.getElementById('brand-strict-mode');
         if (strictCb) {
-            strictCb.checked = !!this.data.strictMode;
+            strictCb.checked = !!this.data.strictColors;
             strictCb.addEventListener('change', () => {
+                this.data.strictColors = !!strictCb.checked;
                 this.data.strictMode = !!strictCb.checked;
                 this.save();
                 this.applyStrictModeToUI();
+                this.refreshBrandDownstream();
                 if (typeof showBgToast === 'function') {
-                    showBgToast(strictCb.checked ? '严格模式：仅允许品牌色/字体' : '严格模式已关闭');
+                    showBgToast(strictCb.checked ? '严格色彩模式：仅限制颜色，特效/底衬/贴纸自由' : '严格色彩模式已关闭');
                 }
             });
         }
@@ -195,6 +263,7 @@ const BrandManager = {
                 this.save();
                 this.render();
                 this.injectBrandColorsToControls();
+                this.refreshBrandDownstream();
             });
         }
 
@@ -205,11 +274,12 @@ const BrandManager = {
                 const name = prompt('新色板名称：', '新色板 ' + (this.data.palettes.length + 1));
                 if (!name || !name.trim()) return;
                 const id = 'palette-' + Date.now();
-                this.data.palettes.push({ id, name: name.trim(), colors: [] });
+                this.data.palettes.push({ id, name: name.trim(), colors: [], bgPresets: [] });
                 this.data.activePaletteId = id;
                 this.save();
                 this.render();
                 this.injectBrandColorsToControls();
+                this.refreshBrandDownstream();
             });
         }
 
@@ -246,6 +316,40 @@ const BrandManager = {
             });
         }
 
+        // 新增品牌背景预设
+        const btnAddBg = document.getElementById('btn-add-brand-bg');
+        if (btnAddBg) {
+            btnAddBg.addEventListener('click', () => {
+                const palette = this.getActivePalette();
+                if (!palette) return;
+                const name = prompt('品牌背景名称（如：暖米白）：', '品牌背景');
+                if (!name || !name.trim()) return;
+                const color1 = prompt('主色 HEX（如 #F5F1E8）：', '#F5F1E8');
+                if (!color1) return;
+                const color2 = prompt('副色 HEX（纯色背景可留空）：', '') || color1;
+                const id = prompt('presetId（英文小写，建议 brand- 开头）：', 'brand-' + Date.now().toString(36));
+                if (!id || !id.trim()) return;
+                const c1 = this.normalizeHex(color1);
+                const c2 = this.normalizeHex(color2);
+                if (!c1) { alert('主色格式不正确'); return; }
+                palette.bgPresets = palette.bgPresets || [];
+                if (palette.bgPresets.some(b => b.id === id.trim())) {
+                    alert('该 presetId 已存在');
+                    return;
+                }
+                palette.bgPresets.push({
+                    id: id.trim(),
+                    name: name.trim(),
+                    type: c1 === c2 ? 'solid' : 'gradient',
+                    color1: c1, color2: c2, angle: 135, texture: 'none'
+                });
+                this.save();
+                this.render();
+                this.refreshBrandDownstream();
+                if (typeof showBgToast === 'function') showBgToast('已添加品牌背景 ' + id.trim());
+            });
+        }
+
         // 手动添加颜色（支持粘贴 HEX + 取色器）
         const btnAddManual = document.getElementById('btn-add-manual-color');
         if (btnAddManual) {
@@ -278,6 +382,7 @@ const BrandManager = {
                 this.save();
                 this.render();
                 this.injectBrandColorsToControls();
+                this.refreshBrandDownstream();
                 if (typeof showBgToast === 'function') showBgToast('已加入色板：' + color);
             });
         }
@@ -686,6 +791,7 @@ const BrandManager = {
     render() {
         this.renderPalettes();
         this.renderColors();
+        this.renderBgPresets();
         this.renderFonts();
         this.renderLogos();
         this.renderTemplates();
@@ -698,7 +804,9 @@ const BrandManager = {
         this.data.palettes.forEach(p => {
             const opt = document.createElement('option');
             opt.value = p.id;
-            opt.textContent = p.name + ' (' + p.colors.length + ')';
+            const colorN = (p.colors || []).length;
+            const bgN = (p.bgPresets || []).length;
+            opt.textContent = p.name + ' (' + colorN + ' 色 / ' + bgN + ' 背景)';
             sel.appendChild(opt);
         });
         try { sel.value = this.data.activePaletteId; } catch (e) {
@@ -741,6 +849,59 @@ const BrandManager = {
                 this.openColorSwatchMenu(e, palette, hex);
             });
             colorList.appendChild(sw);
+        });
+    },
+
+    // ===== 品牌背景预设渲染 =====
+    renderBgPresets() {
+        const wrap = document.getElementById('brand-bg-preset-list');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        const palette = this.getActivePalette();
+        const list = (palette && palette.bgPresets) || [];
+        if (!list.length) {
+            wrap.innerHTML = '<div style="font-size:11px;color:#6e7681;">当前色板没有品牌背景预设</div>';
+            return;
+        }
+        list.forEach(b => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 6px;background:#0d1117;border:1px solid #30363d;border-radius:4px;margin-bottom:4px;font-size:11px;';
+            const sw = document.createElement('div');
+            sw.style.cssText = 'width:20px;height:20px;border-radius:3px;border:1px solid #30363d;flex-shrink:0;';
+            sw.style.background = b.color2 ? ('linear-gradient(135deg,' + b.color1 + ',' + b.color2 + ')') : (b.color1 || '#000');
+            const name = document.createElement('span');
+            name.textContent = b.id + (b.name ? (' · ' + b.name) : '');
+            name.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c9d1d9;';
+            const applyBtn = document.createElement('button');
+            applyBtn.className = 'btn';
+            applyBtn.style.cssText = 'padding:1px 6px;font-size:10px;';
+            applyBtn.textContent = '应用';
+            applyBtn.addEventListener('click', () => {
+                if (!window.state) return;
+                const applyBg = (window.BG && BG.applyBackgroundToCanvases) || window.applyBackgroundToCanvases;
+                const norm = (window.BG && BG.normalizeBackground) || window.normalizeBackground;
+                state.background = norm({ type: b.type || 'solid', color1: b.color1, color2: b.color2 || b.color1, angle: b.angle || 135, texture: b.texture || 'none', presetId: b.id });
+                if (typeof applyBg === 'function') applyBg(state.background);
+                if (window.state.saveState) state.saveState();
+                if (typeof showBgToast === 'function') showBgToast('已应用品牌背景：' + b.id);
+            });
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn';
+            delBtn.style.cssText = 'padding:1px 6px;font-size:10px;color:#f85149;';
+            delBtn.innerHTML = '&times;';
+            delBtn.title = '删除该品牌背景预设';
+            delBtn.addEventListener('click', () => {
+                if (!confirm('删除品牌背景预设「' + b.id + '」？')) return;
+                palette.bgPresets = (palette.bgPresets || []).filter(x => x.id !== b.id);
+                this.save();
+                this.render();
+                this.refreshBrandDownstream();
+            });
+            row.appendChild(sw);
+            row.appendChild(name);
+            row.appendChild(applyBtn);
+            row.appendChild(delBtn);
+            wrap.appendChild(row);
         });
     },
 
@@ -801,6 +962,7 @@ const BrandManager = {
             this.save();
             this.render();
             this.injectBrandColorsToControls();
+            this.refreshBrandDownstream();
             if (typeof showBgToast === 'function') showBgToast(name.trim() ? '已重命名为「' + name.trim() + '」' : '已清除颜色名称');
         });
 
@@ -837,6 +999,7 @@ const BrandManager = {
             this.save();
             this.render();
             this.injectBrandColorsToControls();
+            this.refreshBrandDownstream();
         });
     },
 
@@ -1074,6 +1237,7 @@ const BrandManager = {
             this.save();
             this.render();
             this.injectBrandColorsToControls();
+            this.refreshBrandDownstream();
             if (typeof showBgToast === 'function') showBgToast('已添加品牌色 ' + hex);
             close();
         });
@@ -1309,20 +1473,23 @@ const BrandManager = {
     applyStrictModeToUI() {
         const fontSelect = document.getElementById('tb-font');
         if (fontSelect) {
+            const strictFonts = !!this.data.strictFonts;
             Array.from(fontSelect.options).forEach(opt => {
                 const isBrand = opt.dataset.brandFont === '1';
-                opt.disabled = this.data.strictMode ? !isBrand : false;
+                opt.disabled = strictFonts ? !isBrand : false;
             });
         }
 
+        // 严格色彩模式只影响颜色类输入；特效 / 底衬 / 贴纸 / 上传控件永远不禁用
         const colorIds = ['tb-color', 'bg-color-1', 'bg-color-2', 'backdrop-color'];
+        const strictColors = !!this.data.strictColors;
         colorIds.forEach(id => {
             const el = document.getElementById(id);
             if (!el) return;
-            if (this.data.strictMode) {
+            if (strictColors) {
                 el.style.opacity = '0.5';
                 el.style.pointerEvents = 'none';
-                el.title = '严格模式：只能使用品牌色';
+                el.title = '严格色彩模式：只能使用品牌色（特效/底衬/贴纸不受影响）';
             } else {
                 el.style.opacity = '';
                 el.style.pointerEvents = '';
@@ -1331,7 +1498,7 @@ const BrandManager = {
         });
 
         document.querySelectorAll('.brand-quick-bar').forEach(bar => {
-            if (this.data.strictMode) {
+            if (strictColors) {
                 bar.style.background = 'rgba(255,36,66,0.12)';
                 bar.style.borderColor = 'rgba(255,36,66,0.4)';
             } else {

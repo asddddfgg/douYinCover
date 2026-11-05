@@ -77,38 +77,41 @@ document.addEventListener('DOMContentLoaded', () => {
             if (window.Shapes && typeof Shapes.init === 'function') Shapes.init();
         } catch (err) { console.warn('[App] Shapes.init failed:', err); }
     }, 350);
+
+    // ===== AI 方案导入面板（可选模块，存在才初始化） =====
+    setTimeout(() => {
+        try {
+            if (window.AiImportUI && typeof AiImportUI.init === 'function') AiImportUI.init();
+        } catch (err) { console.warn('[App] AiImportUI.init failed:', err); }
+    }, 700);
+
+    // ===== AI 管道自测 + 依赖自检（仅 console 输出，不打扰用户） =====
+    setTimeout(() => {
+        try {
+            if (typeof checkAiSpecDependencies === 'function') {
+                const dep = checkAiSpecDependencies();
+                if (dep.ok) console.log('[AI-Spec] ✅ 依赖自检通过');
+                else console.warn('[AI-Spec] ⚠️ 依赖缺失:', dep.missing.join(', '));
+            }
+            if (typeof selfTestAiSpecPipeline === 'function') {
+                const r = selfTestAiSpecPipeline();
+                if (r.ok) console.log('[AI-Spec] ✅ 内置管道自测通过（' + r.results.length + ' 用例）');
+                else {
+                    console.warn('[AI-Spec] ⚠️ 自测有失败用例:');
+                    r.results.forEach(x => { if (!x.ok) console.warn('  -', x.name, x.error || x.steps); });
+                }
+                window.__aiSelfTest = selfTestAiSpecPipeline;
+            }
+        } catch (err) { console.warn('[AI-Spec] 自测执行失败:', err); }
+    }, 1200);
 });
 
 /* ============================================================
    顶栏常驻 AI 推荐按钮：如果 HTML 没写，自动注入到「添加文本」前
    ============================================================ */
 function ensureAiButton() {
-    if (document.getElementById('btn-ai-suggest')) return;
-    const actions = document.querySelector('.app-header .actions');
-    if (!actions) return;
-    const btn = document.createElement('button');
-    btn.id = 'btn-ai-suggest';
-    btn.className = 'btn btn-ai';
-    btn.title = '根据内容智能推荐背景与特效';
-    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI 推荐';
-    // 插到「添加文本」前面
-    const addTextBtn = document.getElementById('btn-add-text');
-    if (addTextBtn && addTextBtn.parentNode === actions) {
-        actions.insertBefore(btn, addTextBtn);
-    } else {
-        actions.appendChild(btn);
-    }
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const layer = (window.state && state.getSelectedLayer) ? state.getSelectedLayer() : null;
-        if (!layer && typeof window.handleEmptyStateAI === 'function') {
-            window.handleEmptyStateAI();
-        } else if (typeof window.handleSmartRecommend === 'function') {
-            window.handleSmartRecommend();
-        } else if (typeof showBgToast === 'function') {
-            showBgToast('AI 推荐功能尚未就绪');
-        }
-    });
+    // 顶栏 AI 推荐按钮已移除；AI 入口只剩左侧 AI 面板和工具栏空状态提示条
+    return;
 }
 
 /* ============================================================
@@ -208,6 +211,18 @@ function rebindToolbarMenuActions() {
     const snap0 = document.getElementById('btn-toggle-snap');
     if (snap0 && window.state) {
         snap0.classList.toggle('active', state.snapEnabled !== false);
+    }
+
+    // AI 方案面板入口（顶栏按钮）
+    const btnAiPanel = document.getElementById('btn-ai-panel');
+    if (btnAiPanel && !btnAiPanel.dataset.rebound) {
+        btnAiPanel.dataset.rebound = '1';
+        btnAiPanel.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.LeftRail && typeof LeftRail.openAiPanel === 'function') {
+                LeftRail.openAiPanel();
+            }
+        });
     }
 }
 
@@ -840,10 +855,16 @@ function renderCanvas() {
         const pageWrapper = document.createElement('div');
         pageWrapper.className = `canvas-page-wrapper ${isCurrentPage ? 'active-page' : ''}`;
         pageWrapper.dataset.pageId = page.id;
+        if (page._planLabel) pageWrapper.dataset.planLabel = page._planLabel;
+        if (page._planLabel) pageWrapper.dataset.planLabel = page._planLabel;
 
         const badge = document.createElement('div');
         badge.className = 'page-badge';
-        badge.innerHTML = `<i class="fa-solid fa-file-lines"></i> 第 ${index + 1} 页`;
+        const _planLabel = page._planLabel || '';
+        const _planPageNo = (page._planPageNo != null) ? page._planPageNo : (index + 1);
+        badge.innerHTML = _planLabel
+            ? `<i class="fa-solid fa-file-lines"></i> ${_planLabel}方案：第 ${_planPageNo} 页`
+            : `<i class="fa-solid fa-file-lines"></i> 第 ${index + 1} 页`;
         pageWrapper.appendChild(badge);
 
         const canvasEl = document.createElement('div');
@@ -1188,6 +1209,20 @@ if (bgBoxEffectId) {
                 }
                 textInner.style.position = 'relative';
                 textInner.style.zIndex = '1';
+                // ✅ 字体继承修复：特效 CSS（如粉笔手写 font-family:cursive）会覆盖图层字体，
+                //    导致手写体 Xiaolai 变回系统黑体。这里把所有特效 span 的 font-family
+                //    强制 inherit 回图层字体，只保留非字体的其它特效属性。
+                (function forceFontInheritOnEffectSpans(node) {
+                    if (!node) return;
+                    const spans = node.querySelectorAll('span[data-effect-span], span[class*="effect-"]');
+                    spans.forEach(sp => {
+                        try {
+                            sp.style.setProperty('font-family', 'inherit', 'important');
+                            sp.style.setProperty('font-size', 'inherit', 'important');
+                            sp.style.setProperty('font-synthesis', 'none');
+                        } catch (e) { /* 忽略 */ }
+                    });
+                })(textInner);
                 el.appendChild(textInner);
 } else if (layer.type === 'sticker') {
     // ✅ 改成普通块级布局 + 行高居中，html2canvas 导出才不会丢内容
@@ -1307,17 +1342,33 @@ if (bgBoxEffectId) {
 
             layersWrapper.appendChild(el);
         });
-
         canvasEl.appendChild(layersWrapper);
         pageWrapper.appendChild(canvasEl);
         container.appendChild(pageWrapper);
-        if (typeof applyBackgroundToCanvases === 'function') {
+        if (window.BG && typeof BG.applyBackgroundToCanvases === 'function') {
             BG.applyBackgroundToCanvases(state.background);
         }
     });
 
-    if (typeof applyBackgroundToCanvases === 'function') {
+    if (window.BG && typeof BG.applyBackgroundToCanvases === 'function') {
         BG.applyBackgroundToCanvases(state.background);
+    }
+
+    // ✅ 逐页背景覆盖：如果页自带 bg（AI 多方案应用后每页 bg 可不同），用页的 bg 再刷一次//    避免 state.background 被别的代码（BackgroundLayersUI / 面板同步 / 历史恢复）改回旧值导致整页回退
+    try {
+        state.pages.forEach((page) => {
+            if (!page.bg) return;
+            const pageEl = document.querySelector(`.canvas-page-wrapper[data-page-id="${page.id}"] .canvas-bg`);
+            if (!pageEl) return;
+            const css = (typeof backgroundToCss === 'function') ? backgroundToCss(page.bg) : '';
+            if (css) {
+                pageEl.style.background = css;
+                if (page.bg.texture === 'grid') pageEl.style.backgroundSize = '22px 22px, 22px 22px, 100% 100%';
+                else if (page.bg.texture === 'dots') pageEl.style.backgroundSize = '14px 14px, 100% 100%';
+            }
+        });
+    } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[renderCanvas] 逐页背景覆盖失败', e);
     }
 
             // 拖动/缩放/旋转进行中：跳过参考线重绘和特效面板刷新，避免每帧重开销
@@ -1427,19 +1478,11 @@ function toggleLayerLockFromList(id) {
     }
 }
 window.toggleLayerLockFromList = toggleLayerLockFromList;
+/* 背景系统 v2 常量已迁移到 background-core.js，此处不再重复声明（避免 const 冲突） */
 
 /* ============================================================
-   背景系统 v2 —— 智能预设库 + 一键随机 + 主色提取
-   ============================================================ */
-
-const BG_FAV_KEY = 'douyin_bg_favs_v2';
-const BG_RECENT_KEY = 'douyin_bg_recent_v2';
-const BG_RECENT_MAX = 12;
-let currentBgCategory = 'hot';
-let _bgToastTimer = null;
-
-/* ============================================================
-   图片背景收藏夹（v3 —— IndexedDB 版本）
+   图片背景收藏夹（v3）—— 只存在于本文件（background-core.js 依赖它）
+   ⚠️ 这几段是唯一定义，删掉会让 renderBgPresetGrid / btn-fav-bg 崩溃
    ============================================================ */
 
 const BG_FAV_IMG_DB_NAME = 'douyin_bg_fav_images_db';
@@ -1576,7 +1619,7 @@ function hashString(str) {
     for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
     return (h >>> 0).toString(36);
 }
-
+/* ✅ 图片背景收藏夹 v3 已恢复（BG_FavImageDB / saveFavImageEntry / applyFavImageEntry / hashString） */
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(async () => {
         try {
@@ -1589,24 +1632,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     bgFavImgKeys.push(row.key);
                 }
             });
-            try {
-                const legacy = JSON.parse(localStorage.getItem('douyin_bg_fav_images_v1') || '{}');
-                const legacyKeys = Object.keys(legacy);
-                if (legacyKeys.length > 0) {
-                    for (const key of legacyKeys) {
-                        if (!bgFavImgMemory[key] && legacy[key] && legacy[key].dataUrl) {
-                            bgFavImgMemory[key] = legacy[key];
-                            bgFavImgKeys.push(key);
-                            await BG_FavImageDB.put(key, legacy[key]);
-                        }
-                    }
-                    try { localStorage.removeItem('douyin_bg_fav_images_v1'); } catch(e) {
-                        if (window.Utils && Utils.log) Utils.log.warn('[App] 移除旧版图片收藏缓存失败', e);
-                    }
-                }
-            } catch (e) {
-                if (window.Utils && Utils.log) Utils.log.warn('[App] 迁移旧版图片收藏失败', e);
-            }
 
             bgFavImgReady = true;
 
@@ -1618,4 +1643,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 100);
 });
-

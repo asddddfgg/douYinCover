@@ -207,10 +207,30 @@ const LeftRail = (function () {
         });
     }
 
+    function openAiPanel() {
+        const panel = document.getElementById('ai-import-panel');
+        if (panel) {
+            const body = document.getElementById('ai-panel-body');
+            if (body && body.style.display === 'none') body.style.display = '';
+            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            panel.style.transition = 'box-shadow 0.3s';
+            panel.style.boxShadow = '0 0 0 2px #ff2442';
+            setTimeout(() => { panel.style.boxShadow = ''; }, 1200);
+        }
+    }
+
     function bindShortcuts() {
         document.addEventListener('keydown', (e) => {
             if (e.target.isContentEditable) return;
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+            // AI 面板快捷键：Ctrl/Cmd+Shift+A
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+                e.preventDefault();
+                openAiPanel();
+                return;
+            }
+
             if (e.ctrlKey || e.metaKey || e.altKey) return;
             const k = e.key.toLowerCase();
             if (k === 'v') { handleToolClick('select'); }
@@ -241,7 +261,7 @@ const LeftRail = (function () {
         console.log('[LeftRail] 初始化完成');
     }
 
-    return { init, setActive };
+    return { init, setActive, openAiPanel };
 })();
 
 window.LeftRail = LeftRail;

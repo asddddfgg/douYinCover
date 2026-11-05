@@ -1559,103 +1559,38 @@ body {
 .sticker-panel.dragging .sticker-panel-header {
     background: #2a313c;
 }
-
-
 /* ============================================================
-   背景系统 v2 - 智能预设
+   背景系统 v2 - 已精简为「我的收藏 + 高级自定义」
+   （.bg-super-* / .bg-cat-tab 相关样式已删，DOM 同步删除）
    ============================================================ */
-
-.bg-super-actions {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 8px;
-    margin-bottom: 14px;
-}
-
-.bg-super-btn {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 14px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.08);
-    font-size: 13px;
-    font-weight: 700;
-    color: #fff;
-    cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
-    letter-spacing: 0.5px;
-    position: relative;
-    overflow: hidden;
-    text-align: left;
-}
-.bg-super-btn i { font-size: 16px; }
-.bg-super-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
-.bg-super-btn:active { transform: translateY(0); }
-
-.bg-super-ai {
-    background: linear-gradient(135deg, #ff2442 0%, #ff8a00 100%);
-    box-shadow: 0 6px 18px rgba(255, 36, 66, 0.35);
-}
-.bg-super-rand {
-    background: linear-gradient(135deg, #2575fc 0%, #6a11cb 100%);
-    box-shadow: 0 6px 18px rgba(37, 117, 252, 0.35);
-}
-.bg-super-extract {
-    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    box-shadow: 0 6px 18px rgba(17, 153, 142, 0.35);
-}
-
-.bg-super-btn::after {
-    content: '';
-    position: absolute;
-    top: 0; left: -60%;
-    width: 40%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
-    transform: skewX(-20deg);
-    transition: left 0.6s;
-}
-.bg-super-btn:hover::after { left: 120%; }
-
-.bg-category-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    margin-bottom: 10px;
-}
-.bg-cat-tab {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    color: #8b949e;
-    background: #21262d;
-    border: 1px solid #30363d;
-    cursor: pointer;
-    user-select: none;
-    transition: all 0.15s;
-    white-space: nowrap;
-}
-.bg-cat-tab:hover { background: #30363d; color: #fff; }
-.bg-cat-tab.active {
-    background: #ff2442;
-    color: #fff;
-    border-color: #ff2442;
-    font-weight: bold;
-}
-
+/* 方案 A：收藏网格改横滑缩略图条 */
 .bg-preset-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 6px;
-    max-height: 320px;
-    overflow-y: auto;
+    display: flex;
+    flex-wrap: nowrap;gap: 6px;
+    height: 90px;
+    overflow-x: auto;
+    overflow-y: hidden;
     padding: 2px;
     margin-bottom: 12px;
+    scrollbar-width: thin;
+    scrollbar-color: #484f58 transparent;
+}
+.bg-preset-grid::-webkit-scrollbar {
+    height: 6px;
+}
+.bg-preset-grid::-webkit-scrollbar-thumb {
+    background: #484f58;
+    border-radius: 3px;
+}
+.bg-preset-grid::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 .bg-preset-card {
     position: relative;
-    aspect-ratio: 3 / 4;
+    width: 60px;
+    height: 80px;
+    flex-shrink: 0;
     border-radius: 6px;
     border: 1px solid #30363d;
     cursor: pointer;
@@ -1683,9 +1618,9 @@ body {
 .bg-preset-card .bp-label {
     position: absolute;
     bottom: 0; left: 0; right: 0;
-    padding: 3px 4px;
-    font-size: 9.5px;
-    line-height: 1.2;
+    padding: 2px 3px;
+    font-size: 9px;
+    line-height: 1.1;
     color: #fff;
     background: linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0));
     text-align: center;
@@ -1697,7 +1632,7 @@ body {
 .bg-preset-card .bp-star {
     position: absolute;
     top: 2px; right: 2px;
-    width: 16px; height: 16px;
+    width: 14px; height: 14px;
     border-radius: 50%;
     background: rgba(0,0,0,0.55);
     color: #f1e05a;
@@ -1711,8 +1646,7 @@ body {
 .bg-preset-card:hover .bp-star { display: flex; }
 .bg-preset-card.fav-on .bp-star { display: flex; color: #f1e05a; }
 
-.bg-preset-empty {
-    grid-column: span 3;
+.bg-preset-empty {grid-column: span 3;
     text-align: center;
     color: #8b949e;
     font-size: 12px;
@@ -1780,28 +1714,12 @@ body {
 /* ============================================================
    背景图片上传 - 完整样式
    ============================================================ */
-
-.bg-upload-tip {
-    font-size: 10.5px;
-    color: #8b949e;
-    background: rgba(37, 117, 252, 0.08);
-    border: 1px dashed rgba(37, 117, 252, 0.35);
-    border-radius: 6px;
-    padding: 6px 8px;
-    line-height: 1.4;
-    margin-bottom: 10px;
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-}
-.bg-upload-tip i { color: #2575fc; margin-top: 1px; font-size: 11px; }
-
+/* .bg-upload-tip 已删除（拖拽提示条 DOM 已移除） */
 /* 拖拽区 */
 .bg-image-dropzone {
     border: 2px dashed #30363d;
     border-radius: 8px;
-    padding: 18px 12px;
-    text-align: center;
+    padding: 18px 12px;text-align: center;
     cursor: pointer;
     transition: all 0.2s;
     background: #0d1117;
@@ -2951,146 +2869,6 @@ body.guide-cursor-h { cursor: ns-resize !important; }
 
 
 /* ============================================================
-   多选批量编辑徽章
-   ============================================================ */
-#multi-edit-badge i {
-    font-size: 10px;
-}
-
-/* ============================================================
-   历史面板
-   ============================================================ */
-.history-panel {
-    position: fixed;
-    top: 70px;
-    right: 24px;
-    width: 320px;
-    max-height: 70vh;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.8);
-    z-index: 3200;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-.history-panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 14px;
-    border-bottom: 1px solid #30363d;
-    background: #1c2128;
-    flex-shrink: 0;
-}
-.history-panel-header h3 {
-    font-size: 13px;
-    color: #e1e4e8;
-    margin: 0;
-}
-.history-list {
-    flex: 1 1 auto;
-    overflow-y: auto;
-    padding: 8px;
-    max-height: 60vh;
-}
-.history-item {
-    padding: 6px 10px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.12s;
-    margin-bottom: 4px;
-    background: #0d1117;
-}
-.history-item:hover {
-    background: #21262d;
-    border-color: #30363d;
-}
-.history-item.active {
-    background: rgba(255,36,66,0.12);
-    border-color: #ff2442;
-}
-.history-item-title {
-    font-size: 11px;
-    color: #c9d1d9;
-    font-weight: 600;
-}
-.history-item-meta {
-    font-size: 10px;
-    color: #6e7681;
-    margin-top: 2px;
-}
-
-/* ============================================================
-   预览模式
-   ============================================================ */
-.preview-overlay {
-    position: fixed;
-    inset: 0;
-    background: #05070a;
-    z-index: 9600;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px 20px;
-}
-.preview-controls {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    background: rgba(22,27,34,0.85);
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 8px 12px;
-    backdrop-filter: blur(4px);
-}
-.preview-controls span {
-    font-size: 12px;
-    color: #c9d1d9;
-    min-width: 60px;
-    text-align: center;
-}
-.preview-stage {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-}
-
-/* ============================================================
-   精确行高数字输入
-   ============================================================ */
-#tb-line-height-exact::-webkit-outer-spin-button,
-#tb-line-height-exact::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-#tb-line-height-exact {
-    -moz-appearance: textfield;
-    appearance: textfield;
-}
-
-/* ============================================================
-   排版预设下拉
-   ============================================================ */
-#tb-type-preset {
-    min-width: 86px;
-}
-#tb-type-preset option {
-    background: #161b22;
-    color: #c9d1d9;
-}
-
-
-/* ============================================================
    品牌资产包（Brand Kit）
    ============================================================ */
 
@@ -3123,880 +2901,109 @@ body.guide-cursor-h { cursor: ns-resize !important; }
     cursor: pointer;
     transition: transform 0.12s, border-color 0.12s;
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
-    position: relative;
 }
 .brand-color-swatch:hover {
-    transform: scale(1.15);
+    transform: scale(1.1);
     border-color: #ff2442;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2), 0 0 6px rgba(255,36,66,0.5);
-    z-index: 2;
-}
-.brand-color-swatch:active {
-    transform: scale(1.05);
 }
 
-/* 色块右键菜单（复用 .context-menu 基础样式） */
-#brand-color-swatch-menu {
-    min-width: 160px;
-}
-#brand-color-swatch-menu ul {
-    list-style: none;
-    padding: 4px 0;
-    margin: 0;
-}
-#brand-color-swatch-menu li {
-    padding: 6px 12px;
-    font-size: 12px;
-    color: #c9d1d9;
-    cursor: pointer;
+/* 品牌字体行 */
+.brand-font-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    padding: 5px 8px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    margin-bottom: 5px;
+    font-size: 11px;
+    color: #c9d1d9;
 }
-#brand-color-swatch-menu li:hover {
-    background: #30363d;
-    color: #fff;
+.brand-font-row:last-child {
+    margin-bottom: 0;
 }
-#brand-color-swatch-menu li.danger {
-    color: #f85149;
+
+/* 品牌 Logo 缩略图 */
+.brand-logo-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1 / 1;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    cursor: pointer;
+    overflow: hidden;
+    padding: 4px;
+    transition: border-color 0.12s, transform 0.12s;
 }
-#brand-color-swatch-menu li.danger:hover {
-    background: rgba(248, 81, 73, 0.15);
+.brand-logo-item:hover {
+    border-color: #ff2442;
+    transform: translateY(-1px);
 }
-#brand-color-swatch-menu li.divider {
+.brand-logo-item img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+}
+
+/* 快捷品牌色条（注入到颜色控件下方） */
+.brand-quick-bar {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 4px 6px;
+    background: rgba(88,166,255,0.06);
+    border: 1px dashed rgba(88,166,255,0.25);
+    border-radius: 4px;
+}
+.brand-quick-swatch:hover {
+    transform: scale(1.2);
+    border-color: #fff !important;
+}
+/* ============================================================
+   AI 面板 Stepper 时间线
+   ============================================================ */
+.ai-step-dot {
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}.ai-step-label {
+    transition: color 0.2s ease;
+}
+.ai-node {
+    transition: opacity 0.2s ease;
+}
+#ai-stepper {
+    position: relative;
+}
+#ai-stepper::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: calc(10% + 11px);
+    right: calc(10% + 11px);
     height: 1px;
     background: #30363d;
-    margin: 4px 0;
-    padding: 0;
-    cursor: default;
+    z-index: 0;
 }
-#brand-color-swatch-menu li.divider:hover {
-    background: #30363d;
-}
-
-
-/* 品牌字体行 */
-.brand-font-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    margin-bottom: 5px;
-    font-size: 11px;
-    color: #c9d1d9;
-}
-.brand-font-row:last-child {
-    margin-bottom: 0;
-}
-
-/* 品牌 Logo 缩略图 */
-.brand-logo-item {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    aspect-ratio: 1 / 1;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    cursor: pointer;
-    overflow: hidden;
-    padding: 4px;
-    transition: border-color 0.12s, transform 0.12s;
-}
-.brand-logo-item:hover {
-    border-color: #ff2442;
-    transform: translateY(-1px);
-}
-.brand-logo-item img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    pointer-events: none;
-}
-
-/* 快捷品牌色条（注入到颜色控件下方） */
-.brand-quick-bar {
-    display: flex;
-    gap: 4px;
-    margin-top: 4px;
-    align-items: center;
-    flex-wrap: wrap;
-    padding: 4px 6px;
-    background: rgba(88,166,255,0.06);
-    border: 1px dashed rgba(88,166,255,0.25);
-    border-radius: 4px;
-}
-.brand-quick-swatch:hover {
-    transform: scale(1.2);
-    border-color: #fff !important;
-}
-
-/* ============================================================
-   多选批量编辑徽章
-   ============================================================ */
-#multi-edit-badge i {
-    font-size: 10px;
-}
-
-/* ============================================================
-   历史面板
-   ============================================================ */
-.history-panel {
-    position: fixed;
-    top: 70px;
-    right: 24px;
-    width: 320px;
-    max-height: 70vh;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.8);
-    z-index: 3200;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-.history-panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 14px;
-    border-bottom: 1px solid #30363d;
-    background: #1c2128;
-    flex-shrink: 0;
-}
-.history-panel-header h3 {
-    font-size: 13px;
-    color: #e1e4e8;
-    margin: 0;
-}
-.history-list {
-    flex: 1 1 auto;
-    overflow-y: auto;
-    padding: 8px;
-    max-height: 60vh;
-}
-.history-item {
-    padding: 6px 10px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.12s;
-    margin-bottom: 4px;
-    background: #0d1117;
-}
-.history-item:hover {
-    background: #21262d;
-    border-color: #30363d;
-}
-.history-item.active {
-    background: rgba(255,36,66,0.12);
-    border-color: #ff2442;
-}
-.history-item-title {
-    font-size: 11px;
-    color: #c9d1d9;
-    font-weight: 600;
-}
-.history-item-meta {
-    font-size: 10px;
-    color: #6e7681;
-    margin-top: 2px;
-}
-
-/* ============================================================
-   预览模式
-   ============================================================ */
-.preview-overlay {
-    position: fixed;
-    inset: 0;
-    background: #05070a;
-    z-index: 9600;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px 20px;
-}
-.preview-controls {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    background: rgba(22,27,34,0.85);
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 8px 12px;
-    backdrop-filter: blur(4px);
-}
-.preview-controls span {
-    font-size: 12px;
-    color: #c9d1d9;
-    min-width: 60px;
-    text-align: center;
-}
-.preview-stage {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-}
-
-/* ============================================================
-   精确行高数字输入
-   ============================================================ */
-#tb-line-height-exact::-webkit-outer-spin-button,
-#tb-line-height-exact::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-#tb-line-height-exact {
-    -moz-appearance: textfield;
-    appearance: textfield;
-}
-
-/* ============================================================
-   排版预设下拉
-   ============================================================ */
-#tb-type-preset {
-    min-width: 86px;
-}
-#tb-type-preset option {
-    background: #161b22;
-    color: #c9d1d9;
-}
-
-
-/* ============================================================
-   多选批量编辑徽章
-   ============================================================ */
-#multi-edit-badge i {
-    font-size: 10px;
-}
-
-/* ============================================================
-   历史面板
-   ============================================================ */
-.history-panel {
-    position: fixed;
-    top: 70px;
-    right: 24px;
-    width: 320px;
-    max-height: 70vh;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.8);
-    z-index: 3200;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-.history-panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 14px;
-    border-bottom: 1px solid #30363d;
-    background: #1c2128;
-    flex-shrink: 0;
-}
-.history-panel-header h3 {
-    font-size: 13px;
-    color: #e1e4e8;
-    margin: 0;
-}
-.history-list {
-    flex: 1 1 auto;
-    overflow-y: auto;
-    padding: 8px;
-    max-height: 60vh;
-}
-.history-item {
-    padding: 6px 10px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.12s;
-    margin-bottom: 4px;
-    background: #0d1117;
-}
-.history-item:hover {
-    background: #21262d;
-    border-color: #30363d;
-}
-.history-item.active {
-    background: rgba(255,36,66,0.12);
-    border-color: #ff2442;
-}
-.history-item-title {
-    font-size: 11px;
-    color: #c9d1d9;
-    font-weight: 600;
-}
-.history-item-meta {
-    font-size: 10px;
-    color: #6e7681;
-    margin-top: 2px;
-}
-
-/* ============================================================
-   预览模式
-   ============================================================ */
-.preview-overlay {
-    position: fixed;
-    inset: 0;
-    background: #05070a;
-    z-index: 9600;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px 20px;
-}
-.preview-controls {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    background: rgba(22,27,34,0.85);
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 8px 12px;
-    backdrop-filter: blur(4px);
-}
-.preview-controls span {
-    font-size: 12px;
-    color: #c9d1d9;
-    min-width: 60px;
-    text-align: center;
-}
-.preview-stage {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-}
-
-/* ============================================================
-   精确行高数字输入
-   ============================================================ */
-#tb-line-height-exact::-webkit-outer-spin-button,
-#tb-line-height-exact::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-#tb-line-height-exact {
-    -moz-appearance: textfield;
-    appearance: textfield;
-}
-
-/* ============================================================
-   排版预设下拉
-   ============================================================ */
-#tb-type-preset {
-    min-width: 86px;
-}
-#tb-type-preset option {
-    background: #161b22;
-    color: #c9d1d9;
-}
-
-
-/* ============================================================
-   多选批量编辑徽章
-   ============================================================ */
-#multi-edit-badge i {
-    font-size: 10px;
-}
-
-/* ============================================================
-   历史面板
-   ============================================================ */
-.history-panel {
-    position: fixed;
-    top: 70px;
-    right: 24px;
-    width: 320px;
-    max-height: 70vh;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.8);
-    z-index: 3200;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-.history-panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 14px;
-    border-bottom: 1px solid #30363d;
-    background: #1c2128;
-    flex-shrink: 0;
-}
-.history-panel-header h3 {
-    font-size: 13px;
-    color: #e1e4e8;
-    margin: 0;
-}
-.history-list {
-    flex: 1 1 auto;
-    overflow-y: auto;
-    padding: 8px;
-    max-height: 60vh;
-}
-.history-item {
-    padding: 6px 10px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.12s;
-    margin-bottom: 4px;
-    background: #0d1117;
-}
-.history-item:hover {
-    background: #21262d;
-    border-color: #30363d;
-}
-.history-item.active {
-    background: rgba(255,36,66,0.12);
-    border-color: #ff2442;
-}
-.history-item-title {
-    font-size: 11px;
-    color: #c9d1d9;
-    font-weight: 600;
-}
-.history-item-meta {
-    font-size: 10px;
-    color: #6e7681;
-    margin-top: 2px;
-}
-
-/* ============================================================
-   预览模式
-   ============================================================ */
-.preview-overlay {
-    position: fixed;
-    inset: 0;
-    background: #05070a;
-    z-index: 9600;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px 20px;
-}
-.preview-controls {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    background: rgba(22,27,34,0.85);
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 8px 12px;
-    backdrop-filter: blur(4px);
-}
-.preview-controls span {
-    font-size: 12px;
-    color: #c9d1d9;
-    min-width: 60px;
-    text-align: center;
-}
-.preview-stage {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-}
-
-/* ============================================================
-   精确行高数字输入
-   ============================================================ */
-#tb-line-height-exact::-webkit-outer-spin-button,
-#tb-line-height-exact::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-#tb-line-height-exact {
-    -moz-appearance: textfield;
-    appearance: textfield;
-}
-
-/* ============================================================
-   排版预设下拉
-   ============================================================ */
-#tb-type-preset {
-    min-width: 86px;
-}
-#tb-type-preset option {
-    background: #161b22;
-    color: #c9d1d9;
-}
-
-
-/* 严格模式开关 */
-#brand-strict-mode:checked + label {
-    color: #ff2442;
-    font-weight: 600;
-}
-
-/* 品牌模板卡片 */
-.brand-template-card {
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 8px 10px;
-    cursor: pointer;
-    transition: all 0.15s;
-    text-align: left;
-}
-.brand-template-card:hover {
-    border-color: #ff2442;
-    background: #161b22;
-    transform: translateY(-1px);
-}
-.brand-template-name {
-    font-size: 11px;
-    color: #e1e4e8;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.brand-template-meta {
-    font-size: 10px;
-    color: #6e7681;
-    margin-top: 2px;
-}
-
-/* Logo 卡片操作条（hover 显示） */
-.brand-logo-item {
+#ai-stepper .ai-step {
     position: relative;
+    z-index: 1;
+    background: #161b22;
 }
-.brand-logo-actions {
-    position: absolute;
-    top: 0; right: 0;
-    display: none;
-    gap: 2px;
-    padding: 2px;
-    z-index: 3;
+#ai-stepper .ai-step-dot {
+    background: #0d1117 !important;
 }
-.brand-logo-item:hover .brand-logo-actions {
-    display: flex;
+#ai-chunk-input:disabled,
+#ai-spec-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
-.brand-logo-act-btn {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(0,0,0,0.75);
-    color: #fff;
-    font-size: 9px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.12s;
-}
-.brand-logo-act-btn:hover {
-    background: #ff2442;
-}
-.brand-logo-wm-btn {
-    background: rgba(0,229,255,0.75);
-    color: #000;
-}
-.brand-logo-wm-btn:hover {
-    background: #00e5ff;
+#ai-status-bar {
+    transition: color 0.2s ease;
 }
 
 
-
-/* ============================================================
-   品牌资产包（Brand Kit）
-   ============================================================ */
-
-#brand-panel {
-    border-top: 1px solid #30363d;
-    padding-top: 12px;
-}
-
-#brand-panel .brand-tab.active {
-    background: #ff2442;
-    color: #fff;
-    border-color: #ff2442;
-}
-
-#brand-panel .brand-tab-content {
-    animation: brandFadeIn 0.12s ease;
-}
-
-@keyframes brandFadeIn {
-    from { opacity: 0.4; }
-    to { opacity: 1; }
-}
-
-/* 品牌色块 */
-.brand-color-swatch {
-    width: 26px;
-    height: 26px;
-    border-radius: 4px;
-    border: 1px solid #30363d;
-    cursor: pointer;
-    transition: transform 0.12s, border-color 0.12s;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
-}
-.brand-color-swatch:hover {
-    transform: scale(1.1);
-    border-color: #ff2442;
-}
-
-/* 品牌字体行 */
-.brand-font-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    margin-bottom: 5px;
-    font-size: 11px;
-    color: #c9d1d9;
-}
-.brand-font-row:last-child {
-    margin-bottom: 0;
-}
-
-/* 品牌 Logo 缩略图 */
-.brand-logo-item {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    aspect-ratio: 1 / 1;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    cursor: pointer;
-    overflow: hidden;
-    padding: 4px;
-    transition: border-color 0.12s, transform 0.12s;
-}
-.brand-logo-item:hover {
-    border-color: #ff2442;
-    transform: translateY(-1px);
-}
-.brand-logo-item img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    pointer-events: none;
-}
-
-/* 快捷品牌色条（注入到颜色控件下方） */
-.brand-quick-bar {
-    display: flex;
-    gap: 4px;
-    margin-top: 4px;
-    align-items: center;
-    flex-wrap: wrap;
-    padding: 4px 6px;
-    background: rgba(88,166,255,0.06);
-    border: 1px dashed rgba(88,166,255,0.25);
-    border-radius: 4px;
-}
-.brand-quick-swatch:hover {
-    transform: scale(1.2);
-    border-color: #fff !important;
-}
-
-
-/* ============================================================
-   品牌资产包（Brand Kit）
-   ============================================================ */
-
-#brand-panel {
-    border-top: 1px solid #30363d;
-    padding-top: 12px;
-}
-
-#brand-panel .brand-tab.active {
-    background: #ff2442;
-    color: #fff;
-    border-color: #ff2442;
-}
-
-#brand-panel .brand-tab-content {
-    animation: brandFadeIn 0.12s ease;
-}
-
-@keyframes brandFadeIn {
-    from { opacity: 0.4; }
-    to { opacity: 1; }
-}
-
-/* 品牌色块 */
-.brand-color-swatch {
-    width: 26px;
-    height: 26px;
-    border-radius: 4px;
-    border: 1px solid #30363d;
-    cursor: pointer;
-    transition: transform 0.12s, border-color 0.12s;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
-}
-.brand-color-swatch:hover {
-    transform: scale(1.1);
-    border-color: #ff2442;
-}
-
-/* 品牌字体行 */
-.brand-font-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    margin-bottom: 5px;
-    font-size: 11px;
-    color: #c9d1d9;
-}
-.brand-font-row:last-child {
-    margin-bottom: 0;
-}
-
-/* 品牌 Logo 缩略图 */
-.brand-logo-item {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    aspect-ratio: 1 / 1;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    cursor: pointer;
-    overflow: hidden;
-    padding: 4px;
-    transition: border-color 0.12s, transform 0.12s;
-}
-.brand-logo-item:hover {
-    border-color: #ff2442;
-    transform: translateY(-1px);
-}
-.brand-logo-item img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    pointer-events: none;
-}
-
-/* 快捷品牌色条（注入到颜色控件下方） */
-.brand-quick-bar {
-    display: flex;
-    gap: 4px;
-    margin-top: 4px;
-    align-items: center;
-    flex-wrap: wrap;
-    padding: 4px 6px;
-    background: rgba(88,166,255,0.06);
-    border: 1px dashed rgba(88,166,255,0.25);
-    border-radius: 4px;
-}
-.brand-quick-swatch:hover {
-    transform: scale(1.2);
-    border-color: #fff !important;
-}
-
-/* ============================================================
-   封面模板库
-   ============================================================ */
-.cover-template-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-    max-height: 320px;
-    overflow-y: auto;
-    padding: 2px;
-}
-.cover-template-card {
-    position: relative;
-    aspect-ratio: 9 / 16;
-    border-radius: 6px;
-    border: 1px solid #30363d;
-    cursor: pointer;
-    overflow: hidden;
-    transition: all 0.15s;
-    background: #0d1117;
-}
-.cover-template-card:hover {
-    border-color: #ff2442;
-    transform: translateY(-2px);
-    box-shadow: 0 6px 14px rgba(0,0,0,0.5);
-}
-.cover-template-card .ct-preview {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 8px;
-    text-align: center;
-    gap: 4px;
-    overflow: hidden;
-}
-.cover-template-card .ct-title {
-    font-weight: 900;
-    line-height: 1.15;
-    color: #fff;
-    text-shadow: 0 2px 6px rgba(0,0,0,0.8);
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-.cover-template-card .ct-subtitle {
-    font-size: 9px;
-    color: rgba(255,255,255,0.85);
-    line-height: 1.3;
-    white-space: pre-wrap;
-}
-.cover-template-card .ct-badge {
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
-    padding: 3px 4px;
-    font-size: 9.5px;
-    line-height: 1.2;
-    color: #fff;
-    background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.cover-template-empty {
-    grid-column: span 2;
-    text-align: center;
-    color: #8b949e;
-    font-size: 12px;
-    padding: 16px 0;
-}

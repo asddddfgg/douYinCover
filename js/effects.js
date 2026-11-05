@@ -180,6 +180,199 @@ window.getEffectParamsDef = getEffectParamsDef;
 window.isParametricEffect = isParametricEffect;
 
 /* ============================================================
+   特效语义层 v1：让 AI 理解「是什么、适合什么」
+   两大来源：
+     1) EFFECT_SEMANTIC_OVERRIDES —— 内置 14 个精准手写
+     2) inferSemantics(eff) —— 自定义特效规则推断（含 name + template 关键字）
+   所有字段均可选；缺失时 AI 不优先选，但不影响渲染
+   ============================================================ */
+const EFFECT_SEMANTIC_OVERRIDES = {
+    'effect-gradient': {
+        category: 'glyph-treatment', applyMode: 'layer-only', family: 'gradient-fill',
+        visualStyle: ['渐变', '柔和', '现代'],
+        suitableRoles: ['封面主标题', '正文标题', '标签'],
+        avoidRoles: ['超小字号', '需要硬朗感的警示文案'],
+        intensity: 'medium', mood: ['温暖', '时尚']
+    },
+    'effect-neon': {
+        category: 'glyph-treatment', applyMode: 'inline+layer', family: 'neon-glow',
+        visualStyle: ['发光', '霓虹', '高冲击'],
+        suitableRoles: ['封面主标题', '关键词强调', '数字放大'],
+        avoidRoles: ['长正文', '小字号'], intensity: 'high', mood: ['炫酷', '赛博']
+    },
+    'effect-3d': {
+        category: 'glyph-treatment', applyMode: 'layer-only', family: '3d-extrude',
+        visualStyle: ['立体', '层次', '厚重'],
+        suitableRoles: ['封面主标题', '核心观点'],
+        avoidRoles: ['长正文', '密集信息页'], intensity: 'high', mood: ['稳重', '权威']
+    },
+    'effect-hk': {
+        category: 'glyph-treatment', applyMode: 'inline+layer', family: 'neon-glow',
+        visualStyle: ['发光', '复古', '怀旧'],
+        suitableRoles: ['封面主标题', '案例页标题'],
+        avoidRoles: ['长正文'], intensity: 'medium', mood: ['怀旧', '港风']
+    },
+    'effect-gold': {
+        category: 'glyph-treatment', applyMode: 'layer-only', family: 'gradient-fill',
+        visualStyle: ['金属', '奢华', '质感'],
+        suitableRoles: ['标签', '副标题', '强调词'],
+        avoidRoles: ['封面主标题（冲击力不足）', '长正文'], intensity: 'medium', mood: ['高端', '稳重']
+    },
+    'effect-ice': {
+        category: 'glyph-treatment', applyMode: 'inline+layer', family: 'neon-glow',
+        visualStyle: ['发光', '冰感', '冷色'],
+        suitableRoles: ['封面主标题', '情绪转折页'],
+        avoidRoles: ['温暖主题'], intensity: 'medium', mood: ['冷峻', '疏离']
+    },
+    'effect-black-stroke': {
+        category: 'glyph-treatment', applyMode: 'inline+layer', family: 'text-stroke',
+        visualStyle: ['描边', '稳定', '可读'],
+        suitableRoles: ['正文标题', '长段落小标题', '标签'],
+        avoidRoles: ['封面主标题（冲击力不足）'], intensity: 'low', mood: ['克制', '稳定']
+    },
+    'effect-purple-mist': {
+        category: 'glyph-treatment', applyMode: 'layer-only', family: 'soft-glow',
+        visualStyle: ['柔光', '朦胧', '梦幻'],
+        suitableRoles: ['情感页标题', '回忆段落', '标签'],
+        avoidRoles: ['数字冲击', '警示文案'], intensity: 'low', mood: ['梦幻', '温柔']
+    },
+    'effect-sunset': {
+        category: 'glyph-treatment', applyMode: 'layer-only', family: 'gradient-fill',
+        visualStyle: ['渐变', '暖光', '日落'],
+        suitableRoles: ['封面主标题', '情绪收尾页'],
+        avoidRoles: ['冷色主题'], intensity: 'medium', mood: ['温暖', '抒情']
+    },
+    'effect-deep-sea': {
+        category: 'glyph-treatment', applyMode: 'layer-only', family: 'gradient-fill',
+        visualStyle: ['渐变', '深蓝', '理性'],
+        suitableRoles: ['分析页标题', '知识干货'],
+        avoidRoles: ['情感类'], intensity: 'medium', mood: ['理性', '专业']
+    },
+    'effect-jade': {
+        category: 'glyph-treatment', applyMode: 'layer-only', family: 'gradient-fill',
+        visualStyle: ['渐变', '自然', '清透'],
+        suitableRoles: ['生活类标题', '自然主题'],
+        avoidRoles: ['科技主题'], intensity: 'medium', mood: ['清新', '自然']
+    },
+    'effect-chalk': {
+        category: 'glyph-treatment', applyMode: 'inline+layer', family: 'hand-drawn',
+        visualStyle: ['手绘', '粉笔', '粗糙'],
+        suitableRoles: ['教育类标题', '黑板主题'],
+        avoidRoles: ['正式商务'], intensity: 'medium', mood: ['随性', '亲和']
+    },
+    'effect-lightning': {
+        category: 'glyph-treatment', applyMode: 'inline+layer', family: 'neon-glow',
+        visualStyle: ['发光', '闪电', '高冲击'],
+        suitableRoles: ['关键数字', '警示词', '强调'],
+        avoidRoles: ['长正文'], intensity: 'high', mood: ['爆发', '惊悚']
+    },
+    'effect-viral': {
+        category: 'glyph-treatment', applyMode: 'inline+layer', family: 'neon-glow',
+        visualStyle: ['发光', '爆款', '高冲击'],
+        suitableRoles: ['封面主标题', '核心观点', '号召'],
+        avoidRoles: ['长正文', '知识解释段'], intensity: 'high', mood: ['热血', '爆燃']
+    }
+};
+
+// 顺序=优先级。名字类关键字（bubble/paper/highlight）必须排在 template 关键字（shadow/box-shadow）之前，
+// 否则 dlg_comic_bubble 的 template 含 box-shadow 会被误判成 drop-shadow。
+const SEMANTICS_FAMILY_RULES = [
+    // 容器/材质类：名字优先，先匹配
+    // ✅ paper-texture 提到 speech-bubble 之前：『纸/信/letter』比『对话/chat』更具体，避免旧信纸被误判成气泡
+    { kw: /纸|paper|信|letter|报纸|newspaper|羊皮|parchment|牛皮|kraft|宝丽来|polaroid|票根|ticket|便签|便利贴|sticky/i, family: 'paper-texture', style: ['纸质', '复古'], intensity: 'low', catHint: 'container' },
+    { kw: /气泡|bubble|说话|台词|对话框|对话气泡/i, family: 'speech-bubble', style: ['气泡', '对话'], intensity: 'medium', catHint: 'container' },
+    { kw: /黑板|chalk|白板|whiteboard|打字机|typewriter|信纸|代码|终端/i, family: 'paper-texture', style: ['手写', '复古'], intensity: 'medium', catHint: 'container' },
+    { kw: /玻璃|glass|frost|磨砂|毛玻璃/i, family: 'glass-morphism', style: ['玻璃', '现代'], intensity: 'medium', catHint: 'frame-decoration' },
+    { kw: /卡片|card|引用|quote|Pro.?Tip|warning|警告|提示/i, family: 'card-block', style: ['卡片', '信息块'], intensity: 'medium', catHint: 'container' },
+    // 标注类：名字优先
+    { kw: /高亮|highlight|marker|荧光|马克笔/i, family: 'highlight', style: ['高亮', '强调'], intensity: 'medium', catHint: 'annotation' },
+    { kw: /下划线|underline|删除线|strike|波浪|wavy|点线|双线/i, family: 'text-decoration', style: ['装饰线', '强调'], intensity: 'medium', catHint: 'annotation' },
+    { kw: /圆圈|circle|方框|box|圈|画圈|标注|箭头|arrow|callout/i, family: 'callout-mark', style: ['标注', '圈重点'], intensity: 'high', catHint: 'annotation' },
+    { kw: /手写|handwritten|手绘|粉笔/i, family: 'hand-drawn', style: ['手绘', '随性'], intensity: 'medium' },
+    // 字形表现类：名字优先
+    { kw: /霓虹|neon|发光|glow|外发光|闪光|闪烁|脉冲|激光/i, family: 'neon-glow', style: ['发光', '高冲击'], intensity: 'high' },
+    { kw: /渐变|gradient|彩虹|rainbow|炫彩/i, family: 'gradient-fill', style: ['渐变', '多彩'], intensity: 'medium' },
+    { kw: /描边|stroke|outline|轮廓|边框|虚线|点线|双线|内凹|外凸|凹槽|凸起/i, family: 'text-stroke', style: ['描边', '轮廓'], intensity: 'medium' },
+    { kw: /立体|3d|浮雕|雕刻|emboss|extrude/i, family: '3d-extrude', style: ['立体', '层次'], intensity: 'high' },
+    { kw: /金属|metal|silver|银色|钢|铁/i, family: 'metal-fill', style: ['金属', '硬朗'], intensity: 'medium' },
+    // 兜底：template 关键字（box-shadow 等容易被误伤，放最后）
+    { kw: /阴影|shadow|投影|长投影|斜投影|暗黑/i, family: 'drop-shadow', style: ['阴影', '厚重'], intensity: 'medium' }
+];
+
+function _semanticsDefaultCategory(eff) {
+    try {
+        const cat = (typeof getEffectCategory === 'function') ? getEffectCategory(eff) : 'text';
+        return cat === 'whole' ? 'container' : 'glyph-treatment';
+    } catch (e) { return 'glyph-treatment'; }
+}
+
+function _semanticsDefaultApplyMode(eff, category) {
+    try {
+        const cat = (typeof getEffectCategory === 'function') ? getEffectCategory(eff) : 'text';
+        if (cat === 'whole') return 'layer-only';
+    } catch (e) {}
+    if (category === 'container' || category === 'frame-decoration') return 'layer-only';
+    if (category === 'annotation') return 'inline+layer';
+    return 'inline+layer';
+}
+
+const SEMANTICS_RULE_VERSION = 2;
+
+function inferSemantics(eff) {
+    if (!eff) return null;
+    // ✅ 只有版本匹配才复用缓存；旧版本缓存自动重新推断
+    if (eff.semantics && eff.semantics.category) {
+        const cachedVer = eff.semantics._version || 1;
+        if (cachedVer >= SEMANTICS_RULE_VERSION) return eff.semantics;
+        // 版本过期 → 继续往下重新推断（不 return）
+    }
+    if (EFFECT_SEMANTIC_OVERRIDES[eff.id]) {
+        return Object.assign({ _source: 'override', _version: SEMANTICS_RULE_VERSION }, EFFECT_SEMANTIC_OVERRIDES[eff.id]);
+    }
+    const name = String(eff.name || '');
+    const tpl = String(eff.template || eff.css || '');
+    // ✅ 两段匹配：先只看名字（更精确），名字没命中才扫 template
+    let hit = null;
+    for (const rule of SEMANTICS_FAMILY_RULES) {
+        if (rule.kw.test(name)) { hit = rule; break; }
+    }
+    if (!hit) {
+        for (const rule of SEMANTICS_FAMILY_RULES) {
+            if (rule.kw.test(tpl)) { hit = rule; break; }
+        }
+    }
+    const category = (hit && hit.catHint) ? hit.catHint : _semanticsDefaultCategory(eff);
+    const applyMode = _semanticsDefaultApplyMode(eff, category);
+    const family = hit ? hit.family : 'misc';
+    const visualStyle = hit ? hit.style.slice() : ['其他'];
+    const intensity = hit ? (hit.intensity || 'medium') : 'medium';
+
+    const roleMap = {
+        'glyph-treatment': { suitable: ['封面主标题', '正文标题', '关键词'], avoid: ['长正文'] },
+        'container': { suitable: ['对话承载', '信息卡片', '引用'], avoid: ['长正文', '小字号'] },
+        'annotation': { suitable: ['关键词强调', '数字标注', '重点圈出'], avoid: ['整段正文'] },
+        'frame-decoration': { suitable: ['版式装饰', '封面边框'], avoid: ['长正文'] }
+    };
+    const roles = roleMap[category] || roleMap['glyph-treatment'];
+
+    return {
+        _source: 'inferred',
+        _version: SEMANTICS_RULE_VERSION,
+        category, applyMode, family,
+        visualStyle,
+        suitableRoles: roles.suitable,
+        avoidRoles: roles.avoid,
+        intensity,
+        mood: []
+    };
+}
+window.inferSemantics = inferSemantics;
+window.EFFECT_SEMANTIC_OVERRIDES = EFFECT_SEMANTIC_OVERRIDES;
+
+console.log('[Effects] ✅ 语义层已就位：EFFECT_SEMANTIC_OVERRIDES（' +
+    Object.keys(EFFECT_SEMANTIC_OVERRIDES).length + ' 个内置精准语义）+ inferSemantics() 规则推断');
+
+/* ============================================================
    内置 20 款 → 全部改成新格式 {id, name, params, template}
    id 保持不变，老图层零迁移
    ============================================================ */
@@ -318,7 +511,7 @@ const DEFAULT_ART_EFFECTS = [
         params: {
             color: { type: 'color', label: '粉笔色', default: '#ffffff' }
         },
-        template: 'color: {color}; font-family: cursive; text-shadow: 0 0 2px rgba(255,255,255,0.8), 1px 1px 2px rgba(0,0,0,0.5);'
+        template: 'color: {color}; text-shadow: 0 0 2px rgba(255,255,255,0.8), 1px 1px 2px rgba(0,0,0,0.5);'
     },
     {
         id: 'effect-lightning', name: '闪电高压',
@@ -400,6 +593,33 @@ async function loadEffectsFromDB() {
         // 重新读一遍（迁移后的）
         const list2 = await EffectsDB.getAllEffects();
         window.__effectsCustomListCache = list2;
+        // ✅ 一次性语义补全：给缺 semantics 的自定义特效写入推断结果
+        try {
+            if (typeof inferSemantics === 'function') {
+                let needSave = 0;
+                for (const eff of list2) {
+                    if (eff && eff.id && !eff.semantics) {
+                        try {
+                            const s = inferSemantics(eff);
+                            if (s && s.category) {
+                                eff.semantics = s;
+                                needSave++;
+                            }
+                        } catch (err) {}
+                    }
+                }
+                if (needSave > 0) {
+                    for (const eff of list2) {
+                        if (eff && eff.semantics && eff.semantics._source === 'inferred') {
+                            try { await EffectsDB.putEffect(eff); } catch (err) {}
+                        }
+                    }
+                    console.log('[Effects] 已为 ' + needSave + ' 个自定义特效补全语义');
+                }
+            }
+        } catch (e2) {
+            if (window.Utils && Utils.log) Utils.log.warn('[Effects] 批量补全语义失败', e2);
+        }
         renderEffectsGrid();
     } catch (e) {
         console.error('读取特效库失败:', e);
@@ -665,7 +885,48 @@ function showEffectContextMenu(e, eff) {
     setTimeout(() => document.addEventListener('mousedown', closeHandler, true), 0);
 }
 
+function bindRefreshSemanticsButton() {
+    const btn = document.getElementById('btn-refresh-effect-semantics');
+    if (!btn || btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', async () => {
+        if (!window.EffectsDB || typeof inferSemantics !== 'function') {
+            if (typeof showBgToast === 'function') showBgToast('语义系统未就绪');
+            return;
+        }
+        if (!confirm('将重新推断所有自定义特效的语义标签（family / applyMode / 视觉风格），覆盖已有 semantics。继续？')) return;
+        btn.disabled = true;
+        const oldHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 刷新中';
+        try {
+            const list = await EffectsDB.getAllEffects();
+            let updated = 0;
+            for (const eff of list) {
+                if (!eff || !eff.id) continue;
+                try {
+                    const s = inferSemantics(eff);
+                    if (s && s.category) {
+                        eff.semantics = s;
+                        await EffectsDB.putEffect(eff);
+                        updated++;
+                    }
+                } catch (err) {}
+            }
+            const list2 = await EffectsDB.getAllEffects();
+            window.__effectsCustomListCache = list2;
+            if (typeof renderEffectsGrid === 'function') renderEffectsGrid();
+            if (typeof showBgToast === 'function') showBgToast('已刷新 ' + updated + ' 个特效的语义标签 ✓');
+        } catch (e) {
+            if (typeof showBgToast === 'function') showBgToast('刷新失败：' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = oldHtml;
+        }
+    });
+}
+
 function initEffectsManagerPanel() {
+    setTimeout(bindRefreshSemanticsButton, 100);
     const sidebar = document.querySelector('.sidebar-left .panel-section');
     if (!sidebar || document.getElementById('effects-control-panel')) return;
     const panelDiv = document.createElement('div');

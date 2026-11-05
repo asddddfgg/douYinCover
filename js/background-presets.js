@@ -93,6 +93,9 @@ const BG_PRESETS = [
     { id: 'know-08', cat: 'knowledge', name: '暗青专业', type: 'gradient', color1: '#0b3d4f', color2: '#1e6f5c', angle: 135, texture: 'noise' },
     { id: 'know-09', cat: 'knowledge', name: '灰紫学术', type: 'gradient', color1: '#3c1053', color2: '#ad5389', angle: 130, texture: 'none' },
     { id: 'know-10', cat: 'knowledge', name: '钢蓝理性', type: 'gradient', color1: '#1c92d2', color2: '#f2fcfe', angle: 145, texture: 'none' }
+
+    // 品牌预设不在本文件写死，由 BrandManager.getActiveBgPresets() 运行时派生，
+    // 通过 getAllBgPresets() 合并查询。换品牌色 = 改数据不改代码。
 ];
 
 const SMART_KEYWORD_MAP = [
@@ -160,3 +163,35 @@ window.BG_PRESETS = BG_PRESETS;
 window.SMART_KEYWORD_MAP = SMART_KEYWORD_MAP;
 window.SMART_EFFECT_MAP = SMART_EFFECT_MAP;
 window.DEFAULT_BACKGROUND = DEFAULT_BACKGROUND;
+
+// ============================================================
+// 全站背景查询唯一入口：通用预设 + 当前品牌色板的品牌预设
+// 下游一律用 getAllBgPresets()，禁止直接读 window.BG_PRESETS
+// ============================================================
+function getAllBgPresets() {
+    const base = BG_PRESETS.slice();
+    try {
+        if (window.BrandManager && BrandManager.getActiveBgPresets) {
+            const brandPresets = BrandManager.getActiveBgPresets() || [];
+            brandPresets.forEach(b => {
+                if (!b || !b.id) return;
+                if (base.some(p => p.id === b.id)) return;
+                base.push({
+                    id: b.id,
+                    cat: 'brand',
+                    name: b.name || b.id,
+                    type: b.type || (b.color2 && b.color2 !== b.color1 ? 'gradient' : 'solid'),
+                    color1: b.color1 || '#000000',
+                    color2: b.color2 || b.color1 || '#000000',
+                    angle: b.angle != null ? b.angle : 135,
+                    texture: b.texture || 'none'
+                });
+            });
+        }
+    } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[BG] getAllBgPresets 合并品牌预设失败', e);
+    }
+    return base;
+}
+window.getAllBgPresets = getAllBgPresets;
+console.log('[BG] ✅ getAllBgPresets 已就位（通用 + 品牌合并）');

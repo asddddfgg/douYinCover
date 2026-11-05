@@ -21,10 +21,8 @@
      4) 任何模块不得再自定义 _savedSelectionContext，不得自己调 execCommand 做行内样式
    ============================================================ */
 const SelectionCore = (function () {
-    // 内部冻结快照（原 _savedSelectionContext 收口到这里）
     let _saved = null;
 
-    // 内部：把 Window Selection 转成 ctx
     function _fromLiveSelection() {
         if (!window.state || !state.editingLayerId) return null;
         const el = document.querySelector(
@@ -38,7 +36,6 @@ const SelectionCore = (function () {
         return { el, range, sel, collapsed: range.collapsed, source: 'live' };
     }
 
-    // 内部：把冻结快照转成 ctx
     function _fromSaved() {
         if (!_saved) return null;
         if (!window.state || !state.editingLayerId) return null;
@@ -54,15 +51,12 @@ const SelectionCore = (function () {
         return { el: _saved.el, range: r, sel: null, collapsed: r.collapsed, source: 'saved' };
     }
 
-    // 唯一取选区入口
     function getCtx() {
         return _fromSaved() || _fromLiveSelection();
     }
 
-    // 唯一冻结入口：mousedown capture 阶段调用
     function freezeFromEvent(e) {
         if (!window.state || !state.editingLayerId) return false;
-        // 排除底衬卡片（sidebar 内的交互不应冻结选区）
         if (e && e.target && e.target.closest && e.target.closest('.backdrop-card')) return false;
 
         const live = _fromLiveSelection();
@@ -76,19 +70,15 @@ const SelectionCore = (function () {
         return true;
     }
 
-    // 清空冻结快照
     function clearSaved() {
         _saved = null;
     }
 
-    // 判断当前是否可用于写入（有非折叠选区）
     function hasUsableSelection() {
         const ctx = getCtx();
         return !!(ctx && !ctx.collapsed && ctx.el && ctx.range);
     }
 
-    // 唯一写入入口：只走 wrapSelectionWithStyle，禁止 execCommand
-    // 返回 { ok: boolean, ctx: ctx|null }
     function applyStyle(styleList, options) {
         options = options || {};
         const ctx = options.ctx || getCtx();
@@ -119,7 +109,6 @@ const SelectionCore = (function () {
 
         if (!wrapped) return { ok: false, ctx };
 
-        // 写回图层内容
         const layerId = ctx.el && state.editingLayerId;
         let layer = state.layers.find(l => l.id === layerId);
         if (!layer) {
@@ -135,7 +124,6 @@ const SelectionCore = (function () {
             }
         }
 
-        // 应用完清掉冻结快照，避免下次误用
         _saved = null;
 
         if (typeof state.saveState === 'function') state.saveState();
@@ -144,7 +132,6 @@ const SelectionCore = (function () {
         return { ok: true, ctx };
     }
 
-    // 供兼容层用：把 ctx 塞回冻结快照（例如 clearLocalFormat 需要临时恢复）
     function setSavedContext(layerId, el, range) {
         _saved = { layerId, el, range };
     }
@@ -175,16 +162,21 @@ function applyFormattingToSelection(command, value = null) {
    选区级特效 v3 —— 焦点保护 + 冻结 range + 手写 span
    ============================================================ */
 
-// mousedown 阶段冻结选区快照（防焦点丢失）
-// ✅ P0 收口：冻结逻辑统一走 SelectionCore.freezeFromEvent()，不再自己维护 _savedSelectionContext
-// _savedSelectionContext 保留为空壳变量，供旧代码引用不报错
 let _savedSelectionContext = null;
 
 document.addEventListener('mousedown', (e) => {
     if (!window.state || !state.editingLayerId) return;
 
-    // 底衬在 sidebar 内：必须先排除，否则 .sidebar-right 仍会 preventDefault
     if (e.target.closest('.backdrop-card')) {
+        return;
+    }
+
+    if (e.target.closest('#tb-inline-offset, #btn-inline-offset-apply, #btn-inline-offset-clear')) {
+        console.log('InlineOffset capture mousedown, try freeze');
+        if (typeof SelectionCore !== 'undefined' && SelectionCore.freezeFromEvent) {
+            const frozen = SelectionCore.freezeFromEvent(e);
+            console.log('InlineOffset freeze result =', frozen);
+        }
         return;
     }
 
@@ -198,13 +190,10 @@ document.addEventListener('mousedown', (e) => {
     }
 }, true);
 
-// 取当前编辑容器内选区（优先用快照）
-// ✅ P0：统一委托给 SelectionCore.getCtx()；旧名保留作别名，避免全项目大范围替换
 function getActiveSelectionRange() {
     if (typeof SelectionCore !== 'undefined' && SelectionCore && SelectionCore.getCtx) {
         return SelectionCore.getCtx();
     }
-    // 兜底：SelectionCore 未加载时用原逻辑
     if (!state.editingLayerId) return null;
 
     if (_savedSelectionContext &&
@@ -235,7 +224,6 @@ function getActiveSelectionRange() {
     return { el, range, sel, collapsed: range.collapsed };
 }
 
-// 判断特效 CSS 能否安全作用于选区
 function canEffectApplyToSelection(cssText) {
     const css = (cssText || '').toLowerCase();
     if (!css) return false;
@@ -250,21 +238,15 @@ function canEffectApplyToSelection(cssText) {
     return true;
 }
 
-// 检测 HTML 是否含局部内联 color
 function hasLocalInlineColor(html) {
     if (!html) return false;
     return /<span[^>]*style="[^"]*color\s*:\s*[^;"]+/i.test(html);
 }
 
-// 确保 styleWithCSS
 function ensureStyleWithCSS() {
-    try { document.execCommand('styleWithCSS', false, true); } catch (e) {
-        // eslint-disable-next-line no-empty
-        // 合法降级：部分浏览器不支持 styleWithCSS 命令，忽略即可
-    }
+    try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
 }
 
-// 用 Range 逐文本节点切割 + 包 span（跨行安全）
 function wrapSelectionWithStyle(styleList, markAsEffect = false, passedCtx = null) {
     const ctx = passedCtx || getActiveSelectionRange();
     if (!ctx || ctx.collapsed) return false;
@@ -312,7 +294,6 @@ function wrapSelectionWithStyle(styleList, markAsEffect = false, passedCtx = nul
         parent.removeChild(node);
     });
 
-    // ✅ 包装后把选区恢复到新 span 上，避免用户必须重新拖选
     if (tasks.length > 0) {
         try {
             const spans = el.querySelectorAll('span[data-effect-span]');
@@ -334,9 +315,6 @@ function wrapSelectionWithStyle(styleList, markAsEffect = false, passedCtx = nul
     return tasks.length > 0;
 }
 
-/* ============================================================
-   清除选区内的"特效 span"（点特效时清旧特效）
-   ============================================================ */
 function clearEffectSpansInSelection(ctx) {
     if (!ctx || !ctx.el || !ctx.range) return null;
     const root = ctx.el;
@@ -346,7 +324,6 @@ function clearEffectSpansInSelection(ctx) {
     const endInfo = getTextOffsetInRoot(root, range.endContainer, range.endOffset);
     if (startInfo === null || endInfo === null) return null;
 
-    // 收集"任何带强特效样式的 span"或带 data-effect-span 的 span
     const effectSpans = [];
     root.querySelectorAll('span').forEach(sp => {
         if (!range.intersectsNode(sp)) return;
@@ -378,7 +355,6 @@ function clearEffectSpansInSelection(ctx) {
     return { root, start: startInfo, end: endInfo };
 }
 
-// 判断一个 span 是不是"看起来像特效"
 function looksLikeEffectSpan(sp) {
     if (!sp.style) return false;
     if (sp.dataset.effectSpan === '1') return true;
@@ -402,7 +378,6 @@ function looksLikeEffectSpan(sp) {
     return false;
 }
 
-// 记录 (node, offset) 在 root 里的纯文本偏移
 function getTextOffsetInRoot(root, node, offset) {
     if (!root.contains(node)) return null;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
@@ -415,7 +390,6 @@ function getTextOffsetInRoot(root, node, offset) {
     return null;
 }
 
-// 按文本偏移恢复 Selection
 function restoreSelectionByTextOffset(root, start, end) {
     if (!root || start === null || end === null) return;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
@@ -446,12 +420,6 @@ function restoreSelectionByTextOffset(root, start, end) {
     }
 }
 
-/* ============================================================
-   一次性把特效 span 拆成"兄弟级三段"：
-     <span data-effect-span>before</span>
-     <span>core</span>                      ← core 是 sp 的兄弟，不是后代
-     <span data-effect-span>after</span>
-   ============================================================ */
 function splitAndClearEffectSpan(sp, root, range) {
     const parent = sp.parentNode;
     if (!parent) return;
@@ -461,7 +429,6 @@ function splitAndClearEffectSpan(sp, root, range) {
     const endContainer = range.endContainer;
     const endOffset = range.endOffset;
 
-    // 1) 收集 sp 下所有文本节点
     const textNodes = [];
     const walker = document.createTreeWalker(sp, NodeFilter.SHOW_TEXT, null, false);
     while (walker.nextNode()) textNodes.push(walker.currentNode);
@@ -474,7 +441,6 @@ function splitAndClearEffectSpan(sp, root, range) {
         return;
     }
 
-    // 2) 计算每个文本节点与选区的交集 [s, e)
     const charMap = [];
     textNodes.forEach(node => {
         const text = node.nodeValue;
@@ -495,7 +461,6 @@ function splitAndClearEffectSpan(sp, root, range) {
         charMap.push({ node, text, startChar: s, endChar: e, selected: s < e });
     });
 
-    // 3) 构造三个 fragment：before / core / after
     const beforeFrag = document.createDocumentFragment();
     const coreFrag = document.createDocumentFragment();
     const afterFrag = document.createDocumentFragment();
@@ -514,7 +479,6 @@ function splitAndClearEffectSpan(sp, root, range) {
         if (!c.text) return;
         const path = pathFromSp(c.node);
 
-        // 用"节点与选区是否有交集"判断，不依赖 compareBoundaryPoints 的边界细节
         let intersects = false;
         try {
             intersects = range.intersectsNode(c.node);
@@ -524,7 +488,6 @@ function splitAndClearEffectSpan(sp, root, range) {
         }
 
         if (intersects) {
-            // 用逐字符 intersects 收集该节点在选区内的字符区间 [s, e)
             let s = c.text.length;
             let e = 0;
             try {
@@ -532,7 +495,6 @@ function splitAndClearEffectSpan(sp, root, range) {
                     const cr = document.createRange();
                     cr.setStart(c.node, i);
                     cr.setEnd(c.node, i + 1);
-                    // ✅ 用 intersectsNode 判断字符级 range 是否与选区相交，避免 compareBoundaryPoints 方向错误
                     if (range.intersectsNode(c.node)) {
                         const cmpStart = range.compareBoundaryPoints(Range.START_TO_START, cr);
                         const cmpEnd = range.compareBoundaryPoints(Range.END_TO_END, cr);
@@ -563,13 +525,11 @@ function splitAndClearEffectSpan(sp, root, range) {
         }
     });
 
-    // 4) 按"有内容才插入"的原则，把 sp 替换成 1~3 段
     const hasBefore = beforeFrag.textContent.length > 0;
     const hasCore = coreFrag.textContent.length > 0;
     const hasAfter = afterFrag.textContent.length > 0;
 
     if (!hasBefore && !hasAfter && hasCore) {
-        // 完整覆盖：把所有子节点原样提到父层，直接删掉 span 本身
         const p = sp.parentNode;
         if (p) {
             while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
@@ -596,7 +556,6 @@ function splitAndClearEffectSpan(sp, root, range) {
     parent.removeChild(sp);
 }
 
-// 沿原始祖先链递归克隆，把一段文本塞进 frag
 function appendTextWithPath(frag, path, text) {
     if (!text) return;
     if (path.length === 0) {
@@ -613,7 +572,6 @@ function appendTextWithPath(frag, path, text) {
     frag.appendChild(inner);
 }
 
-// 浅克隆 sp（含 class / 非特效样式），按 keepEffect 决定是否保留特效与标记
 function cloneElementShallow(sp, keepEffect) {
     const clone = document.createElement(sp.tagName);
     if (sp.className) clone.className = sp.className;
@@ -647,7 +605,6 @@ function cloneElementShallow(sp, keepEffect) {
     return clone;
 }
 
-// 去掉元素上的特效属性与标记
 function stripEffectFromElement(el) {
     el.removeAttribute('data-effect-span');
     if (el.style) {
@@ -659,9 +616,6 @@ function stripEffectFromElement(el) {
     }
 }
 
-/* ============================================================
-   清除选区内所有特效（重建 innerHTML，按偏移量切三段）
-   ============================================================ */
 function clearLocalFormat() {
     const ctx = getActiveSelectionRange();
     if (!ctx || ctx.collapsed) {
@@ -761,7 +715,6 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;');
 }
 
-// 把单个特效应用到当前选区
 function applyEffectToSelection(eff) {
     if (!eff || !eff.css) return;
     const ctx = getActiveSelectionRange();
@@ -818,10 +771,7 @@ function applyEffectToSelection(eff) {
     rules.forEach(({ prop, val }) => {
         const p = prop.toLowerCase();
         if (toggleCmds[p]) {
-            try { toggleCmds[p](val); } catch (e) {
-                // eslint-disable-next-line no-empty
-                // 合法降级：个别浏览器不支持该 execCommand 命令，静默跳过
-            }
+            try { toggleCmds[p](val); } catch (e) {}
         } else {
             manualList.push({ prop, val });
         }
@@ -844,7 +794,6 @@ function applyEffectToSelection(eff) {
     updateTopToolbarUI(state.getSelectedLayer());
 }
 
-// 核心入口：有选区且特效允许 → 局部；否则 → 整层
 function handleEffectClick(eff) {
     const layer = state.getSelectedLayer();
     if (!layer || layer.type !== 'text') {
@@ -853,7 +802,6 @@ function handleEffectClick(eff) {
     }
 
     let ctx = getActiveSelectionRange();
-    // ✅ 若选区因清理而丢失，但编辑态仍在且有冻结快照，先尝试恢复
     if ((!ctx || ctx.collapsed) && state.editingLayerId && typeof _savedSelectionContext !== 'undefined' && _savedSelectionContext) {
         try {
             const r = _savedSelectionContext.range;
@@ -872,14 +820,13 @@ function handleEffectClick(eff) {
         return;
     }
 
-       if (hasSelection && !canEffectApplyToSelection(eff.css || '')) {
+    if (hasSelection && !canEffectApplyToSelection(eff.css || '')) {
         if (typeof showBgToast === 'function') {
             showBgToast(`「${eff.name}」只能作用于整个图层，已为你整层套用`);
         }
     }
 
     layer.effectClass = eff.id;
-    // 清空叠加数组（单选语义）
     if (layer.effectClasses) delete layer.effectClasses;
     state.saveState();
     if (typeof renderCanvas === 'function') renderCanvas();
@@ -899,18 +846,14 @@ function setupTopToolbarEvents() {
             let val = e.target.value;
             if (!val) return;
 
-            // ✅ 如果这个 value 不在 option 列表里（例如自定义字体 option 丢失），
-            //    说明 select 选到了空/非法值，直接放弃这次变更
             const exists = Array.from(fontSelect.options).some(o => o.value === val);
             if (!exists) {
                 console.warn('[Font] 字体选项不存在:', val);
                 return;
             }
 
-            // ✅ 拿到安全字体名（含引号保护）
             const safeVal = (typeof window._safeFontFamily === 'function') ? window._safeFontFamily(val) : val;
 
-            // ✅ 主动确认字体已经就绪；如果未就绪，先 await 再刷画布，避免切了字体但字还显示默认
             const ensureReady = (typeof document !== 'undefined' && document.fonts && document.fonts.load)
                 ? document.fonts.load(`normal normal 16px ${safeVal}`).catch(() => {})
                 : Promise.resolve();
@@ -919,10 +862,7 @@ function setupTopToolbarEvents() {
                 const ctx = getActiveSelectionRange();
                 if (ctx && !ctx.collapsed) {
                     ensureStyleWithCSS();
-                    try { document.execCommand('fontName', false, val); } catch (err) {
-                        // eslint-disable-next-line no-empty
-                        // 合法降级：个别浏览器不支持 fontName 命令，改走选区包裹逻辑
-                    }
+                    try { document.execCommand('fontName', false, val); } catch (err) {}
                     const layer = state.layers.find(l => l.id === state.editingLayerId);
                     if (layer) {
                         layer.content = ctx.el.innerHTML;
@@ -987,7 +927,6 @@ function setupTopToolbarEvents() {
     if (bgColorPicker) {
         bgColorPicker.addEventListener('input', (e) => {
             const color = e.target.value;
-            // ✅ P0：有选区走 SelectionCore.applyStyle（纯 Range 包 span，不依赖焦点）；无选区回退整层 bgColor
             if (typeof SelectionCore !== 'undefined' && SelectionCore.hasUsableSelection && SelectionCore.hasUsableSelection()) {
                 const res = SelectionCore.applyStyle([
                     { prop: 'background-color', val: color },
@@ -1050,7 +989,6 @@ function setupTopToolbarEvents() {
                 } else {
                     const layer = state.getSelectedLayer();
                     if (layer) {
-                        // ✅ 修复：propMap 用 cmd 作 key，cmd='strikeThrough' 对应 layer 字段 'strike'
                         const propMap = { bold: 'bold', italic: 'italic', underline: 'underline', strikeThrough: 'strike' };
                         const prop = propMap[cmd];
                         if (prop) layer[prop] = !layer[prop];
@@ -1107,12 +1045,10 @@ function setupTopToolbarEvents() {
             const layer = state.getSelectedLayer();
             if (!layer) return;
             const v = parseFloat(e.target.value) || 0;
-            // ✅ 0 表示不改字距，回退到 normal（手写体连笔重要）
             layer.letterSpacing = (v === 0) ? 0 : (v + 'px');
             state.saveState();
             renderCanvas();
         });
-        // 防止拖拽结束后 click 冒泡触发菜单关闭
         letterSpacing.addEventListener('click', (e) => e.stopPropagation());
         letterSpacing.addEventListener('mousedown', (e) => e.stopPropagation());
     }
@@ -1127,7 +1063,6 @@ function setupTopToolbarEvents() {
         lineHeight.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
-    // 精确行高输入框（0.8 ~ 3.0，数字输入）
     const lineHeightExact = document.getElementById('tb-line-height-exact');
     if (lineHeightExact) {
         lineHeightExact.addEventListener('change', (e) => {
@@ -1145,7 +1080,7 @@ function setupTopToolbarEvents() {
         lineHeightExact.addEventListener('click', (e) => e.stopPropagation());
     }
 
-    // F5 预览快捷键
+    // F5 预览快捷键（只注册一次）
     document.addEventListener('keydown', (e) => {
         if (e.key === 'F5') {
             if (e.target.isContentEditable) return;
@@ -1157,37 +1092,12 @@ function setupTopToolbarEvents() {
         }
     });
 
-    // ✅ 精确行高回填逻辑已直接写入 updateTopToolbarUI 函数体末尾（不再用 wrapper 覆盖）
-
-
-
-    // F5 预览快捷键
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'F5') {
-            if (e.target.isContentEditable) return;
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-            if (window.PreviewMode && typeof PreviewMode.open === 'function') {
-                e.preventDefault();
-                PreviewMode.open();
-            }
-        }
-    });
-
-
-
-
-
-
-
-
-
-        const opacity = document.getElementById('tb-opacity');
+    const opacity = document.getElementById('tb-opacity');
     if (opacity) {
         opacity.addEventListener('input', (e) => {
             const layer = state.getSelectedLayer();
             if (!layer) return;
             layer.opacity = parseFloat(e.target.value);
-            // draw 图层：只重绘 canvas，不重建 DOM，拖动滑块才顺
             if (layer.type === 'draw' && window.Doodle) {
                 Doodle.redrawDrawLayers();
             } else {
@@ -1201,7 +1111,6 @@ function setupTopToolbarEvents() {
         opacity.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
-    // 清除局部样式：右键粗体按钮
     const boldBtn = document.getElementById('tb-bold');
     if (boldBtn) {
         boldBtn.addEventListener('contextmenu', (e) => {
@@ -1210,7 +1119,92 @@ function setupTopToolbarEvents() {
         });
     }
 
-    // 菜单内一次性动作（排版预设 / 自动对比色）：触发后关闭菜单
+    // ===== 行内特效升降 =====
+    const inlineOffset = document.getElementById('tb-inline-offset');
+    const inlineOffsetVal = document.getElementById('tb-inline-offset-val');
+    if (inlineOffset) {
+        inlineOffset.disabled = false;
+        inlineOffset.readOnly = false;
+        inlineOffset.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+        });
+        inlineOffset.addEventListener('click', (e) => e.stopPropagation());
+        inlineOffset.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+        inlineOffset.addEventListener('input', (e) => {
+            const v = parseInt(e.target.value, 10) || 0;
+            if (inlineOffsetVal) inlineOffsetVal.textContent = v + 'px';
+        });
+    }
+
+    const applyInlineOffset = (px, clear) => {
+        const ctx = getActiveSelectionRange();
+        if (!ctx || ctx.collapsed) {
+            if (typeof showBgToast === 'function') showBgToast('请先在文本中选中要调的行内特效文字（保持选中状态再点按钮）');
+            return;
+        }
+        const el = ctx.el;
+        let changed = 0;
+        const allSpans = el.querySelectorAll('span');
+        allSpans.forEach(sp => {
+            let intersects = false;
+            try { intersects = ctx.range.intersectsNode(sp); } catch (e) { intersects = false; }
+            if (!intersects) return;
+            const isEffect = sp.dataset.effectSpan === '1' || looksLikeEffectSpan(sp);
+            if (!isEffect) return;
+            if (clear) {
+                sp.style.removeProperty('top');
+                sp.style.removeProperty('position');
+                sp.style.removeProperty('transform');
+                sp.style.removeProperty('display');
+            } else {
+                sp.style.setProperty('display', 'inline-block');
+                sp.style.setProperty('vertical-align', 'baseline');
+                sp.style.setProperty('transform', 'translateY(' + px + 'px)');
+                sp.style.setProperty('font-family', 'inherit');
+                sp.style.setProperty('font-size', 'inherit');
+                sp.style.setProperty('font-weight', 'inherit');
+                sp.style.setProperty('font-style', 'inherit');
+                sp.style.setProperty('font-synthesis', 'none');
+                sp.style.removeProperty('top');
+                sp.style.removeProperty('position');
+            }
+            changed++;
+        });
+        if (changed === 0) {
+            if (typeof showBgToast === 'function') showBgToast('选区里没有行内特效文字，请先选中带特效的文字');
+            return;
+        }
+        const layer = state.layers.find(l => l.id === state.editingLayerId);
+        if (layer) layer.content = el.innerHTML;
+        if (typeof state.saveState === 'function') state.saveState();
+        if (typeof renderCanvas === 'function') renderCanvas();
+        if (typeof updateTopToolbarUI === 'function') updateTopToolbarUI(state.getSelectedLayer());
+        if (typeof showBgToast === 'function') showBgToast(clear ? '已清除行内特效升降' : ('已升降 ' + px + 'px（' + changed + ' 处）'));
+    };
+
+    const btnInlineApply = document.getElementById('btn-inline-offset-apply');
+    if (btnInlineApply) {
+        btnInlineApply.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+        btnInlineApply.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const px = inlineOffset ? parseInt(inlineOffset.value, 10) || 0 : 0;
+            applyInlineOffset(px, false);
+        });
+    }
+    const btnInlineClear = document.getElementById('btn-inline-offset-clear');
+    if (btnInlineClear) {
+        btnInlineClear.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+        btnInlineClear.addEventListener('click', (e) => {
+            e.stopPropagation();
+            applyInlineOffset(0, true);
+            if (inlineOffset) inlineOffset.value = 0;
+            if (inlineOffsetVal) inlineOffsetVal.textContent = '0px';
+        });
+    }
+
     const typePresetSelect = document.getElementById('tb-type-preset');
     if (typePresetSelect) {
         typePresetSelect.addEventListener('change', () => {
@@ -1226,8 +1220,6 @@ function setupTopToolbarEvents() {
     }
 }
 
-
-// 安全地把颜色值写入 <input type="color">（只接受 #rrggbb，其余归一化或跳过）
 function safeSetColorInput(id, value, fallback) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -1238,22 +1230,15 @@ function safeSetColorInput(id, value, fallback) {
     if (!/^#[0-9a-fA-F]{6}$/.test(v)) {
         v = fallback;
     }
-    try { el.value = v; } catch (e) { /* 忽略 */ }
+    try { el.value = v; } catch (e) {}
 }
 
-
-
-
-
-// 顶部工具栏状态同步
 function updateTopToolbarUI(layer) {
     const toolbar = document.getElementById('text-toolbar');
     if (!toolbar) return;
 
-    // draw 图层：允许调透明度，其它文字按钮全部禁用
     if (layer && layer.type === 'draw') {
         toolbar.classList.remove('is-inactive');
-        // 只让透明度滑块可用
         toolbar.querySelectorAll('select, button, input[type="range"]').forEach(el => {
             if (el.id === 'tb-opacity') {
                 el.disabled = false;
@@ -1268,7 +1253,6 @@ function updateTopToolbarUI(layer) {
         return;
     }
 
-    // 其它类型（text / 无选中）：恢复所有控件可用
     toolbar.querySelectorAll('select, button, input[type="range"]').forEach(el => {
         el.disabled = false;
         el.style.opacity = '';
@@ -1302,8 +1286,6 @@ function updateTopToolbarUI(layer) {
         curStrike = !!layer.strike;
     }
 
-    // ✅ 字体下拉框同步：如果 layer.fontFamily 对应的 option 还没出现（如自定义字体异步还没加载完），
-    //    自动补一个 option 再选中，避免 select.value 被重置成第一项导致显示"没生效"
     {
         const fontSelectEl = document.getElementById('tb-font');
         const targetFont = layer.fontFamily || 'sans-serif';
@@ -1324,7 +1306,6 @@ function updateTopToolbarUI(layer) {
     if (_fsEl && _fsEl.offsetParent !== null) {
         _fsEl.value = layer.fontSize || '28px';
     }
-        // 安全地把颜色值写入 <input type="color">（只接受 #rrggbb，其余归一化或跳过）
 
     safeSetColorInput('tb-color', layer.color, '#ffffff');
     safeSetColorInput('tb-bgcolor', layer.bgColor === 'transparent' ? '#000000' : layer.bgColor, '#000000');
@@ -1352,7 +1333,6 @@ function updateTopToolbarUI(layer) {
     document.getElementById('tb-line-height').value = layer.lineHeight || 1.2;
     document.getElementById('tb-opacity').value = layer.opacity !== undefined ? layer.opacity : 1;
 
-    // ✅ 精确行高回填（原 wrapper 逻辑内联到这里，避免递归）
     const _exactLH = document.getElementById('tb-line-height-exact');
     if (_exactLH) {
         const v = parseFloat(layer.lineHeight) || 1.2;
@@ -1366,7 +1346,6 @@ function updateTopToolbarUI(layer) {
     }
 }
 
-// 选区变化时刷新工具栏
 document.addEventListener('selectionchange', () => {
     if (!state.editingLayerId) return;
     const ctx = getActiveSelectionRange();
@@ -1375,20 +1354,14 @@ document.addEventListener('selectionchange', () => {
     if (layer) updateTopToolbarUI(layer);
 });
 
-/* ============================================================
-   右键菜单
-   ============================================================ */
 function setupContextMenuEvents() {
     const menu = document.getElementById('context-menu');
-    // ✅ 左键 mousedown 就关闭右键菜单（比 click 更早、更稳）
-    //    点在菜单内部的按钮上时不关闭，交给按钮自己的 click 处理
     document.addEventListener('mousedown', (e) => {
         if (!menu || menu.style.display !== 'block') return;
         if (menu.contains(e.target)) return;
         if (e.button !== 0) return;
         menu.style.display = 'none';
     }, true);
-    // 保险：click 阶段兜底关闭（例如某些浏览器 mousedown 被 stopPropagation 拦截）
     document.addEventListener('click', (e) => {
         if (!menu) return;
         if (menu.style.display !== 'block') return;
@@ -1430,7 +1403,7 @@ function setupContextMenuEvents() {
         }
     });
 
-        const doMoveLayer = (direction) => {
+    const doMoveLayer = (direction) => {
         let id = state.selectedLayerId;
         if (window.MultiSelect && state.selectedLayerIds && state.selectedLayerIds.length === 1) {
             id = state.selectedLayerIds[0];
@@ -1451,7 +1424,6 @@ function setupContextMenuEvents() {
         renderLayerList();
         updateTopToolbarUI(state.getSelectedLayer());
     };
-
 
     const _ctxMoveTop = document.getElementById('ctx-move-top');
     if (_ctxMoveTop) _ctxMoveTop.addEventListener('click', () => doMoveLayer('top'));
@@ -1486,7 +1458,6 @@ function setupContextMenuEvents() {
         }
     });
 
-    // 清除所选文字特效（行内）
     const clearInlineItem = document.getElementById('ctx-clear-inline-effect');
     if (clearInlineItem) {
         let _inlineClearCtx = null;
@@ -1527,7 +1498,6 @@ function setupContextMenuEvents() {
         });
     }
 
-    // 清除整层特效（只清图层级特效，不动行内 span；行内特效由「清除所选文字特效」单独负责）
     const clearLayerItem = document.getElementById('ctx-clear-layer-effect');
     if (clearLayerItem) {
         clearLayerItem.addEventListener('click', () => {
@@ -1545,7 +1515,6 @@ function setupContextMenuEvents() {
         });
     }
 
-    // ✅ 打开右键菜单时，按当前图层真实状态决定两项显隐
     document.addEventListener('contextmenu', (e) => {
         const menu = document.getElementById('context-menu');
         if (!menu || menu.style.display === 'none') return;
@@ -1553,21 +1522,17 @@ function setupContextMenuEvents() {
         const inlineItem = document.getElementById('ctx-clear-inline-effect');
         const layerItem = document.getElementById('ctx-clear-layer-effect');
 
-        // 行内：仅当处于编辑态、有选中文本、且选区内含特效 span 时显示
         let showInline = false;
         if (layer && layer.type === 'text' && state.editingLayerId === layer.id) {
             const hasInlineSpan = /<span[^>]*style="[^"]*(color|background|text-shadow|text-decoration|-webkit-text-stroke|background-image|border|padding)/i.test(layer.content || '');
             if (hasInlineSpan) {
-                // 有选中文本
                 const ctx = (typeof getActiveSelectionRange === 'function') ? getActiveSelectionRange() : null;
                 if (ctx && !ctx.collapsed) showInline = true;
-                // 或者虽然没有选中，但有整个图层含行内 span（右键选中整层文字也允许清）
                 if (!showInline) showInline = true;
             }
         }
         if (inlineItem) inlineItem.style.display = showInline ? '' : 'none';
 
-        // 整层：仅当图层有 effectClass / effectClasses 时显示
         const hasLayerEffect = !!(layer && (
             layer.effectClass ||
             (Array.isArray(layer.effectClasses) && layer.effectClasses.length > 0)
@@ -1577,28 +1542,10 @@ function setupContextMenuEvents() {
 }
 
 /* ============================================================
-   文字底衬面板
+   文字底衬面板（部分函数已被 backdrop-panel.js 覆盖，保留数据声明）
    ============================================================ */
 
-// ⚠️ [PARTIALLY DEPRECATED — moved to backdrop-panel.js]
-// 下面的函数声明（setupBackdropPanel / renderBackdropGrid / createBackdropCard /
-// renderCustomBackdropGrid / uploadBackdropImage / refreshCustomBackdropCache /
-// syncBackdropPanelToLayer / showBackdropFormatModal / copyToClipboard /
-// fallbackCopy / _sanitizeSvg / _svgToWhiteMaskDataUrl / _pathToSvg /
-// _parseShapeInput / _importShapesFromText / setupBackdropImport）
-// 已被 backdrop-panel.js 里的同名函数覆盖，实际执行的是 backdrop-panel.js 的版本。
-//
-// ⚠️ 但下面这些【数据 / 常量】不能删 —— backdrop-panel.js 里仍在读它们：
-//   - BACKDROP_PRESETS
-//   - currentBackdropCategory
-//   - backdropCache
-//   - SHAPE_FORMAT / SHAPE_MASK_SIZE
-//   - SVG_ALLOWED_TAGS / SVG_ALLOWED_ATTRS
-// 物理删除函数声明时，务必保留这些数据声明。
-// ============================================================
-
 const BACKDROP_PRESETS = [
-    // 纸质
     { type: 'none', name: '无', cat: 'paper' },
     { type: 'paper', name: '横线便笺', cat: 'paper' },
     { type: 'grid', name: '方格便笺', cat: 'paper' },
@@ -1606,7 +1553,6 @@ const BACKDROP_PRESETS = [
     { type: 'notebook', name: '笔记本内页', cat: 'paper' },
     { type: 'tape', name: '胶带贴纸', cat: 'paper' },
     { type: 'torn', name: '基础撕边', cat: 'paper' },
-    // 材质
     { type: 'kraft', name: '牛皮纸', cat: 'texture' },
     { type: 'fiber', name: '纸张纤维', cat: 'texture' },
     { type: 'watercolor', name: '水彩纸', cat: 'texture' },
@@ -1617,7 +1563,6 @@ const BACKDROP_PRESETS = [
     { type: 'cork', name: '软木板', cat: 'texture' },
     { type: 'canvas-texture', name: '油画布', cat: 'texture' },
     { type: 'linen', name: '亚麻布', cat: 'texture' },
-    // 装饰
     { type: 'glass', name: '毛玻璃', cat: 'decor' },
     { type: 'polaroid', name: '拍立得', cat: 'decor' },
     { type: 'ticket', name: '车票/电影票', cat: 'decor' },
@@ -1757,7 +1702,6 @@ function createBackdropCard(preset) {
         preview.innerHTML = '<span style="color:#8b949e;font-size:11px;">无</span>';
         preview.style.background = 'repeating-linear-gradient(45deg, #21262d, #21262d 4px, #161b22 4px, #161b22 8px)';
     } else if (preset.type === 'custom') {
-        // 由 renderCustomBackdropGrid 处理
     } else if (window.BackdropTextures && BackdropTextures.isCanvasTexture(preset.type)) {
         const dataUrl = BackdropTextures.get(preset.type, null);
         if (dataUrl) {
@@ -1857,7 +1801,6 @@ async function renderCustomBackdropGrid(grid) {
             del.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (!confirm(`确定删除底衬 "${item.name}" 吗？`)) return;
-                // ✅ 国际版：从 AssetRegistry 一起删
                 try {
                     const map = JSON.parse(localStorage.getItem('douyin_backdrop_asset_map') || '{}');
                     const assetId = map[item.id];
@@ -1916,7 +1859,6 @@ async function uploadBackdropImage(file) {
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });
-        // ✅ 国际版：先写 AssetRegistry（统一资产库），再写 BackdropDB（兼容老逻辑）
         let assetId = null;
         if (window.AssetRegistry && AssetRegistry.registerBackdrop) {
             assetId = await AssetRegistry.registerBackdrop({
@@ -1927,7 +1869,6 @@ async function uploadBackdropImage(file) {
             });
         }
         const legacyId = await BackdropDB.addBackdrop(file.name, dataUrl, false);
-        // 把 assetId 映射关系记下来，供后续"替换素材"能力用（不影响现有渲染）
         if (assetId && legacyId != null) {
             try {
                 const map = JSON.parse(localStorage.getItem('douyin_backdrop_asset_map') || '{}');
@@ -1947,7 +1888,7 @@ async function refreshCustomBackdropCache() {
         const items = await BackdropDB.getAllBackdrops();
         backdropCache = {};
         items.forEach(it => { backdropCache[it.id] = it.dataUrl; });
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
 }
 
 function syncBackdropPanelToLayer(layer) {
@@ -1998,9 +1939,6 @@ function syncBackdropPanelToLayer(layer) {
     }
 }
 
-/* ============================================================
-   底衬格式查看/复制弹窗
-   ============================================================ */
 function showBackdropFormatModal() {
     let existing = document.getElementById('backdrop-format-modal');
     if (existing) existing.remove();
@@ -2024,7 +1962,6 @@ function showBackdropFormatModal() {
     box.innerHTML = `
         <h3 style="margin-bottom:10px;color:#f1e05a;font-size:14px;"><i class="fa-solid fa-code"></i> 底衬格式说明</h3>
         <p style="margin-bottom:8px;line-height:1.4;color:#8b949e;">下面是可以直接粘贴到 <code style="color:#58a6ff;">layer.backdrop</code> 的结构。所有字段均为可选，缺省时用默认值。</p>
-
         <div style="margin-bottom:10px;">
             <div style="font-weight:bold;color:#c9d1d9;margin-bottom:4px;">预设底衬示例</div>
             <textarea readonly style="width:100%;height:110px;background:#0d1117;border:1px solid #30363d;color:#58a6ff;padding:8px;border-radius:4px;font-family:monospace;font-size:11px;resize:none;outline:none;user-select:text;">${sampleJson}</textarea>
@@ -2032,7 +1969,6 @@ function showBackdropFormatModal() {
                 <button class="btn" data-copy-sample="preset" style="padding:2px 8px;font-size:10px;"><i class="fa-solid fa-copy"></i> 复制</button>
             </div>
         </div>
-
         <div style="margin-bottom:10px;">
             <div style="font-weight:bold;color:#c9d1d9;margin-bottom:4px;">自定义上传底衬示例</div>
             <textarea readonly style="width:100%;height:130px;background:#0d1117;border:1px solid #30363d;color:#58a6ff;padding:8px;border-radius:4px;font-family:monospace;font-size:11px;resize:none;outline:none;user-select:text;">${sampleCustomJson}</textarea>
@@ -2040,7 +1976,6 @@ function showBackdropFormatModal() {
                 <button class="btn" data-copy-sample="custom" style="padding:2px 8px;font-size:10px;"><i class="fa-solid fa-copy"></i> 复制</button>
             </div>
         </div>
-
         ${currentJson ? `
         <div style="margin-bottom:10px;border-top:1px dashed #30363d;padding-top:8px;">
             <div style="font-weight:bold;color:#f1e05a;margin-bottom:4px;">当前选中图层的底衬配置</div>
@@ -2050,7 +1985,6 @@ function showBackdropFormatModal() {
             </div>
         </div>
         ` : ''}
-
         <div style="margin-top:10px;font-size:11px;color:#8b949e;line-height:1.6;">
             <b>字段说明：</b><br>
             <code style="color:#58a6ff;">type</code>：底衬类型，可选值见下方完整列表<br>
@@ -2062,14 +1996,12 @@ function showBackdropFormatModal() {
             <code style="color:#58a6ff;">sizeMode</code>：仅 custom，cover / contain / repeat<br>
             <code style="color:#58a6ff;">overlayColor</code>：仅 custom，颜色叠加，可为 null
         </div>
-
         <div style="margin-top:10px;font-size:11px;color:#8b949e;line-height:1.6;">
             <b>完整 type 列表：</b><br>
             <span style="color:#7ee787;">CSS</span>: none, paper, grid, sticky, notebook, tape, torn, glass, brush, polaroid, ticket, washi<br>
             <span style="color:#f1e05a;">Canvas</span>: kraft, fiber, watercolor, xuan, parchment, newspaper, chalkboard, cork, canvas-texture, linen<br>
             <span style="color:#ff7b72;">Custom</span>: custom
         </div>
-
         <div style="margin-top:15px;text-align:right;">
             <button id="btn-close-backdrop-modal" class="btn btn-primary" style="padding:4px 14px;font-size:11px;">关闭</button>
         </div>
@@ -2104,13 +2036,10 @@ function showBackdropFormatModal() {
     });
 }
 
-// ✅ P0-1：copyToClipboard / fallbackCopy 已合并到 Utils.clipboard.copy
-//    这里保留一个薄别名，兼容本文件内部老调用点
 function copyToClipboard(text) {
     if (window.Utils && Utils.clipboard && Utils.clipboard.copy) {
         return Utils.clipboard.copy(text);
     }
-    // 兜底：Utils 未加载时用原生 API（不应发生）
     if (navigator.clipboard && navigator.clipboard.writeText) {
         return navigator.clipboard.writeText(text).catch(() => {});
     }
@@ -2172,10 +2101,6 @@ function _sanitizeSvg(rawSvg) {
     return svg;
 }
 
-// 把任意 SVG 统一成：白色填充、无描边、透明底，然后转 PNG 蒙版
-// ✅ P1：SVG 直接存字符串（矢量，放大不失真、改色不糊边）
-// 返回值为 data:image/svg+xml;utf8,... 而不是 PNG 蒙版
-// 兼容：调用方期望 Promise<string>，这里保持 Promise 接口，内部同步返回
 function _svgToWhiteMaskDataUrl(svgString) {
     const svg = _sanitizeSvg(svgString);
 
@@ -2192,7 +2117,6 @@ function _svgToWhiteMaskDataUrl(svgString) {
         : '0 0 100 100';
     svg.setAttribute('viewBox', safeVb);
 
-    // 扩为正方形 viewBox（保持原图形居中不拉伸）
     const viewBoxParts = safeVb.split(/\s+/).map(Number);
     const [viewX, viewY, viewWidth, viewHeight] = viewBoxParts;
     const squareSide = Math.max(viewWidth, viewHeight);
@@ -2210,7 +2134,6 @@ function _svgToWhiteMaskDataUrl(svgString) {
         svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     }
 
-    // 统一填充成 currentColor（可着色），去掉描边/透明度干扰
     const walker = document.createTreeWalker(svg, NodeFilter.SHOW_ELEMENT, null);
     const all = [svg];
     while (walker.nextNode()) all.push(walker.currentNode);
@@ -2235,14 +2158,12 @@ function _svgToWhiteMaskDataUrl(svgString) {
     return Promise.resolve(svgDataUrl);
 }
 
-// 从"只有 path"的简写生成 SVG
 function _pathToSvg(pathD, viewBox, fill) {
     const vb = viewBox || '0 0 100 100';
     const f = fill || '#ffffff';
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}"><path d="${pathD}" fill="${f}"/></svg>`;
 }
 
-// 解析输入（JSON 文本 或 SVG 文本），返回 shapes 数组
 async function _parseShapeInput(text) {
     const trimmed = (text || '').trim();
     if (!trimmed) throw new Error('输入为空');
@@ -2282,7 +2203,6 @@ async function _importShapesFromText(text) {
         const s = shapes[i];
         try {
             const dataUrl = await _svgToWhiteMaskDataUrl(s.svg);
-            // ✅ 国际版：形状蒙版进 AssetRegistry（type:'backdrop', colorable:true）
             let assetId = null;
             if (window.AssetRegistry && AssetRegistry.registerBackdrop) {
                 assetId = await AssetRegistry.registerBackdrop({
@@ -2293,8 +2213,7 @@ async function _importShapesFromText(text) {
                     source: 'user'
                 });
             }
-            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl, true);   // ⭐ 加 true，表示形状蒙版
-            // 记录映射关系
+            const id = await BackdropDB.upsertBackdropByName(s.name, dataUrl, true);
             if (assetId && id != null) {
                 try {
                     const map = JSON.parse(localStorage.getItem('douyin_backdrop_asset_map') || '{}');
@@ -2313,7 +2232,6 @@ async function _importShapesFromText(text) {
     }
 
     await refreshCustomBackdropCache();
-    // 切到"自定义"分类，让用户立刻看到
     currentBackdropCategory = 'custom';
     const tabsEl = document.getElementById('backdrop-tabs');
     if (tabsEl) {
@@ -2332,7 +2250,6 @@ async function _importShapesFromText(text) {
     return { ok, fail };
 }
 
-// 绑定 UI
 function setupBackdropImport() {
     const btnOpen = document.getElementById('btn-backdrop-import');
     const panel = document.getElementById('backdrop-import-panel');
@@ -2425,9 +2342,15 @@ function _extractPastedText(e) {
 }
 
 function handleExternalPaste(e) {
-    const text = _extractPastedText(e);
+    let text = _extractPastedText(e);
     if (!text) return;
     if (!state || !state.pages) return;
+    try {
+        if (typeof cleanTextForCanvasPaste === 'function') {
+            text = cleanTextForCanvasPaste(text);
+        }
+    } catch (err) {}
+    if (!text) return;
 
     const page = state.pages.find(p => p.id === state.currentPageId);
     if (!page) return;

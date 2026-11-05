@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
 </head>
 
 <body>
@@ -87,6 +88,13 @@
                 <div class="menu-slider-row"><span>行高</span><input type="number" id="tb-line-height-exact" min="0.8" max="3.0" step="0.05" value="1.2" style="width:52px;"></div>
                 <div class="menu-slider-row"><span>透明</span><input type="range" id="tb-opacity" min="0.1" max="1" value="1" step="0.05"></div>
                 <div class="menu-divider"></div>
+                <div class="menu-section-label">行内特效</div>
+                <div class="menu-slider-row"><span>升降</span><input type="range" id="tb-inline-offset" min="-20" max="20" value="0" step="1"><span id="tb-inline-offset-val" style="min-width:32px;text-align:right;">0px</span></div>
+                <div class="menu-row">
+                    <button id="btn-inline-offset-apply" class="tool-btn" style="width:auto;padding:0 8px;font-size:11px;" title="把升降值应用到当前选中的行内特效文字"><i class="fa-solid fa-arrow-up-from-bracket"></i> 应用到选中</button>
+                    <button id="btn-inline-offset-clear" class="tool-btn" style="width:auto;padding:0 8px;font-size:11px;" title="清除选中行内特效文字的升降"><i class="fa-solid fa-rotate-left"></i> 清除</button>
+                </div>
+                <div class="menu-divider"></div>
                 <div class="menu-section-label">背景</div>
                 <div class="menu-row">
                     <div class="color-picker-wrapper color-picker-lg"><input type="color" id="tb-bgcolor" value="#000000" title="背景底色"></div>
@@ -132,7 +140,6 @@
             <div class="actions">
                 <span id="project-title" style="font-size:12px;color:#8b949e;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
                 <button id="btn-history" class="btn" title="设计历史"><i class="fa-solid fa-clock-rotate-left"></i></button>
-                <button id="btn-ai-suggest" class="btn btn-ai" title="根据内容智能推荐背景与特效"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 推荐</button>
                 <button id="btn-export" class="btn btn-primary"><i class="fa-solid fa-download"></i> 导出封面</button>
             </div>
         </header>
@@ -160,15 +167,14 @@
                     <i class="fa-solid fa-sliders" data-icon="sliders"></i>
                 </button>
             </div>
-                        <aside class="sidebar-left">
-                <div class="panel-section" id="cover-templates-panel">
-                    <h3><i class="fa-solid fa-table-cells-large"></i> 封面模板库</h3>
-                    <p class="hint">点击任意模板，当前页面立刻套用（背景+文字+特效+底衬）</p>
-                    <div id="cover-template-grid" class="cover-template-grid"></div>
-                </div>
+<aside class="sidebar-left">
 
                 <div class="panel-section">
-                    <h3><i class="fa-solid fa-wand-magic-sparkles"></i> 20款艺术特效</h3>
+                    <h3 style="display:flex;justify-content:space-between;align-items:center;"><span><i class="fa-solid fa-wand-magic-sparkles"></i> 艺术特效</span>
+                        <button id="btn-refresh-effect-semantics" class="btn" style="padding:1px 6px;font-size:10px;" title="重新推断所有自定义特效的语义标签（family/applyMode/视觉风格）">
+                            <i class="fa-solid fa-arrows-rotate"></i> 刷新语义
+                        </button>
+                    </h3>
                     <p class="hint">选中画布图层后点击应用特效</p>
                     <div id="effects-grid" class="effects-grid"></div>
                 </div>
@@ -192,7 +198,7 @@
 
                     <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px; padding:6px 8px; background:#0d1117; border:1px solid #30363d; border-radius:4px; font-size:11px; color:#8b949e;">
                         <input type="checkbox" id="brand-strict-mode" style="accent-color:#ff2442; cursor:pointer;">
-                        <label for="brand-strict-mode" style="cursor:pointer; flex:1;">严格模式：仅允许使用品牌色 / 品牌字体</label>
+                        <label for="brand-strict-mode" style="cursor:pointer; flex:1;">严格色彩模式：仅限制颜色；特效 / 底衬 / 贴纸 / 上传永远自由</label>
                     </div>
 
                     <div class="brand-tabs" style="display:flex; gap:4px; margin-bottom:8px;">
@@ -213,6 +219,13 @@
                         <div style="display:flex; gap:6px;">
                             <button id="btn-add-current-color" class="btn" style="flex:1; justify-content:center; font-size:11px;">+ 收藏当前图层色</button>
                             <button id="btn-add-manual-color" class="btn" style="flex:1; justify-content:center; font-size:11px;">+ 手动添加颜色</button>
+                        </div>
+                        <div style="margin-top:10px; border-top:1px dashed #30363d; padding-top:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <span style="font-size:11px; color:#8b949e; font-weight:600;"><i class="fa-solid fa-image"></i> 品牌背景预设</span>
+                                <button id="btn-add-brand-bg" class="btn" style="padding:1px 6px; font-size:10px;"><i class="fa-solid fa-plus"></i> 新增</button>
+                            </div>
+                            <div id="brand-bg-preset-list"></div>
                         </div>
                     </div>
 
@@ -241,49 +254,16 @@
             <main class="canvas-container"></main>
 
             <aside class="sidebar-right">
-                <div class="panel-section" id="bg-panel-section">
-                    <h3><i class="fa-solid fa-image"></i> 背景画布 · 智能预设</h3>
-
-                    <div class="bg-super-actions">
-                        <button id="bg-smart-recommend" class="bg-super-btn bg-super-ai" title="根据当前文字内容与特效智能匹配背景">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i>
-                            <span>智能推荐</span>
-                        </button>
-                        <button id="bg-random-advanced" class="bg-super-btn bg-super-rand" title="从高质量预设库随机抽取一款">
-                            <i class="fa-solid fa-shuffle"></i>
-                            <span>随机高级背景</span>
-                        </button>
-                        <button id="bg-extract-color" class="bg-super-btn bg-super-extract" title="从图片或已有贴纸中提取主色生成渐变">
-                            <i class="fa-solid fa-eye-dropper"></i>
-                            <span>从图片提取</span>
-                        </button>
-                    </div>
-
-
-                    <div class="bg-upload-tip">
-                        <i class="fa-solid fa-circle-info"></i>
-                        支持拖拽图片到画布 → 自动提取主色 / 或用作图片背景
-                    </div>
-
-
-                    <div class="bg-category-tabs" id="bg-category-tabs">
-                        <div class="bg-cat-tab active" data-cat="hot">热门爆款</div>
-                        <div class="bg-cat-tab" data-cat="fresh">清新文艺</div>
-                        <div class="bg-cat-tab" data-cat="dark">暗黑高级</div>
-                        <div class="bg-cat-tab" data-cat="neon">渐变炫彩</div>
-                        <div class="bg-cat-tab" data-cat="solid">纯色极简</div>
-                        <div class="bg-cat-tab" data-cat="festival">节日/季节</div>
-                        <div class="bg-cat-tab" data-cat="knowledge">知识干货</div>
-                        <div class="bg-cat-tab" data-cat="fav">我的收藏</div>
-                        <div class="bg-cat-tab" data-cat="recent">最近使用</div>
-                    </div>
+<div class="panel-section" id="bg-panel-section">
+                    <h3><i class="fa-solid fa-image"></i> 背景 · 我的收藏</h3>
+                    <p class="hint">收藏自己的背景；下方高级自定义可做渐变 / 纯色 / 图片</p>
 
                     <div id="bg-preset-grid" class="bg-preset-grid"></div>
 
-                    <div class="bg-advanced-toggle" id="bg-advanced-toggle">
+                    <div class="bg-advanced-toggle open" id="bg-advanced-toggle">
                         <i class="fa-solid fa-sliders"></i> 高级自定义 <i class="fa-solid fa-chevron-down bg-adv-arrow"></i>
                     </div>
-                    <div class="bg-advanced-body" id="bg-advanced-body" style="display:none;">
+                    <div class="bg-advanced-body" id="bg-advanced-body" style="display:block;">
                         <div class="control-group">
                             <label>背景类型</label>
                             <select id="bg-type">
@@ -404,19 +384,14 @@
                             </div>
                         </div>
                     </div>
-
                     <div class="control-group" style="margin-top: 15px; border-top: 1px solid #30363d; padding-top: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                            <label style="margin: 0;"><i class="fa-solid fa-star" style="color: #f1e05a;"></i> 快捷收藏</label>
-                            <button id="btn-fav-bg" class="btn" style="padding: 2px 6px; font-size: 10px;"><i class="fa-solid fa-plus"></i> 收藏当前背景</button>
-                        </div>
-                        <div id="fav-bg-list" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; max-height: 100px; overflow-y: auto;"></div>
+                        <button id="btn-fav-bg" class="btn btn-primary" style="width: 100%; justify-content: center; font-size: 11px;">
+                            <i class="fa-solid fa-star"></i> 收藏当前背景
+                        </button>
                     </div>
                 </div>
-                <input type="file" id="bg-extract-file" accept="image/*" style="display:none;">
 
-                <div class="panel-section" id="doodle-panel-section">
-                    <h3><i class="fa-solid fa-paintbrush"></i> 涂鸦画笔</h3>
+                <div class="panel-section" id="doodle-panel-section"><h3><i class="fa-solid fa-paintbrush"></i> 涂鸦画笔</h3>
                     <p class="hint">点顶部画笔按钮进入绘制模式，在画布上拖动即可绘制</p>
                     <div class="control-group">
                         <label>笔刷颜色</label>
@@ -578,9 +553,6 @@
             <li id="ctx-clear-layer-effect"><i class="fa-solid fa-broom"></i> 清除整层特效</li>
             <li class="divider"></li>
             <li id="ctx-copy"><i class="fa-solid fa-copy"></i> 复制图层</li>
-
-
-
             <li id="ctx-copy-style"><i class="fa-solid fa-wand-magic"></i> 复制样式</li>
             <li id="ctx-paste"><i class="fa-solid fa-paste"></i> 粘贴样式</li>
             <li class="divider"></li>
@@ -628,6 +600,8 @@
             <input type="color" id="sticker-color-custom" value="#ff2442" style="width:28px;height:24px;border:none;background:none;cursor:pointer;">
         </div>
     </div>
+
+ 
 
     <div id="align-guides" class="align-guides"></div>
 
@@ -681,13 +655,12 @@
     <script src="js/align-distribute.js"></script>
     <script src="js/type-presets.js"></script>
     <script src="js/auto-contrast.js"></script>
-    <script src="js/preview-mode.js"></script>
-    <script src="js/tooltip.js"></script>
-    <script src="js/hex-input.js"></script>
-    <script src="js/cover-templates.js"></script>
-    <script src="js/floating-toolbar.js"></script>
-    <script src="js/left-rail.js"></script>
+<script src="js/preview-mode.js"></script>
+    <script src="js/floating-toolbar.js"></script><script src="js/left-rail.js"></script>
     <script src="js/shapes.js"></script>
+    <script src="js/ai-spec-generator.js"></script>
+    <script src="js/ai-spec.js"></script>
+    <script src="js/ai-import-ui.js"></script>
 
 
 <div id="export-panel" class="export-panel" style="display:none;">

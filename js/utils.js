@@ -210,3 +210,167 @@ window.Utils = (function () {
 })();
 
 console.log('[Utils] ✅ 公共工具层已就位');
+
+
+// ---------- 项目级自检总线（只写这一处） ----------
+window.AppSelfTest = window.AppSelfTest || {
+  _suites: {},
+  register: function (id, fn) {
+    if (!id || typeof fn !== 'function') return;
+    this._suites[id] = fn;
+  },
+  /** 全站核心健康检查（不依赖各模块是否 register） */
+  _coreRows: function () {
+    var rows = [];
+    function check(name, pass, detail) {
+      rows.push({ name: name, pass: !!pass, detail: detail || '' });
+    }
+    // 就绪标记（脚本是否执行到末尾）
+    [
+      ['utils 日志', !!(window.Utils)],
+      ['AI_SPEC 就绪', window.__AI_SPEC_READY__ === true],
+      ['AI_IMPORT_UI 就绪', window.__AI_IMPORT_UI_READY__ === true],
+      ['AI_SPEC_GEN 就绪', window.__AI_SPEC_GENERATOR_READY__ === true]
+    ].forEach(function (x) { check(x[0], x[1]); });
+
+    // 关键全局函数（覆盖主链路，改坏了这里会红）
+    var fns = [
+      'renderAll', 'renderCanvas',
+      'applyCoverSpec', 'validateSpec',
+      'enforceSafeAreaHardConstraint', 'enforceHeightBudget', 'checkSafeAreaViolations', '_measureTextHeight',
+      'generateAiSpecMarkdown', 'generateAiSpecDoc',
+      'normalizeBackground',
+      'html2canvas'
+    ];
+    fns.forEach(function (n) {
+      // html2canvas 可能晚加载，不存在也记 FAIL 便于发现
+      check('函数 ' + n, typeof window[n] === 'function');
+    });
+
+    // 命名空间
+    ['BG', 'TXT', 'EXPORT', 'ASSET', 'STATE'].forEach(function (ns) {
+      check('命名空间 window.' + ns, !!(window[ns] && typeof window[ns] === 'object'));
+    });
+
+    // 关键 DOM
+    [
+      ['.sidebar-left', '左侧栏'],
+      ['.canvas-container, #canvas-area, .canvas-area, #canvases, .canvas-wrapper', '画布区域(任一)']
+    ].forEach(function (pair) {
+      var el = document.querySelector(pair[0]);
+      check('DOM ' + pair[1], !!el, pair[0]);
+    });
+
+    // 存储能力
+    check('localStorage 可用', (function () {
+      try {
+        localStorage.setItem('__t__', '1');
+        localStorage.removeItem('__t__');
+        return true;
+      } catch (e) { return false; }
+    })());
+    check('IndexedDB 存在', !!(window.indexedDB));
+
+    return rows;
+  },
+  run: function (onlyId) {
+    var self = this;
+    var all = [];
+
+    function pushSuite(suiteId, rows) {
+      (rows || []).forEach(function (r) {
+        all.push({
+          suite: suiteId,
+          name: r.name || suiteId,
+          pass: !!r.pass,
+          detail: r.detail != null ? String(r.detail) : ''
+        });
+      });
+    }
+
+    // 始终先跑 core（全站），除非指定了别的 onlyId 且不是 core
+    if (!onlyId || onlyId === 'core') {
+      try {
+        pushSuite('core', self._coreRows());
+      } catch (e) {
+        pushSuite('core', [{ name: 'core 崩溃', pass: false, detail: e.message || String(e) }]);
+      }
+    }
+
+    var ids = onlyId
+      ? (onlyId === 'core' ? [] : [onlyId])
+      : Object.keys(this._suites);
+    ids.forEach(function (id) {
+      var fn = self._suites[id];
+      if (!fn) {
+        all.push({ suite: id, name: '(未注册)', pass: false, detail: 'suite missing' });
+        return;
+      }
+      try {
+        var rows = fn() || [];
+        pushSuite(id, Array.isArray(rows) ? rows : [rows]);
+      } catch (e) {
+        all.push({ suite: id, name: id, pass: false, detail: e.message || String(e) });
+      }
+    });
+
+    var passN = all.filter(function (x) { return x.pass; }).length;
+    var failN = all.length - passN;
+    var summary = 'AppSelfTest: ' + passN + ' 通过 / ' + failN + ' 失败（共 ' + all.length + '）';
+    var bodyText = all.map(function (x) {
+      return (x.pass ? '[PASS] ' : '[FAIL] ') +
+        '[' + x.suite + '] ' + x.name +
+        (x.detail ? ' | ' + x.detail : '');
+    }).join('\n');
+    var fullReport = summary + '\n' + bodyText;
+    window.__APP_SELF_TEST__ = { summary: summary, rows: all, passN: passN, failN: failN, report: fullReport };
+
+    var old = document.getElementById('__app_self_test_panel__');
+    if (old) old.remove();
+    var box = document.createElement('div');
+    box.id = '__app_self_test_panel__';
+    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483647;width:480px;max-height:75vh;overflow:auto;background:#0d1117;color:#c9d1d9;border:2px solid #238636;border-radius:8px;padding:12px;font:12px/1.45 monospace;box-shadow:0 8px 24px rgba(0,0,0,.45);';
+    box.innerHTML =
+      '<div style="font-weight:700;color:#fff;margin-bottom:8px;">' + summary +
+      ' <button type="button" id="__app_self_test_copy__" style="float:right;margin-left:6px;cursor:pointer;">复制结果</button>' +
+      ' <button type="button" id="__app_self_test_close__" style="float:right;cursor:pointer;">关闭</button></div>' +
+      all.map(function (x) {
+        return '<div style="color:' + (x.pass ? '#7ee787' : '#f85149') + ';margin:2px 0;">' +
+          (x.pass ? '[PASS] ' : '[FAIL] ') +
+          '[' + x.suite + '] ' + x.name +
+          (x.detail ? ' | ' + String(x.detail).replace(/</g, '&lt;') : '') +
+          '</div>';
+      }).join('');
+    document.body.appendChild(box);
+    var btnClose = document.getElementById('__app_self_test_close__');
+    if (btnClose) btnClose.onclick = function () { box.remove(); };
+    var btnCopy = document.getElementById('__app_self_test_copy__');
+    if (btnCopy) btnCopy.onclick = function () {
+      var t = fullReport;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).then(function () {
+          btnCopy.textContent = '已复制';
+          setTimeout(function () { btnCopy.textContent = '复制结果'; }, 1500);
+        }).catch(function () { window.prompt('复制下面全部内容', t); });
+      } else {
+        window.prompt('复制下面全部内容', t);
+      }
+    };
+    return window.__APP_SELF_TEST__;
+  }
+};
+
+document.addEventListener('DOMContentLoaded', function () {
+  if (!window.AppSelfTest || typeof AppSelfTest.run !== 'function') return;
+  if (document.getElementById('app-self-test-btn')) return;
+  var btn = document.createElement('button');
+  btn.id = 'app-self-test-btn';
+  btn.type = 'button';
+  btn.textContent = '自检';
+  btn.title = '运行 AppSelfTest';
+  btn.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483646;padding:6px 10px;font-size:12px;cursor:pointer;background:#238636;color:#fff;border:none;border-radius:6px;opacity:0.85;';
+  btn.onclick = function () {
+    try { AppSelfTest.run(); } catch (e) { alert('自检失败: ' + e.message); }
+  };
+  document.body.appendChild(btn);
+});
