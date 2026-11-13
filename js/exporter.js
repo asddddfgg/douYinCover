@@ -1,26 +1,20 @@
-// ============================================================
-// exporter.js — 导出系统（P3：从 app.js 迁出）
-// 职责边界：
-//   ✅ 负责：exportElementToPNG（html2canvas 导出核心）
-//            _buildOnCloneForExport（onclone 预处理：行内 invert / padding 补偿 / 波浪线栅格化 / risky 文字栅格化）
+﻿// ============================================================
+// exporter.js ?导出系统（P3：从 app.js 迁出?// 职责边界?//   ?负责：exportElementToPNG（html2canvas 导出核心?//            _buildOnCloneForExport（onclone 预处理：行内 invert / padding 补偿 / 波浪线栅格化 / risky 文字栅格化）
 //            _needsRasterize / _parseEffectStyle / _parseLinearGradient / _drawTextToDataUrl /
 //            _isBgBoxEffectClass / isBgBoxLayer / _rasterizeByOffscreenHtml2Canvas /
 //            _rasterizeTextNodeIntoClone / _rasterizeRiskyText / _invertCssColor
 //            导出面板：openExportPanel / closeExportPanel / runExportFromPanel / initExportPanel / exportAllPagesAsPNG
-//   ❌ 不负责：画布渲染（在 app.js 的 renderCanvas）
-//   ❌ 不负责：特效定义（在 effects.js）
-//   ❌ 不负责：选区 / 字体 / 背景（各自模块）
-// 依赖：state / html2canvas（CDN）/ getAllEffectsMaster / renderEffectCss 等全局
-// 被依赖：app.js 的 DOMContentLoaded 调 initExportPanel()
-//          app.js 的 DOMContentLoaded 里保留 initExportPanel() 调用（函数声明会提升到全局）
-// 加载顺序：必须晚于 app.js（本文件函数声明覆盖 app.js 同名旧声明）
+//   ?不负责：画布渲染（在 app.js ?renderCanvas?//   ?不负责：特效定义（在 effects.js?//   ?不负责：选区 / 字体 / 背景（各自模块）
+// 依赖：state / html2canvas（CDN? getAllEffectsMaster / renderEffectCss 等全局
+// 被依赖：app.js ?DOMContentLoaded ?initExportPanel()
+//          app.js ?DOMContentLoaded 里保?initExportPanel() 调用（函数声明会提升到全局?// 加载顺序：必须晚?app.js（本文件函数声明覆盖 app.js 同名旧声明）
 // ============================================================
 
 window.__EXPORTER_READY__ = true;
-console.log('[Exporter] P3 骨架就位，等待函数体迁移');
+console.log('[Exporter] module ready');
 
 // ============================================================
-// 第 1 批：_needsRasterize / _parseEffectStyle / _parseLinearGradient
+// ?1 批：_needsRasterize / _parseEffectStyle / _parseLinearGradient
 // ============================================================
 
 function _needsRasterize(effectClass) {
@@ -98,10 +92,10 @@ function _parseLinearGradient(cssGradient) {
     return parsed.length >= 2 ? { angleDeg, stops: parsed } : null;
 }
 
-console.log('[Exporter] 第1批已接管：_needsRasterize / _parseEffectStyle / _parseLinearGradient');
+console.log('[Exporter] module ready');
 
 // ============================================================
-// 第 2 批：_drawTextToDataUrl
+// ?2 批：_drawTextToDataUrl
 // ============================================================
 
 function _drawTextToDataUrl(el, layerStyle) {
@@ -114,15 +108,14 @@ function _drawTextToDataUrl(el, layerStyle) {
 
     const fontSize = parseFloat(cs.fontSize) || 28;
     let fontFamily = cs.fontFamily || 'sans-serif';
-    const fontWeight = cs.fontWeight || 'normal';
-    const fontStyle = cs.fontStyle || 'normal';
+    let fontWeight = cs.fontWeight || 'normal';
+    let fontStyle = cs.fontStyle || 'normal';
+    if (cs.fontSynthesis === 'none') {
+        if (fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600) fontWeight = 'normal';
+        if (fontStyle === 'italic' || fontStyle === 'oblique') fontStyle = 'normal';
+    }
 
-    // ✅ 字体优先级（从高到低）：
-    //    1) 图层数据里的 fontFamily（最权威，不受特效 CSS 干扰）
-    //    2) 沿 DOM 祖先链找第一个具体字体名
-    //    3) computedStyle 兜底
-    //    手写体 Xiaolai 被 effect-chalk 等特效的 font-family:cursive 覆盖时，
-    //    仅靠 computedStyle 会拿到 cursive → canvas 画出黑体，这里必须从图层数据拿。
+    // Resolve the real font from layer data first, then ancestor chain, then computed style.
     (function resolveRealFont() {
         const generic = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system|inherit|initial|unset)$/i;
 
@@ -144,7 +137,7 @@ function _drawTextToDataUrl(el, layerStyle) {
             }
         }
 
-        // 2) computedStyle 是通用回退 → 沿祖先链找
+        // fallback: ancestor chain
         const first = fontFamily.split(',')[0].replace(/["']/g, '').trim();
         if (!generic.test(first)) return;
         let node = el;
@@ -183,11 +176,22 @@ function _drawTextToDataUrl(el, layerStyle) {
         const w = measureLineWidth(line);
         if (w > maxWidth) maxWidth = w;
     });
-    const pad = 8 + (layerStyle.strokeWidth || 0) * 2;
-    const canvasW = Math.ceil(maxWidth + pad * 2);
-    const canvasH = Math.ceil(lines.length * lineHeight + pad * 2);
+    // Keep the canvas size aligned with the DOM text box; pad is compensated by negative margin.
+    const elW = Math.max(1, el.offsetWidth || 0);
+    const elH = Math.max(1, el.offsetHeight || 0);
+    let shadowPad = 0;
+    if (layerStyle.shadow) {
+        const firstShadow = layerStyle.shadow.split(/,(?![^(]*\))/)[0].trim();
+        const sm = firstShadow.match(/(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(.+)/);
+        if (sm) shadowPad = Math.max(Math.abs(parseFloat(sm[1]) || 0), Math.abs(parseFloat(sm[2]) || 0)) + (parseFloat(sm[3]) || 0);
+    }
+    const pad = Math.ceil(8 + (layerStyle.strokeWidth || 0) * 2 + shadowPad);
+    const contentW = Math.max(elW, Math.ceil(maxWidth));
+    const contentH = Math.max(elH, Math.ceil(lines.length * lineHeight));
+    const canvasW = Math.ceil(contentW + pad * 2);
+    const canvasH = Math.ceil(contentH + pad * 2);
 
-    const scale = 2;
+    const scale = _rasterScale();
     const canvas = document.createElement('canvas');
     canvas.width = canvasW * scale;
     canvas.height = canvasH * scale;
@@ -200,9 +204,21 @@ function _drawTextToDataUrl(el, layerStyle) {
     }
     ctx.font = fontStr;
     ctx.textBaseline = 'alphabetic';
-    const fontAscent = (function(){
-        try { const m = mctx.measureText('Hg'); return m.actualBoundingBoxAscent || (fontSize * 0.8); } catch(e){ return fontSize * 0.8; }
+    const fontMetrics = (function () {
+        try { return mctx.measureText(lines[0] || '国'); } catch (e) { return null; }
     })();
+    const fontAscent = fontMetrics && isFinite(fontMetrics.fontBoundingBoxAscent)
+        ? fontMetrics.fontBoundingBoxAscent
+        : (fontMetrics && isFinite(fontMetrics.actualBoundingBoxAscent)
+            ? fontMetrics.actualBoundingBoxAscent
+            : fontSize * 0.8);
+    const fontDescent = fontMetrics && isFinite(fontMetrics.fontBoundingBoxDescent)
+        ? fontMetrics.fontBoundingBoxDescent
+        : (fontMetrics && isFinite(fontMetrics.actualBoundingBoxDescent)
+            ? fontMetrics.actualBoundingBoxDescent
+            : fontSize * 0.2);
+    const halfLeading = (lineHeight - (fontAscent + fontDescent)) / 2;
+    const firstBaseline = pad + halfLeading + fontAscent;
     ctx.textAlign = 'left';
 
     let fillStyle = layerStyle.fill || cs.color || '#ffffff';
@@ -236,9 +252,9 @@ function _drawTextToDataUrl(el, layerStyle) {
     lines.forEach((line, i) => {
         const w = measureLineWidth(line);
         let x = pad;
-        if (align === 'center') x = pad + (maxWidth - w) / 2;
-        else if (align === 'right') x = pad + (maxWidth - w);
-        const y = pad + i * lineHeight;
+        if (align === 'center') x = pad + (contentW - w) / 2;
+        else if (align === 'right') x = pad + (contentW - w);
+        const y = firstBaseline + i * lineHeight;
 
         const chars = Array.from(line);
         let charX = x;
@@ -275,32 +291,39 @@ function _drawTextToDataUrl(el, layerStyle) {
         });
         const deco = cs.textDecorationLine || cs.textDecoration || '';
         if (deco && deco !== 'none') {
-            const decoColor = cs.textDecorationColor || cs.color;
+            const decoColor = _spanColor(cs.textDecorationColor, cs.color);
             const decoStyle = cs.textDecorationStyle || 'solid';
+            const decoOffset = _spanPx(cs.textUnderlineOffset);
+            const decoThickness = _spanPx(cs.textDecorationThickness) || Math.max(1, fontSize / 16);
+            const decoAmp = Math.max(1, decoThickness * 0.8);
+            const solidCenter = y + decoOffset - fontSize * 0.033;
+            const wavyCenter = y + fontSize * 0.06 + decoOffset;
             ctx.strokeStyle = decoColor;
-            ctx.lineWidth = 1.5;
+            ctx.fillStyle = decoColor;
+            ctx.lineWidth = decoThickness;
             if (decoStyle === 'wavy') {
-                const yBase = yBaseline + 2;
                 ctx.beginPath();
-                for (let xx = x; xx < x + w; xx += 4) {
-                    const yy = yBase + Math.sin((xx - x) / 2) * 1.5;
+                let guard = 0;
+                for (let xx = x; xx < x + w && guard < 20000; xx += 1, guard++) {
+                    const yy = wavyCenter + Math.sin((xx - x) / 2) * decoAmp;
                     xx === x ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
                 }
                 ctx.stroke();
             } else if (decoStyle === 'dotted') {
-                for (let xx = x; xx < x + w; xx += 4) {
+                const step = Math.max(2, decoThickness * 2);
+                let guard = 0;
+                for (let xx = x; xx < x + w && guard < 20000; xx += step, guard++) {
                     ctx.beginPath();
-                    ctx.arc(xx, yBaseline + 2, 1, 0, Math.PI * 2);
-                    ctx.fillStyle = decoColor;
+                    ctx.arc(xx, solidCenter, Math.max(0.5, decoThickness / 2), 0, Math.PI * 2);
                     ctx.fill();
                 }
             } else if (decoStyle === 'double') {
                 ctx.beginPath();
-                ctx.moveTo(x, yBaseline + 1); ctx.lineTo(x + w, yBaseline + 1);
-                ctx.moveTo(x, yBaseline + 4); ctx.lineTo(x + w, yBaseline + 4);
+                ctx.moveTo(x, solidCenter - decoThickness); ctx.lineTo(x + w, solidCenter - decoThickness);
+                ctx.moveTo(x, solidCenter + decoThickness); ctx.lineTo(x + w, solidCenter + decoThickness);
                 ctx.stroke();
             } else {
-                const yLine = deco.includes('line-through') ? (yBaseline - fontSize * 0.3) : (yBaseline + 2);
+                const yLine = deco.includes('line-through') ? (y - fontSize * 0.36) : solidCenter;
                 ctx.beginPath();
                 ctx.moveTo(x, yLine);
                 ctx.lineTo(x + w, yLine);
@@ -308,6 +331,31 @@ function _drawTextToDataUrl(el, layerStyle) {
             }
         }
     });
+
+    const rasterMeta = {
+        width: canvasW,
+        height: canvasH,
+        pad: pad,
+        contentW: contentW,
+        contentH: contentH
+    };
+    window.__lastTextRasterMeta = rasterMeta;
+    try {
+        window.__effectRasterDebug = window.__effectRasterDebug || [];
+        window.__effectRasterDebug.push({
+            kind: 'drawText',
+            fontSize: fontSize,
+            lineHeight: lineHeight,
+            fontAscent: fontAscent,
+            fontDescent: fontDescent,
+            halfLeading: halfLeading,
+            pad: pad,
+            firstBaseline: firstBaseline,
+            elW: elW,
+            elH: elH,
+            lineCount: lines.length
+        });
+    } catch (e) { }
 
     const filterCss = cs.filter;
     if (filterCss && filterCss !== 'none') {
@@ -323,29 +371,17 @@ function _drawTextToDataUrl(el, layerStyle) {
     return canvas.toDataURL('image/png');
 }
 
-console.log('[Exporter] 第2批已接管：_drawTextToDataUrl');
+console.log('[Exporter] module ready');
 
 // ============================================================
-// 第 3 批-A：_isBgBoxEffectClass / isBgBoxLayer
+// ?3 ?A：_isBgBoxEffectClass / isBgBoxLayer
 // ============================================================
 
 function _isBgBoxEffectClass(effectClass) {
+    // 判定逻辑唯一实现?effects.js ?isEffectBgBox（带 CSS 级缓存）
     if (!effectClass) return false;
-    try {
-        const allFx = (typeof getAllEffectsMaster === 'function') ? getAllEffectsMaster() : [];
-        const fx = allFx.find(e => e.id === effectClass);
-        if (!fx || !fx.css) return false;
-        const c = fx.css.toLowerCase();
-        const hasBg = /(^|;|\s)background(-color)?\s*:/.test(c)
-                   && !c.includes('background-clip')
-                   && !c.includes('-webkit-text-fill-color');
-        const hasPadding = /(^|;|\s)padding\s*:/.test(c);
-        const hasRadius = c.includes('border-radius');
-        return hasBg || hasPadding || hasRadius;
-    } catch (e) {
-        if (window.Utils && Utils.log) Utils.log.warn('[Exporter] 判断背景框特效失败', effectClass, e);
-        return false;
-    }
+    if (typeof window.isEffectBgBox === 'function') return window.isEffectBgBox(effectClass);
+    return false;
 }
 
 function isBgBoxLayer(node) {
@@ -358,10 +394,10 @@ function isBgBoxLayer(node) {
     return _isBgBoxEffectClass(layer.effectClass);
 }
 
-console.log('[Exporter] 第3批-A已接管：_isBgBoxEffectClass / isBgBoxLayer');
+console.log('[Exporter] module ready');
 
 // ============================================================
-// 第 3 批-B：_rasterizeByOffscreenHtml2Canvas
+// ?3 ?B：_rasterizeByOffscreenHtml2Canvas
 // ============================================================
 
 async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
@@ -418,7 +454,7 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
     measureNode.style.transformOrigin = 'center center';
     try {
         const c = await html2canvas(measureNode, {
-            scale: 2, backgroundColor: null, logging: false,
+            scale: _rasterScale(), backgroundColor: null, logging: false,
             useCORS: true, allowTaint: true,
             x: boxLeft,
             y: boxTop,
@@ -479,10 +515,10 @@ async function _rasterizeByOffscreenHtml2Canvas(originalNode, clonedNode) {
     }
 }
 
-console.log('[Exporter] 第3批-B已接管：_rasterizeByOffscreenHtml2Canvas');
+console.log('[Exporter] module ready');
 
 // ============================================================
-// 第 4 批-A：_rasterizeTextNodeIntoClone / _rasterizeRiskyText / _invertCssColor
+// ?4 ?A：_rasterizeTextNodeIntoClone / _rasterizeRiskyText / _invertCssColor
 // ============================================================
 
 function _rasterizeTextNodeIntoClone(originalNode, clonedNode, effectClass) {
@@ -502,13 +538,19 @@ function _rasterizeTextNodeIntoClone(originalNode, clonedNode, effectClass) {
         const layerStyle = _parseEffectStyle(effectClass, computed);
         const dataUrl = _drawTextToDataUrl(originalNode, layerStyle);
         if (!dataUrl) return Promise.resolve();
+        const meta = window.__lastTextRasterMeta || {};
+        window.__lastTextRasterMeta = null;
 
         const img = document.createElement('img');
         img.src = dataUrl;
-        img.style.width = w + 'px';
-        img.style.height = h + 'px';
+        img.style.width = (meta.width || w) + 'px';
+        img.style.height = (meta.height || h) + 'px';
+        img.style.marginLeft = (-(meta.pad || 0)) + 'px';
+        img.style.marginTop = (-(meta.pad || 0)) + 'px';
+        img.style.marginRight = (-(meta.pad || 0)) + 'px';
+        img.style.marginBottom = (-(meta.pad || 0)) + 'px';
         img.style.display = 'block';
-        img.style.objectFit = 'contain';
+        img.style.objectFit = 'fill';
         img.crossOrigin = 'anonymous';
 
         if (clonedNode.parentNode) {
@@ -550,14 +592,35 @@ function _rasterizeRiskyText(originalNode, clonedNode, effectClass) {
         const layerStyle = _parseEffectStyle(effectClass, computed);
         const dataUrl = _drawTextToDataUrl(originalNode, layerStyle);
         if (!dataUrl) return;
+        const meta = window.__lastTextRasterMeta || {};
+        window.__lastTextRasterMeta = null;
 
         const img = document.createElement('img');
         img.src = dataUrl;
-        img.style.width = originalNode.offsetWidth + 'px';
-        img.style.height = originalNode.offsetHeight + 'px';
+        img.style.width = (meta.width || originalNode.offsetWidth) + 'px';
+        img.style.height = (meta.height || originalNode.offsetHeight) + 'px';
+        img.style.marginLeft = (-(meta.pad || 0)) + 'px';
+        img.style.marginTop = (-(meta.pad || 0)) + 'px';
+        img.style.marginRight = (-(meta.pad || 0)) + 'px';
+        img.style.marginBottom = (-(meta.pad || 0)) + 'px';
         img.style.display = 'block';
-        img.style.objectFit = 'contain';
+        img.style.objectFit = 'fill';
         img.crossOrigin = 'anonymous';
+
+        try {
+            window.__effectRasterDebug = window.__effectRasterDebug || [];
+            const or = originalNode.getBoundingClientRect();
+            const cr = clonedNode.getBoundingClientRect();
+            window.__effectRasterDebug.push({
+                kind: 'risky',
+                effectClass: effectClass,
+                origTop: or.top,
+                cloneTop: cr.top,
+                metaPad: meta.pad,
+                metaW: meta.width,
+                metaH: meta.height
+            });
+        } catch (e) { }
 
         clonedNode.parentNode.replaceChild(img, clonedNode);
     } catch (e) {
@@ -596,15 +659,747 @@ function _invertCssColor(cssColor) {
     return cssColor;
 }
 
-console.log('[Exporter] 第4批-A已接管：_rasterizeTextNodeIntoClone / _rasterizeRiskyText / _invertCssColor');
+console.log('[Exporter] module ready');
 
 // ============================================================
-// 第 4 批-B：_buildOnCloneForExport
+// ?4 ?B：行内特效栅格化（统一按“实测基?+ 自绘”输出）
 // ============================================================
+
+function _spanPx(v) {
+    const n = parseFloat(v);
+    return isFinite(n) ? n : 0;
+}
+
+// 取元素自身的 computedStyle（克隆节点可能在 html2canvas ?iframe 文档里）
+function _getCS(el) {
+    try {
+        const view = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+        return view.getComputedStyle(el);
+    } catch (e) {
+        try { return window.getComputedStyle(el); } catch (e2) { return null; }
+    }
+}
+
+// 行内/图层特效栅格化分辨率跟随导出倍率?~4x），避免 3x 导出?2x 图片拉糊
+function _rasterScale() {
+    const s = Number(window.__currentExportScale || window._exportScale) || 2;
+    return Math.max(2, Math.min(4, s));
+}
+
+function _spanFinite(v, fallback) {
+    return (typeof v === 'number' && isFinite(v)) ? v : fallback;
+}
+
+function _spanColor(c, fallback) {
+    if (!c || c === 'currentcolor' || c === 'currentColor') return fallback;
+    return c;
+}
+
+function _roundRectPath(ctx, x, y, w, h, r) {
+    const rr = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
+}
+
+function _firstTextShadow(cs) {
+    const raw = cs.textShadow;
+    if (!raw || raw === 'none') return null;
+    const first = raw.split(/,(?![^(]*\))/)[0].trim();
+    const m = first.match(/(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(.+)/);
+    if (!m) return null;
+    return {
+        x: parseFloat(m[1]) || 0,
+        y: parseFloat(m[2]) || 0,
+        blur: parseFloat(m[3]) || 0,
+        color: m[4]
+    };
+}
+
+// 用零?inline-block 探针量出“span 边框盒顶??文字基线”的真实距离
+function _measureSpanBaseline(sp) {
+    let marker = null;
+    try {
+        marker = document.createElement('i');
+        marker.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline;';
+        sp.appendChild(marker);
+        const sr = sp.getBoundingClientRect();
+        const mr = marker.getBoundingClientRect();
+        const value = mr.bottom - sr.top;
+        marker.remove();
+        return isFinite(value) ? value : null;
+    } catch (e) {
+        if (marker && marker.parentNode) marker.parentNode.removeChild(marker);
+        return null;
+    }
+}
+
+function _spanHasLocalShadowOrStroke(sp, cs) {
+    try {
+        const parent = sp.parentElement;
+        const pcs = parent ? window.getComputedStyle(parent) : null;
+        const ts = cs.textShadow || 'none';
+        const pts = pcs ? (pcs.textShadow || 'none') : 'none';
+        if (ts !== pts) return true;
+        const sw = _spanPx(cs.webkitTextStrokeWidth);
+        const psw = pcs ? _spanPx(pcs.webkitTextStrokeWidth) : 0;
+        if (sw !== psw) return true;
+        return false;
+    } catch (e) {
+        return true;
+    }
+}
+
+function _isSimpleBorderBottomSpan(sp) {
+    try {
+        const cs = _getCS(sp);
+        const otherSides = ['Top', 'Right', 'Left'];
+        if (otherSides.some(side => {
+            const w = _spanPx(cs['border' + side + 'Width']);
+            const st = cs['border' + side + 'Style'];
+            return w > 0 && st && st !== 'none';
+        })) return false;
+        const bb = _spanPx(cs.borderBottomWidth);
+        if (!(bb > 0) || !cs.borderBottomStyle || cs.borderBottomStyle === 'none') return false;
+        if (cs.backgroundColor && cs.backgroundColor !== 'transparent' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') return false;
+        if (cs.backgroundImage && cs.backgroundImage !== 'none') return false;
+        if ((cs.textDecorationLine || 'none') !== 'none') return false;
+        if (_spanHasLocalShadowOrStroke(sp, cs)) return false;
+        if (cs.filter && cs.filter !== 'none') return false;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// 跨行/单行下划线：保留文字，只按每?client rect 补一条绝对定位线
+function _decorateBorderBottomInClone(osp, csp, clonedTextEl) {
+    try {
+        if (!osp || !csp || !clonedTextEl) return false;
+        const cs = _getCS(osp);
+        const bw = _spanPx(cs.borderBottomWidth);
+        if (!(bw > 0)) return false;
+        const color = _spanColor(cs.borderBottomColor, cs.color);
+        const rects = Array.from(osp.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+        if (!rects.length) return false;
+        const originEl = osp.closest('.text-content-editable') || clonedTextEl;
+        const teRect = originEl.getBoundingClientRect();
+        const teCs = _getCS(clonedTextEl);
+        if (teCs.position === 'static') clonedTextEl.style.position = 'relative';
+        csp.style.setProperty('border-bottom', 'none', 'important');
+        csp.style.setProperty('padding-bottom', '0px', 'important');
+        rects.forEach(rect => {
+            const line = document.createElement('div');
+            line.setAttribute('data-export-underline', '1');
+            line.style.cssText =
+                'position:absolute;pointer-events:none;z-index:3;' +
+                'left:' + (rect.left - teRect.left) + 'px;' +
+                'top:' + (rect.bottom - teRect.top - bw) + 'px;' +
+                'width:' + rect.width + 'px;' +
+                'height:' + bw + 'px;' +
+                'background:' + color + ';';
+            clonedTextEl.appendChild(line);
+        });
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _isSimpleTextDecorationSpan(sp) {
+    try {
+        const cs = _getCS(sp);
+        const deco = cs.textDecorationLine || 'none';
+        if (!/underline|line-through/.test(deco)) return false;
+        if (cs.writingMode && /^vertical/.test(cs.writingMode)) return false;
+        const layer = sp.closest('.canvas-layer');
+        if (layer) {
+            const lcs = window.getComputedStyle(layer);
+            if (lcs.transform && lcs.transform !== 'none') return false;
+        }
+        const sides = ['Top', 'Right', 'Bottom', 'Left'];
+        if (sides.some(side => {
+            const w = _spanPx(cs['border' + side + 'Width']);
+            const st = cs['border' + side + 'Style'];
+            return w > 0 && st && st !== 'none';
+        })) return false;
+        if (cs.backgroundColor && cs.backgroundColor !== 'transparent' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') return false;
+        if (cs.backgroundImage && cs.backgroundImage !== 'none') return false;
+        if (_spanHasLocalShadowOrStroke(sp, cs)) return false;
+        if (cs.filter && cs.filter !== 'none') return false;
+        if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') return false;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// 简单下划线/删除线：保留文字，按每个行片段补线（波浪用密集圆点近似）
+function _decorateTextDecorationInClone(osp, csp, clonedTextEl) {
+    try {
+        if (!osp || !csp || !clonedTextEl) return false;
+        const cs = _getCS(osp);
+        const deco = cs.textDecorationLine || '';
+        if (!/underline|line-through/.test(deco)) return false;
+        const rects = Array.from(osp.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+        if (!rects.length) return false;
+        const fontSize = parseFloat(cs.fontSize) || 16;
+        const fontFamily = cs.fontFamily || 'sans-serif';
+        const fontWeight = cs.fontWeight || 'normal';
+        const fontStyle = cs.fontStyle || 'normal';
+        const mctx = document.createElement('canvas').getContext('2d');
+        mctx.font = fontStyle + ' ' + fontWeight + ' ' + fontSize + 'px ' + fontFamily;
+        const fm = mctx.measureText(osp.textContent || '国');
+        const fontAsc = _spanFinite(fm.fontBoundingBoxAscent,
+            _spanFinite(fm.actualBoundingBoxAscent, fontSize * 0.8));
+        const thickness = _spanPx(cs.textDecorationThickness) || Math.max(1, fontSize / 16);
+        const offset = _spanPx(cs.textUnderlineOffset);
+        const color = _spanColor(cs.textDecorationColor, cs.color);
+        const decoStyle = cs.textDecorationStyle || 'solid';
+        const originEl = osp.closest('.text-content-editable') || clonedTextEl;
+        const teRect = originEl.getBoundingClientRect();
+        const teCs = _getCS(clonedTextEl);
+        if (teCs.position === 'static') clonedTextEl.style.position = 'relative';
+        csp.style.setProperty('text-decoration', 'none', 'important');
+
+        const addLine = (left, width, center, wavy) => {
+            if (wavy) {
+                if (width <= 0) return;
+                const amp = Math.max(1, thickness * 0.8);
+                const hCss = amp * 2 + thickness;
+                const scale = _rasterScale();
+                const cw = Math.max(1, Math.round(width * scale));
+                const ch = Math.max(1, Math.round(hCss * scale));
+                const wc = document.createElement('canvas');
+                wc.width = cw;
+                wc.height = ch;
+                const g = wc.getContext('2d');
+                g.scale(scale, scale);
+                g.strokeStyle = color;
+                g.lineWidth = thickness;
+                g.lineCap = 'round';
+                g.beginPath();
+                for (let x = 0; x <= width; x += 1) {
+                    const y = hCss / 2 + Math.sin(x / 2) * amp;
+                    if (x === 0) g.moveTo(x, y);
+                    else g.lineTo(x, y);
+                }
+                g.stroke();
+                const line = document.createElement('div');
+                line.style.cssText =
+                    'position:absolute;pointer-events:none;z-index:3;' +
+                    'left:' + left + 'px;' +
+                    'top:' + (center - teRect.top - hCss / 2) + 'px;' +
+                    'width:' + width + 'px;height:' + hCss + 'px;' +
+                    'background-image:url(' + wc.toDataURL('image/png') + ');' +
+                    'background-repeat:no-repeat;background-size:' + width + 'px ' + hCss + 'px;';
+                clonedTextEl.appendChild(line);
+            } else {
+                const line = document.createElement('div');
+                line.style.cssText =
+                    'position:absolute;pointer-events:none;z-index:3;' +
+                    'left:' + left + 'px;' +
+                    'top:' + (center - teRect.top - thickness / 2) + 'px;' +
+                    'width:' + width + 'px;height:' + thickness + 'px;' +
+                    'background:' + color + ';';
+                clonedTextEl.appendChild(line);
+            }
+        };
+
+        rects.forEach(rect => {
+            const left = rect.left - teRect.left;
+            const width = rect.width;
+            const baseline = rect.top + fontAsc;
+            if (/underline/.test(deco)) {
+                const center = baseline + (decoStyle === 'wavy'
+                    ? fontSize * 0.06 + offset
+                    : offset - fontSize * 0.033);
+                addLine(left, width, center, decoStyle === 'wavy');
+            }
+            if (/line-through/.test(deco)) {
+                addLine(left, width, baseline - fontSize * 0.36, decoStyle === 'wavy');
+            }
+        });
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _isSimpleBackgroundSpan(sp) {
+    try {
+        const cs = _getCS(sp);
+        if ((cs.textDecorationLine || 'none') !== 'none') return false;
+        const sides = ['Top', 'Right', 'Bottom', 'Left'];
+        if (sides.some(side => {
+            const w = _spanPx(cs['border' + side + 'Width']);
+            const st = cs['border' + side + 'Style'];
+            return w > 0 && st && st !== 'none';
+        })) return false;
+        const bg = cs.backgroundColor && cs.backgroundColor !== 'transparent' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)';
+        const bgImg = cs.backgroundImage && cs.backgroundImage !== 'none';
+        if (!bg && !bgImg) return false;
+        if (_spanHasLocalShadowOrStroke(sp, cs)) return false;
+        if (cs.filter && cs.filter !== 'none') return false;
+        if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') return false;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _decorateBackgroundInClone(osp, csp, clonedTextEl) {
+    try {
+        const cs = _getCS(osp);
+        const rects = Array.from(osp.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+        if (!rects.length) return false;
+        const originEl = osp.closest('.text-content-editable') || clonedTextEl;
+        const teRect = originEl.getBoundingClientRect();
+        const teCs = _getCS(clonedTextEl);
+        if (teCs.position === 'static') clonedTextEl.style.position = 'relative';
+        if (!clonedTextEl.style.zIndex) clonedTextEl.style.zIndex = '1';
+        const radius = Math.max(
+            _spanPx(cs.borderTopLeftRadius),
+            _spanPx(cs.borderTopRightRadius),
+            _spanPx(cs.borderBottomRightRadius),
+            _spanPx(cs.borderBottomLeftRadius)
+        );
+        const bg = cs.backgroundColor;
+        const bgImg = cs.backgroundImage;
+        csp.style.setProperty('background-color', 'transparent', 'important');
+        csp.style.setProperty('background-image', 'none', 'important');
+        rects.forEach(rect => {
+            const div = document.createElement('div');
+            let css = 'position:absolute;pointer-events:none;z-index:-1;box-sizing:border-box;' +
+                'left:' + (rect.left - teRect.left) + 'px;' +
+                'top:' + (rect.top - teRect.top) + 'px;' +
+                'width:' + rect.width + 'px;height:' + rect.height + 'px;' +
+                'border-radius:' + radius + 'px;';
+            if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') css += 'background-color:' + bg + ';';
+            if (bgImg && bgImg !== 'none') {
+                css += 'background-image:' + bgImg + ';' +
+                    'background-size:' + (cs.backgroundSize || 'auto') + ';' +
+                    'background-position:' + (cs.backgroundPosition || '0% 0%') + ';' +
+                    'background-repeat:' + (cs.backgroundRepeat || 'repeat') + ';';
+            }
+            div.style.cssText = css;
+            clonedTextEl.appendChild(div);
+        });
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _isSimpleBorderBoxSpan(sp) {
+    try {
+        const cs = _getCS(sp);
+        if ((cs.textDecorationLine || 'none') !== 'none') return false;
+        const sides = ['Top', 'Right', 'Bottom', 'Left'];
+        const any = sides.some(side => {
+            const w = _spanPx(cs['border' + side + 'Width']);
+            const st = cs['border' + side + 'Style'];
+            return w > 0 && st && st !== 'none';
+        });
+        if (!any) return false;
+        if (_spanHasLocalShadowOrStroke(sp, cs)) return false;
+        if (cs.filter && cs.filter !== 'none') return false;
+        if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') return false;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _decorateBorderBoxInClone(osp, csp, clonedTextEl) {
+    try {
+        const cs = _getCS(osp);
+        const rects = Array.from(osp.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+        if (!rects.length) return false;
+        const originEl = osp.closest('.text-content-editable') || clonedTextEl;
+        const teRect = originEl.getBoundingClientRect();
+        const teCs = _getCS(clonedTextEl);
+        if (teCs.position === 'static') clonedTextEl.style.position = 'relative';
+        if (!clonedTextEl.style.zIndex) clonedTextEl.style.zIndex = '1';
+        const radius = Math.max(
+            _spanPx(cs.borderTopLeftRadius),
+            _spanPx(cs.borderTopRightRadius),
+            _spanPx(cs.borderBottomRightRadius),
+            _spanPx(cs.borderBottomLeftRadius)
+        );
+        const bw = Math.max(
+            _spanPx(cs.borderTopWidth),
+            _spanPx(cs.borderRightWidth),
+            _spanPx(cs.borderBottomWidth),
+            _spanPx(cs.borderLeftWidth)
+        ) || 1;
+        const color = _spanColor(cs.borderTopColor, cs.color);
+        const bg = cs.backgroundColor;
+        const bgImg = cs.backgroundImage;
+        csp.style.setProperty('border-color', 'transparent', 'important');
+        csp.style.setProperty('background-color', 'transparent', 'important');
+        csp.style.setProperty('background-image', 'none', 'important');
+        rects.forEach(rect => {
+            if (bg || bgImg) {
+                const fill = document.createElement('div');
+                let fcss = 'position:absolute;pointer-events:none;z-index:-1;box-sizing:border-box;' +
+                    'left:' + (rect.left - teRect.left) + 'px;' +
+                    'top:' + (rect.top - teRect.top) + 'px;' +
+                    'width:' + rect.width + 'px;height:' + rect.height + 'px;' +
+                    'border-radius:' + radius + 'px;';
+                if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') fcss += 'background-color:' + bg + ';';
+                if (bgImg && bgImg !== 'none') fcss += 'background-image:' + bgImg + ';';
+                fill.style.cssText = fcss;
+                clonedTextEl.appendChild(fill);
+            }
+            const bd = document.createElement('div');
+            bd.style.cssText =
+                'position:absolute;pointer-events:none;z-index:2;box-sizing:border-box;' +
+                'left:' + (rect.left - teRect.left) + 'px;' +
+                'top:' + (rect.top - teRect.top) + 'px;' +
+                'width:' + rect.width + 'px;height:' + rect.height + 'px;' +
+                'border:' + bw + 'px solid ' + color + ';' +
+                'border-radius:' + radius + 'px;';
+            clonedTextEl.appendChild(bd);
+        });
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _isSimpleStrokeSpan(sp) {
+    try {
+        const cs = _getCS(sp);
+        if (!(_spanPx(cs.webkitTextStrokeWidth) > 0)) return false;
+        if ((cs.textDecorationLine || 'none') !== 'none') return false;
+        const sides = ['Top', 'Right', 'Bottom', 'Left'];
+        if (sides.some(side => {
+            const w = _spanPx(cs['border' + side + 'Width']);
+            const st = cs['border' + side + 'Style'];
+            return w > 0 && st && st !== 'none';
+        })) return false;
+        if (cs.backgroundColor && cs.backgroundColor !== 'transparent' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') return false;
+        if (cs.backgroundImage && cs.backgroundImage !== 'none') return false;
+        if (cs.filter && cs.filter !== 'none') return false;
+        if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') return false;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _decorateStrokeInClone(osp, csp) {
+    try {
+        const cs = _getCS(osp);
+        const w = _spanPx(cs.webkitTextStrokeWidth);
+        if (!(w > 0)) return false;
+        const color = _spanColor(cs.webkitTextStrokeColor, cs.color);
+        const shadows = [];
+        const dirs = [[-w, 0], [w, 0], [0, -w], [0, w], [-w, -w], [w, -w], [-w, w], [w, w]];
+        dirs.forEach(([dx, dy]) => shadows.push(dx + 'px ' + dy + 'px 0 ' + color));
+        const existing = cs.textShadow && cs.textShadow !== 'none' ? cs.textShadow + ',' : '';
+        csp.style.setProperty('-webkit-text-stroke', '0px transparent', 'important');
+        csp.style.setProperty('text-shadow', existing + shadows.join(','), 'important');
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _shouldRasterizeInlineSpan(sp) {
+    if (!sp || !sp.parentNode || !sp.closest('.canvas-layer')) return false;
+    if (sp.children && sp.children.length > 0) return false;
+    const text = sp.textContent || '';
+    if (!text || !text.trim()) return false;
+    if (text.indexOf('\n') >= 0) return false;
+    let rects = null;
+    try { rects = sp.getClientRects(); } catch (e) { rects = null; }
+    if (!rects || rects.length !== 1) return false;
+    const cs = _getCS(sp);
+    if (/invert\s*\(/i.test(cs.filter || '')) return false;
+    // Gradient text / filters are left to html2canvas or layer effects.
+    if (cs.backgroundClip === 'text' || cs.webkitBackgroundClip === 'text') return false;
+    if (cs.webkitTextFillColor === 'transparent' || cs.webkitTextFillColor === 'rgba(0, 0, 0, 0)') return false;
+    if (cs.filter && cs.filter !== 'none') return false;
+    if (cs.mixBlendMode && cs.mixBlendMode !== 'normal') return false;
+    const sides = ['Top', 'Right', 'Bottom', 'Left'];
+    const hasBorder = sides.some(side => {
+        const w = _spanPx(cs['border' + side + 'Width']);
+        const st = cs['border' + side + 'Style'];
+        return w > 0 && st && st !== 'none';
+    });
+    const bg = cs.backgroundColor && cs.backgroundColor !== 'transparent' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)';
+    const bgImg = cs.backgroundImage && cs.backgroundImage !== 'none';
+    const deco = (cs.textDecorationLine || 'none') !== 'none';
+    const strokeW = _spanPx(cs.webkitTextStrokeWidth);
+    const shadow = cs.textShadow && cs.textShadow !== 'none';
+    if (_isSimpleBorderBottomSpan(sp)) return false;
+    if (_isSimpleTextDecorationSpan(sp)) return false;
+    if (_isSimpleBackgroundSpan(sp)) return false;
+    if (_isSimpleBorderBoxSpan(sp)) return false;
+    if (_isSimpleStrokeSpan(sp)) return false;
+    return hasBorder || bg || bgImg || deco || strokeW > 0 || !!shadow;
+}
+
+function _renderInlineSpanToImage(sp) {
+    const cs = _getCS(sp);
+    const fillColor = _spanColor(cs.webkitTextFillColor, cs.color) || cs.color;
+    const rect = sp.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width));
+    const boxH = Math.max(1, Math.round(rect.height));
+    const text = sp.textContent || '';
+    if (!text) return null;
+
+    const fontSize = parseFloat(cs.fontSize) || 16;
+    const fontFamily = cs.fontFamily || 'sans-serif';
+    let fontWeight = cs.fontWeight || 'normal';
+    let fontStyle = cs.fontStyle || 'normal';
+    if (cs.fontSynthesis === 'none') {
+        if (fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600) fontWeight = 'normal';
+        if (fontStyle === 'italic' || fontStyle === 'oblique') fontStyle = 'normal';
+    }
+    const fontStr = fontStyle + ' ' + fontWeight + ' ' + fontSize + 'px ' + fontFamily;
+    const letterSpacing = _spanPx(cs.letterSpacing);
+
+    const measureCanvas = document.createElement('canvas');
+    const mctx = measureCanvas.getContext('2d');
+    mctx.font = fontStr;
+    const fullMeasure = mctx.measureText(text);
+    const chars = Array.from(text);
+    const inkAsc = _spanFinite(fullMeasure.actualBoundingBoxAscent, fontSize * 0.8);
+    const inkDesc = _spanFinite(fullMeasure.actualBoundingBoxDescent, fontSize * 0.2);
+    const fontAsc = _spanFinite(fullMeasure.fontBoundingBoxAscent, inkAsc);
+    const fontDesc = _spanFinite(fullMeasure.fontBoundingBoxDescent, inkDesc);
+    let textW = fullMeasure.width;
+    if (letterSpacing && chars.length > 1) textW += (chars.length - 1) * letterSpacing;
+
+    // 真实基线：优先用探针实测，拿不到再用字体度量兜底
+    let baseline = _measureSpanBaseline(sp);
+    if (baseline === null || !isFinite(baseline)) {
+        const lineHeightPx = parseFloat(cs.lineHeight);
+        const lh = isFinite(lineHeightPx) && lineHeightPx > 0 ? lineHeightPx : fontSize * 1.2;
+        baseline = _spanPx(cs.borderTopWidth) + _spanPx(cs.paddingTop) +
+            (lh - (fontAsc + fontDesc)) / 2 + fontAsc;
+    }
+
+    const borderTop = _spanPx(cs.borderTopWidth);
+    const borderRight = _spanPx(cs.borderRightWidth);
+    const borderBottom = _spanPx(cs.borderBottomWidth);
+    const borderLeft = _spanPx(cs.borderLeftWidth);
+    const padTop = _spanPx(cs.paddingTop);
+    const padRight = _spanPx(cs.paddingRight);
+    const padBottom = _spanPx(cs.paddingBottom);
+    const padLeft = _spanPx(cs.paddingLeft);
+
+    const decoLineRaw = cs.textDecorationLine || 'none';
+    const hasWavy = /wavy/i.test(cs.textDecorationStyle || '') &&
+        /underline|line-through/i.test(decoLineRaw);
+    const decoThickness = _spanPx(cs.textDecorationThickness) || Math.max(1, fontSize / 16);
+    const decoAmp = Math.max(1, decoThickness * 0.8);
+    const underlineOffset = _spanPx(cs.textUnderlineOffset);
+    const underlineCenter = baseline + (hasWavy
+        ? fontSize * 0.06 + underlineOffset
+        : underlineOffset - fontSize * 0.033);
+    const strikeCenter = baseline - fontSize * 0.36;
+
+    let decoBottom = baseline + fontDesc;
+    if (/underline/i.test(decoLineRaw)) {
+        decoBottom = Math.max(decoBottom, underlineCenter + (hasWavy ? decoAmp + decoThickness / 2 : decoThickness / 2));
+    }
+    if (/line-through/i.test(decoLineRaw)) {
+        decoBottom = Math.max(decoBottom, strikeCenter + decoThickness / 2);
+    }
+    const shadow = _firstTextShadow(cs);
+    if (shadow) {
+        decoBottom = Math.max(decoBottom, baseline + inkDesc + shadow.y + shadow.blur);
+    }
+    const extraBottom = Math.max(0, Math.ceil(decoBottom - boxH) + 2);
+    const imgH = boxH + extraBottom;
+    const scale = _rasterScale();
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(imgH * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+
+    // ---- 背景 ----
+    const radius = Math.max(
+        _spanPx(cs.borderTopLeftRadius),
+        _spanPx(cs.borderTopRightRadius),
+        _spanPx(cs.borderBottomRightRadius),
+        _spanPx(cs.borderBottomLeftRadius)
+    );
+    const bgColor = cs.backgroundColor;
+    const bgImage = cs.backgroundImage;
+    let painted = false;
+    if (bgImage && bgImage !== 'none') {
+        const g = (typeof _parseLinearGradient === 'function') ? _parseLinearGradient(bgImage) : null;
+        if (g) {
+            const rad = (g.angleDeg - 90) * Math.PI / 180;
+            const cx = w / 2, cy = boxH / 2;
+            const len = Math.abs(w * Math.cos(rad)) + Math.abs(boxH * Math.sin(rad));
+            const grad = ctx.createLinearGradient(
+                cx - Math.cos(rad) * len / 2, cy - Math.sin(rad) * len / 2,
+                cx + Math.cos(rad) * len / 2, cy + Math.sin(rad) * len / 2
+            );
+            g.stops.forEach(s => grad.addColorStop(s.pos, s.color));
+            _roundRectPath(ctx, 0, 0, w, boxH, radius);
+            ctx.fillStyle = grad;
+            ctx.fill();
+            painted = true;
+        }
+    }
+    if (!painted && bgColor && bgColor !== 'transparent' && bgColor !== 'rgba(0, 0, 0, 0)') {
+        _roundRectPath(ctx, 0, 0, w, boxH, radius);
+        ctx.fillStyle = bgColor;
+        ctx.fill();
+    }
+
+    // ---- 边框 ----
+    const hasTopBorder = borderTop > 0 && cs.borderTopStyle !== 'none';
+    const hasRightBorder = borderRight > 0 && cs.borderRightStyle !== 'none';
+    const hasBottomBorder = borderBottom > 0 && cs.borderBottomStyle !== 'none';
+    const hasLeftBorder = borderLeft > 0 && cs.borderLeftStyle !== 'none';
+    const fullBorder = hasTopBorder && hasRightBorder && hasBottomBorder && hasLeftBorder;
+    if (fullBorder) {
+        const bw = Math.max(borderTop, borderRight, borderBottom, borderLeft);
+        _roundRectPath(ctx, bw / 2, bw / 2, w - bw, boxH - bw, Math.max(0, radius - bw / 2));
+        ctx.lineWidth = bw;
+        ctx.strokeStyle = _spanColor(cs.borderTopColor, cs.color);
+        ctx.stroke();
+    } else {
+        if (hasTopBorder) {
+            ctx.fillStyle = _spanColor(cs.borderTopColor, cs.color);
+            ctx.fillRect(0, 0, w, borderTop);
+        }
+        if (hasBottomBorder) {
+            ctx.fillStyle = _spanColor(cs.borderBottomColor, cs.color);
+            ctx.fillRect(0, boxH - borderBottom, w, borderBottom);
+        }
+        if (hasLeftBorder) {
+            ctx.fillStyle = _spanColor(cs.borderLeftColor, cs.color);
+            ctx.fillRect(0, 0, borderLeft, boxH);
+        }
+        if (hasRightBorder) {
+            ctx.fillStyle = _spanColor(cs.borderRightColor, cs.color);
+            ctx.fillRect(w - borderRight, 0, borderRight, boxH);
+        }
+    }
+
+    // ---- 文字 ----
+    ctx.font = fontStr;
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = fillColor;
+    ctx.lineJoin = 'round';
+    if (shadow) {
+        ctx.shadowColor = shadow.color;
+        ctx.shadowOffsetX = shadow.x;
+        ctx.shadowOffsetY = shadow.y;
+        ctx.shadowBlur = shadow.blur;
+    }
+
+    const innerLeft = borderLeft + padLeft;
+    const innerW = w - borderLeft - borderRight - padLeft - padRight;
+    let textX = innerLeft;
+    if (cs.textAlign === 'center') textX = innerLeft + (innerW - textW) / 2;
+    else if (cs.textAlign === 'right') textX = innerLeft + innerW - textW;
+
+    const strokeW = _spanPx(cs.webkitTextStrokeWidth);
+    function paintText(mode) {
+        let xx = textX;
+        for (let i = 0; i < chars.length; i++) {
+            const ch = chars[i];
+            if (mode === 'stroke') ctx.strokeText(ch, xx, baseline);
+            else ctx.fillText(ch, xx, baseline);
+            xx += mctx.measureText(ch).width + letterSpacing;
+        }
+    }
+    if (strokeW > 0) {
+        ctx.lineWidth = strokeW;
+        ctx.strokeStyle = _spanColor(cs.webkitTextStrokeColor, cs.color);
+        paintText('stroke');
+    }
+    ctx.fillStyle = fillColor;
+    paintText('fill');
+    if (shadow) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.shadowBlur = 0;
+    }
+
+    // ---- 文本装饰?----
+    const decoColor = _spanColor(cs.textDecorationColor, cs.color);
+    const decoStart = textX;
+    const decoEnd = textX + textW;
+    const decoStyle = cs.textDecorationStyle || 'solid';
+    function drawDeco(center) {
+        if (decoEnd <= decoStart) return;
+        if (!isFinite(decoStart) || !isFinite(decoEnd) || !isFinite(center)) return;
+        ctx.strokeStyle = decoColor;
+        ctx.fillStyle = decoColor;
+        ctx.lineWidth = decoThickness;
+        if (decoStyle === 'wavy') {
+            ctx.beginPath();
+            let guard = 0;
+            for (let x = decoStart; x <= decoEnd && guard < 20000; x += 1, guard++) {
+                const y = center + Math.sin((x - decoStart) / 2) * decoAmp;
+                if (x === decoStart) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        } else if (decoStyle === 'dotted') {
+            const step = Math.max(2, decoThickness * 2);
+            let guard = 0;
+            for (let x = decoStart; x <= decoEnd && guard < 20000; x += step, guard++) {
+                ctx.beginPath();
+                ctx.arc(x, center, Math.max(0.5, decoThickness / 2), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        } else if (decoStyle === 'double') {
+            ctx.beginPath();
+            ctx.moveTo(decoStart, center - decoThickness);
+            ctx.lineTo(decoEnd, center - decoThickness);
+            ctx.moveTo(decoStart, center + decoThickness);
+            ctx.lineTo(decoEnd, center + decoThickness);
+            ctx.stroke();
+        } else {
+            ctx.fillRect(decoStart, center - decoThickness / 2, decoEnd - decoStart, decoThickness);
+        }
+    }
+    if (/underline/i.test(decoLineRaw)) drawDeco(underlineCenter);
+    if (/line-through/i.test(decoLineRaw)) drawDeco(strikeCenter);
+
+    return {
+        dataUrl: canvas.toDataURL('image/png'),
+        width: w,
+        height: imgH,
+        baseline: baseline
+    };
+}
+
+function _findClonedLayer(root, layerId) {
+    if (!root) return null;
+    try {
+        if (root.matches && root.matches(`.canvas-layer[data-id="${layerId}"]`)) return root;
+    } catch (e) { }
+    return root.querySelector ? root.querySelector(`.canvas-layer[data-id="${layerId}"]`) : null;
+}
 
 function _buildOnCloneForExport(originalCanvasNode) {
     return async function (clonedDoc, clonedCanvasEl) {
-        console.log('🎯 onclone 开始，clone 里 effect-span 数量:', clonedCanvasEl.querySelectorAll('.text-content-editable span[data-effect-span]').length);
+console.log('[Exporter] onclone start');
 
         try {
             const origTextElsAll = originalCanvasNode.querySelectorAll('.text-content-editable');
@@ -624,7 +1419,7 @@ function _buildOnCloneForExport(originalCanvasNode) {
                     const osp = origSpans[si];
                     const csp = cloneSpans[si];
                     const inlineStyle = osp.getAttribute('style') || '';
-                    const cs = window.getComputedStyle(osp);
+                    const cs = _getCS(osp);
                     const hasInvert = /filter\s*:\s*invert\s*\(/i.test(inlineStyle) || /filter\s*:\s*invert\s*\(/i.test(cs.filter);
                     if (!hasInvert) continue;
                     const rawColor = osp.style.color || cs.color;
@@ -670,7 +1465,11 @@ function _buildOnCloneForExport(originalCanvasNode) {
                 for (let si = 0; si < sn2; si++) {
                     const osp = origSpans[si];
                     const csp = cloneSpans[si];
-                    const cs2 = window.getComputedStyle(osp);
+                    if (_isSimpleBorderBoxSpan(osp) || _isSimpleBackgroundSpan(osp) ||
+                        _isSimpleBorderBottomSpan(osp) || _isSimpleTextDecorationSpan(osp)) {
+                        continue;
+                    }
+                    const cs2 = _getCS(osp);
                     const disp2 = cs2.display || '';
                     const pTop = parseFloat(cs2.paddingTop) || 0;
                     const pBottom = parseFloat(cs2.paddingBottom) || 0;
@@ -689,93 +1488,98 @@ function _buildOnCloneForExport(originalCanvasNode) {
         }
 
         try {
+            window.__inlineRasterDebug = [];
             const origInlineEls = originalCanvasNode.querySelectorAll('.text-content-editable');
             origInlineEls.forEach(origEl => {
-                const origSpans = origEl.querySelectorAll('span');
-                if (!origSpans.length) return;
                 const layerEl = origEl.closest('.canvas-layer');
                 if (!layerEl) return;
                 const layerId = layerEl.dataset.id;
-                const clonedLayer = clonedCanvasEl.querySelector(`.canvas-layer[data-id="${layerId}"]`);
+                const clonedLayer = _findClonedLayer(clonedCanvasEl, layerId);
                 if (!clonedLayer) return;
                 const clonedTextEl = clonedLayer.querySelector('.text-content-editable');
                 if (!clonedTextEl) return;
+                const origSpans = origEl.querySelectorAll('span');
                 const clonedSpans = clonedTextEl.querySelectorAll('span');
                 for (let i = 0; i < Math.min(origSpans.length, clonedSpans.length); i++) {
                     const osp = origSpans[i];
                     const csp = clonedSpans[i];
-                    const deco = (osp.style.textDecoration || '') + ' ' + (osp.style.textDecorationLine || '');
-                    const hasWavy = /wavy/i.test(deco);
-                    const hasStrike = /line-through/i.test(deco);
-                    if (!hasWavy && !hasStrike) continue;
+                    const simpleUnderline = _isSimpleBorderBottomSpan(osp);
+                    const simpleDeco = _isSimpleTextDecorationSpan(osp);
+                    const simpleBg = _isSimpleBackgroundSpan(osp);
+                    const simpleBox = _isSimpleBorderBoxSpan(osp);
+                    const simpleStroke = _isSimpleStrokeSpan(osp);
+                    const should = _shouldRasterizeInlineSpan(osp);
                     try {
-                        const rect = osp.getBoundingClientRect();
-                        const w = Math.max(1, Math.round(rect.width));
-                        const cs = window.getComputedStyle(osp);
-                        const fontSize = parseFloat(cs.fontSize) || 28;
-                        const fontFamily = cs.fontFamily || 'sans-serif';
-                        const fontWeight = cs.fontWeight || 'normal';
-                        const fontStyle = cs.fontStyle || 'normal';
-                        const color = cs.color || '#ffffff';
-                        const lineColor = cs.textDecorationColor && cs.textDecorationColor !== 'currentcolor' ? cs.textDecorationColor : color;
-                        const lineW = parseFloat(cs.textDecorationThickness) || 2;
-                        const amp = Math.max(1, lineW * 0.8);
-                        const measureCanvas = document.createElement('canvas');
-                        const mctx = measureCanvas.getContext('2d');
-                        mctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
-                        const text = osp.innerText || '';
-                        const m = mctx.measureText(text);
-                        const asc = m.actualBoundingBoxAscent || (fontSize * 0.8);
-                        const desc = m.actualBoundingBoxDescent || (fontSize * 0.2);
-                        const extraTop = Math.ceil(fontSize * 0.15) + 2;
-                        const glyphH = asc + desc;
-                        const extraBottom = hasWavy ? Math.ceil(amp * 2 + lineW * 2 + 4) : 0;
-                        const h = extraTop + glyphH + extraBottom;
-                        const scale = 2;
-                        const canvas = document.createElement('canvas');
-                        canvas.width = w * scale;
-                        canvas.height = h * scale;
-                        const ctx = canvas.getContext('2d');
-                        ctx.scale(scale, scale);
-                        ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
-                        ctx.textBaseline = 'top';
-                        ctx.fillStyle = color;
-                        ctx.fillText(text, 0, extraTop);
-                        ctx.strokeStyle = lineColor;
-                        ctx.lineWidth = lineW;
-                        const baselineY = extraTop + asc;
-                        if (hasWavy) {
-                            const yBase = baselineY + desc + amp + lineW * 0.5;
-                            ctx.beginPath();
-                            for (let x = 0; x < w; x += 1) {
-                                const y = yBase + Math.sin(x / 2) * amp;
-                                x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                            }
-                            ctx.stroke();
+                        const dcs = _getCS(osp);
+                        let rects = 0;
+                        try { rects = osp.getClientRects().length; } catch (e) { rects = -1; }
+                        const dbg = {
+                            layerId: layerId,
+                            text: osp.textContent,
+                            should: should,
+                            simpleUnderline: simpleUnderline,
+                            simpleDeco: simpleDeco,
+                            simpleBg: simpleBg,
+                            simpleBox: simpleBox,
+                            simpleStroke: simpleStroke,
+                            rects: rects,
+                            font: dcs.fontFamily,
+                            fontSize: dcs.fontSize,
+                            display: dcs.display,
+                            borderBottom: dcs.borderBottom,
+                            deco: dcs.textDecorationLine,
+                            decoStyle: dcs.textDecorationStyle,
+                            whiteSpace: dcs.whiteSpace,
+                            inline: osp.getAttribute('style')
+                        };
+                        if (window.__inlineRasterDebug) window.__inlineRasterDebug.push(dbg);
+                    } catch (e) { }
+                    if (simpleUnderline) {
+                        _decorateBorderBottomInClone(csp, csp, clonedTextEl);
+                        continue;
+                    }
+                    if (simpleDeco) {
+                        if (_decorateTextDecorationInClone(csp, csp, clonedTextEl)) continue;
+                    }
+                    let handled = false;
+                    if (simpleBg || simpleBox) {
+                        // Leave background/border on the clone span: html2canvas paints them
+                        // together with the text, so they cannot drift vertically.
+                        continue;
+                    }
+                    if (handled) continue;
+                    if (simpleStroke) {
+                        if (_decorateStrokeInClone(csp, csp)) continue;
+                    }
+                    if (!should) continue;
+                    try {
+                        const rendered = _renderInlineSpanToImage(osp);
+                        if (!rendered) continue;
+                        if (window.__inlineRasterDebug && window.__inlineRasterDebug.length) {
+                            window.__inlineRasterDebug[window.__inlineRasterDebug.length - 1].render = {
+                                width: rendered.width,
+                                height: rendered.height,
+                                baseline: rendered.baseline,
+                                marginBottom: rendered.baseline - rendered.height
+                            };
                         }
-                        if (hasStrike) {
-                            const yStrike = baselineY - asc * 0.45;
-                            ctx.beginPath();
-                            ctx.moveTo(0, yStrike);
-                            ctx.lineTo(w, yStrike);
-                            ctx.stroke();
-                        }
-                        const dataUrl = canvas.toDataURL('image/png');
                         const img = document.createElement('img');
-                        img.src = dataUrl;
-                        img.style.width = w + 'px';
-                        img.style.height = h + 'px';
+                        img.src = rendered.dataUrl;
+                        img.style.width = rendered.width + 'px';
+                        img.style.height = rendered.height + 'px';
                         img.style.display = 'inline-block';
                         img.style.verticalAlign = 'baseline';
-                        img.style.marginBottom = (-(desc + extraBottom + 4)) + 'px';
+                        img.style.marginTop = '0px';
+                        img.style.marginBottom = (rendered.baseline - rendered.height) + 'px';
+                        img.dataset.inlineRasterized = '1';
                         if (csp.parentNode) csp.parentNode.replaceChild(img, csp);
                     } catch (e) {
-                        console.warn('[InlineWavy] 栅格化失败:', e);
+                        console.warn('[InlineRaster] rasterize failed:', e);
                     }
                 }
             });
         } catch (e) {
-            console.warn('[InlineWavy] 处理失败:', e);
+                        console.warn('[InlineRaster] rasterize failed:', e);
         }
 
         const originalTextEls = originalCanvasNode.querySelectorAll('.text-content-editable');
@@ -787,7 +1591,7 @@ function _buildOnCloneForExport(originalCanvasNode) {
             const layer = state.layers.find(l => l.id === layerId);
             if (!layer || !layer.effectClass) return;
             if (!_needsRasterize(layer.effectClass)) return;
-            const clonedLayer = clonedCanvasEl.querySelector(`.canvas-layer[data-id="${layerId}"]`);
+            const clonedLayer = _findClonedLayer(clonedCanvasEl, layerId);
             if (!clonedLayer) return;
             const clonedTextEl = clonedLayer.querySelector('.text-content-editable');
             if (!clonedTextEl) return;
@@ -808,14 +1612,15 @@ function _buildOnCloneForExport(originalCanvasNode) {
     };
 }
 
-console.log('[Exporter] 第4批-B已接管：_buildOnCloneForExport');
+console.log('[Exporter] module ready');
 
 // ============================================================
-// 第 5 批-A：exportElementToPNG
+// ?5 ?A：exportElementToPNG
 // ============================================================
 
 function exportElementToPNG(canvasDOMNode, filename, scale) {
     const exportScale = (typeof scale === 'number' && scale > 0) ? scale : 2;
+    window.__currentExportScale = exportScale;
     return new Promise((resolve, reject) => {
         const _start = async () => {
         const guidesLayer = canvasDOMNode.querySelector('.custom-guides-layer');
@@ -1019,11 +1824,10 @@ function exportElementToPNG(canvasDOMNode, filename, scale) {
     });
 }
 
-console.log('[Exporter] 第5批-A已接管：exportElementToPNG');
+console.log('[Exporter] module ready');
 
 // ============================================================
-// 第 5 批-B：导出面板
-// 注意：let _exportScale = 2; 仍由 app.js 声明，本文件读写全局 _exportScale
+// ?5 ?B：导出面?// 注意：let _exportScale = 2; 仍由 app.js 声明，本文件读写全局 _exportScale
 // ============================================================
 
 function openExportPanel() {
@@ -1109,7 +1913,7 @@ async function runExportFromPanel() {
 }
 
 function initExportPanel() {
-    // ✅ P1-2：导出前后背景重应用统一走 BG（若已收口则用命名空间）
+    // ?P1-2：导出前后背景重应用统一?BG（若已收口则用命名空间）
     window.__reapplyBackground = function () {
         const applyBg = (window.BG && BG.applyBackgroundToCanvases) || window.applyBackgroundToCanvases;
         if (typeof applyBg === 'function' && window.state) {
@@ -1140,7 +1944,7 @@ async function exportAllPagesAsPNG() {
     openExportPanel();
 }
 
-// ✅ P1-2：exporter.js 收口到 window.EXPORT
+// ?P1-2：exporter.js 收口?window.EXPORT
 (function exposeExporterNamespace() {
     if (!window.EXPORT) return;
     EXPORT.exportElementToPNG = exportElementToPNG;
@@ -1149,9 +1953,10 @@ async function exportAllPagesAsPNG() {
     EXPORT.runExportFromPanel = runExportFromPanel;
     EXPORT.initExportPanel = initExportPanel;
     EXPORT.exportAllPagesAsPNG = exportAllPagesAsPNG;
-    console.log('[EXPORT] ✅ exporter.js 已收口到 window.EXPORT（' +
-        Object.keys(EXPORT).length + ' 个函数）');
+    console.log('[EXPORT] exporter.js namespace ready');
 })();
 
-console.log('[Exporter] 第5批-B已接管：导出面板');
-console.log('[Exporter] ✅ 导出系统全部收口完成');
+console.log('[Exporter] module ready');
+console.log('[Exporter] module ready');
+
+

@@ -31,14 +31,11 @@ const BackgroundEngine = (function () {
         return Math.max(0, Math.min(1, _num(v, 0)));
     }
 
+    // ✅ 颜色转换唯一实现在 utils.js → Utils.hex.toRgba
     function _hexToRgba(hex, alpha) {
-        if (!hex) return 'rgba(0,0,0,' + alpha + ')';
-        let h = String(hex).replace('#', '');
-        if (h.length === 3) h = h.split('').map(c => c + c).join('');
-        const r = parseInt(h.substring(0, 2), 16) || 0;
-        const g = parseInt(h.substring(2, 4), 16) || 0;
-        const b = parseInt(h.substring(4, 6), 16) || 0;
-        return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
+        const a = alpha === undefined ? 1 : alpha;
+        if (!hex) return 'rgba(0,0,0,' + a + ')';
+        return Utils.hex.toRgba(hex, a);
     }
 
     // ---------- 纹理 SVG ----------

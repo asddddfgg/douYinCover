@@ -21,6 +21,14 @@ console.log('[BackdropPanel] P1 骨架就位，等待函数体迁移');
 //    BACKDROP_PRESETS / currentBackdropCategory / backdropCache
 //    SHAPE_FORMAT / SHAPE_MASK_SIZE / SVG_ALLOWED_TAGS / SVG_ALLOWED_ATTRS
 
+// 底衬颜色属于品牌约束：新建底衬时不再写死 #fff8dc / #d2b48c，改取品牌角色色
+function _brandBackdropColor(type, layer) {
+    try {
+        if (window.BackdropBrand && BackdropBrand.defaultColor) return BackdropBrand.defaultColor(type, layer);
+    } catch (e) { }
+    return null;
+}
+
 function setupBackdropPanel() {
     setupBackdropImport();
 
@@ -69,7 +77,7 @@ function setupBackdropPanel() {
             return false;
         }
         if (!layer.backdrop) {
-            layer.backdrop = { type: 'none', color: '#fff8dc', opacity: 1, padding: 12, rotate: 0 };
+            layer.backdrop = { type: 'none', color: _brandBackdropColor('none', layer), opacity: 1, padding: 12, rotate: 0 };
         }
         mutator(layer.backdrop);
         state.saveState();
@@ -181,21 +189,13 @@ function createBackdropCard(preset) {
             return;
         }
         if (!layer.backdrop) {
-            layer.backdrop = { color: '#fff8dc', opacity: 1, padding: 12, rotate: 0 };
+            layer.backdrop = { color: _brandBackdropColor(preset.type, layer), opacity: 1, padding: 12, rotate: 0 };
         }
         layer.backdrop.type = preset.type;
         if (preset.type === 'custom') return;
 
-        if (window.BackdropTextures && BackdropTextures.isCanvasTexture(preset.type)) {
-            if (!layer.backdrop.color || layer.backdrop.color === '#fff8dc') {
-                const defaults = {
-                    kraft: '#d2b48c', fiber: '#f5efe0', watercolor: '#f0f4f8',
-                    xuan: '#faf6ec', parchment: '#f4e4c1', newspaper: '#e8e4d8',
-                    chalkboard: '#2b3a32', cork: '#b88a4e',
-                    'canvas-texture': '#e6dcc8', linen: '#f0ead8'
-                };
-                layer.backdrop.color = defaults[preset.type] || layer.backdrop.color;
-            }
+        if (!layer.backdrop.color) {
+            layer.backdrop.color = _brandBackdropColor(preset.type, layer);
         }
         state.saveState();
         renderCanvas();
@@ -277,15 +277,15 @@ async function renderCustomBackdropGrid(grid) {
                     return;
                 }
                 if (!layer.backdrop) {
-                    layer.backdrop = { color: '#ffffff', opacity: 1, padding: 12, rotate: 0 };
+                    layer.backdrop = { color: _brandBackdropColor('custom', layer), opacity: 1, padding: 12, rotate: 0 };
                 }
                 layer.backdrop.type = 'custom';
                 layer.backdrop.customId = item.id;
                 layer.backdrop.sizeMode = layer.backdrop.sizeMode || 'cover';
                 if (item.isMask) {
                     layer.backdrop.isMask = true;
-                    if (!layer.backdrop.color || layer.backdrop.color === '#fff8dc') {
-                        layer.backdrop.color = '#ffffff';
+                    if (!layer.backdrop.color) {
+                        layer.backdrop.color = _brandBackdropColor('custom', layer) || '#FFFFFF';
                     }
                 } else {
                     layer.backdrop.isMask = false;
@@ -354,7 +354,7 @@ async function refreshCustomBackdropCache() {
 
 function syncBackdropPanelToLayer(layer) {
     if (!layer || layer.type !== 'text') return;
-    const bd = layer.backdrop || { type: 'none', color: '#fff8dc', opacity: 1, padding: 12, rotate: 0 };
+    const bd = layer.backdrop || { type: 'none', color: _brandBackdropColor('none', layer), opacity: 1, padding: 12, rotate: 0 };
 
     const colorInput = document.getElementById('backdrop-color');
     const padInput = document.getElementById('backdrop-padding');
@@ -364,7 +364,7 @@ function syncBackdropPanelToLayer(layer) {
     const opInput = document.getElementById('backdrop-opacity');
     const opVal = document.getElementById('backdrop-opacity-val');
 
-    if (colorInput) colorInput.value = bd.color || '#fff8dc';
+    if (colorInput) colorInput.value = bd.color || _brandBackdropColor(bd.type, layer) || '#FFFFFF';
     if (padInput) padInput.value = bd.padding !== undefined ? bd.padding : 12;
     if (padVal) padVal.textContent = bd.padding !== undefined ? bd.padding : 12;
     if (rotInput) rotInput.value = bd.rotate || 0;
@@ -472,7 +472,7 @@ function showBackdropFormatModal() {
         btn.addEventListener('click', () => {
             const which = btn.dataset.copySample;
             const text = which === 'preset' ? sampleJson : sampleCustomJson;
-            copyToClipboard(text);
+            Utils.clipboard.copy(text);
             btn.innerHTML = '<i class="fa-solid fa-check"></i> 已复制';
             setTimeout(() => { btn.innerHTML = '<i class="fa-solid fa-copy"></i> 复制'; }, 1200);
         });
@@ -480,7 +480,7 @@ function showBackdropFormatModal() {
     const copyCurrentBtn = box.querySelector('[data-copy-current]');
     if (copyCurrentBtn) {
         copyCurrentBtn.addEventListener('click', () => {
-            copyToClipboard(currentJson);
+            Utils.clipboard.copy(currentJson);
             copyCurrentBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已复制';
             setTimeout(() => { copyCurrentBtn.innerHTML = '<i class="fa-solid fa-copy"></i> 复制当前'; }, 1200);
         });
@@ -494,18 +494,8 @@ function showBackdropFormatModal() {
     });
 }
 
-// ✅ P0-1：copyToClipboard / fallbackCopy 已合并到 Utils.clipboard.copy
-//    这里保留一个薄别名，兼容本文件内部老调用点
-function copyToClipboard(text) {
-    if (window.Utils && Utils.clipboard && Utils.clipboard.copy) {
-        return Utils.clipboard.copy(text);
-    }
-    // 兜底：Utils 未加载时用原生 API（不应发生）
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        return navigator.clipboard.writeText(text).catch(() => {});
-    }
-    return Promise.resolve();
-}
+// ✅ P0-1：复制能力已收口到 Utils.clipboard.copy，本文件不再保留同名薄别名
+//    内部调用点直接写 Utils.clipboard.copy（见 showBackdropFormatModal）
 
 function _sanitizeSvg(rawSvg) {
     if (!rawSvg || typeof rawSvg !== 'string') throw new Error('svg 为空');

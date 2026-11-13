@@ -22,7 +22,11 @@ const LeftRail = (function () {
 
     function openTextPanel() {
         // 直接新建一个文字图层（不再依赖顶栏按钮）
-        if (!window.state) return;
+        if (!window.state || !state.addLayer) {
+            console.error('[LeftRail] state 未就绪，无法新建文字图层');
+            if (typeof showBgToast === 'function') showBgToast('编辑器未就绪，请刷新页面');
+            return;
+        }
         const newLayer = {
             id: 'text-' + Date.now(),
             type: 'text',
@@ -41,6 +45,8 @@ const LeftRail = (function () {
         };
         state.addLayer(newLayer);
         if (typeof renderAll === 'function') renderAll();
+        else if (typeof renderCanvas === 'function') { renderCanvas(); renderLayerList(); }
+        console.log('[LeftRail] 已新建文字图层:', newLayer.id);
     }
     function openStickerPanel() {
         // 直接打开贴纸面板（不再依赖顶栏按钮）

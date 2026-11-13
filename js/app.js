@@ -92,6 +92,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dep = checkAiSpecDependencies();
                 if (dep.ok) console.log('[AI-Spec] ✅ 依赖自检通过');
                 else console.warn('[AI-Spec] ⚠️ 依赖缺失:', dep.missing.join(', '));
+                if (dep.optionalMissing && dep.optionalMissing.length) {
+                    console.log('[AI-Spec] ℹ️ 可选依赖未加载（已走内置兜底）:', dep.optionalMissing.join(', '));
+                }
             }
             if (typeof selfTestAiSpecPipeline === 'function') {
                 const r = selfTestAiSpecPipeline();
@@ -489,11 +492,43 @@ function renderPageList() {
         const item = document.createElement('div');
         const isActive = page.id === state.currentPageId;
         item.className = `page-item ${isActive ? 'active' : ''}`;
-        item.innerHTML = `
-            <span><i class="fa-solid fa-file-lines"></i> ${page.title} (第 ${index + 1} 页)</span>
-            <span style="font-size: 10px; color: #8b949e;">${page.layers.length} 个图层</span>
-        `;
-        item.addEventListener('click', () => {
+
+        item.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-page-act]');
+            if (btn) {
+                e.stopPropagation();
+                const act = btn.dataset.pageAct;
+                
+                if (act === 'delete') {
+                    if (state.pages.length <= 1) {
+                        if (typeof showBgToast === 'function') showBgToast('至少保留一页');
+                        return;
+                    }
+                    if (!confirm(`确定删除「${page.title}」吗？该操作不可撤销。`)) return;
+                    state.pages = state.pages.filter(p => p.id !== page.id);
+                    if (state.currentPageId === page.id) {
+                        state.currentPageId = state.pages[0].id;
+                    }
+                    state.saveState();
+                    renderAll();
+                    if (typeof showBgToast === 'function') showBgToast('已删除该页');
+                } 
+                else if (act === 'export') {
+                    const fn = (window.EXPORT && window.EXPORT.exportElementToPNG) || window.exportElementToPNG;
+                    const canvasEl = document.querySelector(`.canvas-page-wrapper[data-page-id="${page.id}"] .cover-canvas`);
+                    if (fn && canvasEl) {
+                        if (typeof showBgToast === 'function') showBgToast('正在导出此页…');
+                        fn(canvasEl, `第${index + 1}页.png`, 3).then(() => {
+                            if (typeof showBgToast === 'function') showBgToast('导出成功 ✓');
+                        });
+                    } else {
+                        if (typeof showBgToast === 'function') showBgToast('导出模块未就绪');
+                    }
+                }
+                return;
+            }
+            
+            // 没点按钮，就是正常切换页面
             state.switchPage(page.id);
             renderAll();
             const targetWrapper = document.querySelector(`.canvas-page-wrapper[data-page-id="${page.id}"]`);
@@ -547,7 +582,18 @@ function enterTextEditMode(layerId) {
 
 function createBackdropElement(layer) {
     if (!layer.backdrop || !layer.backdrop.type || layer.backdrop.type === 'none') return null;
-    const bd = layer.backdrop;
+    // 底衬颜色属于品牌约束：缺省/非品牌色 → 解析为精确品牌色（只读解析，不改 layer 本体）
+    let bd = layer.backdrop;
+    let brandFill = null, brandMark = null;
+    if (window.BackdropBrand) {
+        try {
+            const resolved = BackdropBrand.resolve(layer);
+            if (resolved && resolved.backdrop) bd = resolved.backdrop;
+            brandFill = BackdropBrand.defaultColor(bd.type, layer);
+            const bi = BackdropBrand.info();
+            brandMark = (bi && bi.roles && bi.roles.accent) || brandFill;
+        } catch (e) { }
+    }
 
 
     const el = document.createElement('div');
@@ -591,7 +637,7 @@ function createBackdropElement(layer) {
     if (bd.type === 'mark') {
         el.classList.add('backdrop-mark');
         el.dataset.markKind = bd.markKind || 'box';
-        el.style.setProperty('--mark-c', bd.markColor || '#ff2442');
+        el.style.setProperty('--mark-c', bd.markColor || brandMark || 'currentColor');
         el.style.setProperty('--mark-w', (bd.markWidth || 4) + 'px');
         const pad = bd.padding !== undefined ? bd.padding : 12;
         el.style.left = (-pad) + 'px';
@@ -605,7 +651,7 @@ function createBackdropElement(layer) {
         const cid = bd.customId;
         if (cid !== undefined && cid !== null) {
             const isMask = !!bd.isMask;
-            const maskColor = bd.color || '#ffffff';
+            const maskColor = bd.color || brandFill || 'transparent';
             let dataUrl = (typeof backdropCache !== 'undefined' && backdropCache[cid]) || null;
 
             const applyTinted = (url) => {
@@ -633,7 +679,7 @@ function createBackdropElement(layer) {
             if (dataUrl) {
                 applyTinted(dataUrl);
             } else {
-                el.style.background = isMask ? maskColor : (bd.color || '#ffffff');
+                el.style.background = isMask ? maskColor : (bd.color || brandFill || 'transparent');
                 BackdropDB.getBackdropById(cid).then(item => {
                     if (!item) return;
                     if (typeof backdropCache !== 'undefined') backdropCache[cid] = item.dataUrl;
@@ -664,38 +710,18 @@ function createBackdropElement(layer) {
             el.style.backgroundPosition = 'center';
             el.style.backgroundRepeat = 'no-repeat';
         } else {
-            el.style.background = bd.color || '#d2b48c';
+            el.style.backgroundColor = bd.color || brandFill || 'transparent';
         }
         el.classList.add(`backdrop-${bd.type}`);
     } else {
         el.style.background = '';
         el.style.backgroundImage = '';
         el.classList.add(`backdrop-${bd.type}`);
- if (bd.type === 'sticky') {
-            el.style.background = bd.color || '#fff740';
-        } else if (bd.type === 'polaroid') {
-            el.style.background = bd.color || '#ffffff';
-        } else if (bd.type === 'ticket') {
-            el.style.background = bd.color || '#fff5e6';
-        } else if (bd.type === 'washi') {
-            el.style.background = bd.color || '#fdf2f8';
-        } else if (bd.type === 'torn' || bd.type === 'tape') {
-            if (bd.color) el.style.background = bd.color;
-        }
+        // 所有非自定义底衬统一吃品牌色填充；缺省也不回落到 #fff740/#fff8dc 等写死色
+        el.style.backgroundColor = bd.color || brandFill || 'transparent';
     }
 
     return el;
-}
-
-// 把 #rrggbb 转 rgba(r,g,b,a)
-function hexToRgbaLocal(hex, alpha) {
-    if (!hex) return `rgba(0,0,0,${alpha})`;
-    let h = hex.replace('#', '');
-    if (h.length === 3) h = h.split('').map(c => c + c).join('');
-    const r = parseInt(h.substring(0, 2), 16) || 0;
-    const g = parseInt(h.substring(2, 4), 16) || 0;
-    const b = parseInt(h.substring(4, 6), 16) || 0;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function applyCustomBackdropStyle(el, dataUrl, bd) {
@@ -732,7 +758,9 @@ function applyCustomBackdropStyle(el, dataUrl, bd) {
         if (bd.overlayColor) {
         // ✅ 半透明遮罩，而不是不透明色 + multiply
         //    避免 PNG 透明区被不透明色填满，导致底衬图形看不见
-        el.style.backgroundImage = `linear-gradient(${hexToRgbaLocal(bd.overlayColor, 0.35)}, ${hexToRgbaLocal(bd.overlayColor, 0.35)}), url(${finalUrl})`;
+        // ✅ hexToRgba 唯一实现在 utils.js（window.hexToRgba）
+        const _overlayRgba = hexToRgba(bd.overlayColor, 0.35);
+        el.style.backgroundImage = `linear-gradient(${_overlayRgba}, ${_overlayRgba}), url(${finalUrl})`;
         el.style.backgroundBlendMode = 'normal';
     } else {
         el.style.backgroundBlendMode = 'normal';
@@ -955,28 +983,7 @@ function renderCanvas() {
                 const backdropEl = createBackdropElement(layer);
                 if (backdropEl) el.appendChild(backdropEl);
 
-// 判断是否是"背景框 / 高亮类"特效：这类特效的 background 不能加在外层（会撑满）
-// ✅ 不再靠 ID 列表判断：直接看当前特效的 CSS 里是否有"背景框类"属性
-let isBgBox = false;
-if (layer.effectClass) {
-    try {
-        const allFx = (typeof getAllEffectsMaster === 'function') ? getAllEffectsMaster() : [];
-        const fx = allFx.find(e => e.id === layer.effectClass);
-        if (fx && fx.css) {
-            const cssLower = fx.css.toLowerCase();
-            // 只要出现 background（非渐变文字）或 padding 或 border-radius
-            const hasBg = /(^|;|\s)background(-color)?\s*:/.test(cssLower)
-                       && !cssLower.includes('background-clip')
-                       && !cssLower.includes('-webkit-text-fill-color');
-            const hasPadding = /(^|;|\s)padding\s*:/.test(cssLower);
-            const hasRadius = cssLower.includes('border-radius');
-            isBgBox = hasBg || hasPadding || hasRadius;
-        }
-    } catch (e) {
-        if (window.Utils && Utils.log) Utils.log.warn('[App] 判断背景框类特效失败', e);
-        isBgBox = false;
-    }
-}
+// 背景框类特效的判定已收口到 effects.js 的 isEffectBgBox（见下方 effectList 循环）
 
 const textInner = document.createElement('div');
 textInner.className = 'text-content-editable';
@@ -1074,25 +1081,15 @@ const effectList = (() => {
 })();
 const effectParams = layer.effectParams || {};
 
-// 判断这批特效里是否有"背景框类"
+// 判断这批特效里是否有"背景框类"（唯一实现：effects.js → isEffectBgBox）
 let bgBoxEffectId = null;
 for (const eid of effectList) {
-    try {
-        const cssText = (typeof renderEffectCss === 'function')
-            ? renderEffectCss(eid, effectParams[eid] || {})
-            : '';
-        const cssLower = cssText.toLowerCase();
-        const hasBg = /(^|;|\s)background(-color)?\s*:/.test(cssLower)
-                   && !cssLower.includes('background-clip')
-                   && !cssLower.includes('-webkit-text-fill-color');
-        const hasPadding = /(^|;|\s)padding\s*:/.test(cssLower);
-        const hasRadius = cssLower.includes('border-radius');
-        if (hasBg || hasPadding || hasRadius) {
-            bgBoxEffectId = eid;
-            break;
-        }
-    } catch (e) {
-        if (window.Utils && Utils.log) Utils.log.warn('[App] 检测特效背景框属性失败', eid, e);
+    const isBox = (typeof isEffectBgBox === 'function')
+        ? isEffectBgBox(eid, effectParams[eid])
+        : false;
+    if (isBox) {
+        bgBoxEffectId = eid;
+        break;
     }
 }
 
@@ -1105,19 +1102,10 @@ if (bgBoxEffectId) {
         const cssText = (typeof renderEffectCss === 'function')
             ? renderEffectCss(bgBoxEffectId, effectParams[bgBoxEffectId] || {})
             : '';
-        cssText.split(';').forEach(rule => {
-            const idx = rule.indexOf(':');
-            if (idx === -1) return;
-            const prop = rule.slice(0, idx).trim().toLowerCase();
-            const val = rule.slice(idx + 1).trim();
-            if (!prop || !val) return;
-            if (prop === 'background' || prop === 'background-color'
-                || prop === 'padding' || prop === 'border-radius'
-                || prop === 'border' || prop === 'color'
-                || prop === 'font-weight' || prop === 'font-style') {
-                textInner.style.setProperty(prop, val);
-            }
-        });
+        Utils.dom.applyCssText(textInner, cssText, [
+            'background', 'background-color', 'padding', 'border-radius',
+            'border', 'color', 'font-weight', 'font-style'
+        ]);
     } catch (e) {
         if (window.Utils && Utils.log) Utils.log.warn('[App] 应用背景框特效 CSS 失败', bgBoxEffectId, e);
     }
@@ -1140,16 +1128,7 @@ if (bgBoxEffectId) {
     });
 
     if (mergedInlineStyle) {
-        mergedInlineStyle.split(';').forEach(rule => {
-            const idx = rule.indexOf(':');
-            if (idx === -1) return;
-            const prop = rule.slice(0, idx).trim();
-            const val = rule.slice(idx + 1).trim();
-            if (!prop || !val) return;
-            try { textInner.style.setProperty(prop, val); } catch (e) {
-                if (window.Utils && Utils.log) Utils.log.warn('[App] 应用特效 CSS 属性失败', prop, val, e);
-            }
-        });
+        Utils.dom.applyCssText(textInner, mergedInlineStyle);
     }
 
     if (typeof hasLocalInlineColor === 'function' && hasLocalInlineColor(layer.content)) {
@@ -1344,6 +1323,44 @@ if (bgBoxEffectId) {
         });
         canvasEl.appendChild(layersWrapper);
         pageWrapper.appendChild(canvasEl);
+
+        // ✅ 国际做法：给画布加上悬浮操作条（鼠标移入才显示）
+        const pageActions = document.createElement('div');
+        pageActions.className = 'page-actions-bar';
+        pageActions.innerHTML = `
+            <button class="btn btn-mini-pad" data-act="export" style="background:#fff; border:1px solid #e5e7eb; border-radius:4px; padding:2px 6px; font-size:11px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);" title="导出此页"><i class="fa-solid fa-download"></i> 导出</button>
+            <button class="btn btn-mini-pad" data-act="delete" style="background:#fff; border:1px solid #e5e7eb; border-radius:4px; padding:2px 6px; font-size:11px; color:#f85149; box-shadow: 0 1px 2px rgba(0,0,0,0.05);" title="删除此页"><i class="fa-solid fa-trash"></i></button>
+        `;
+        
+        // 阻止冒泡，防止点击按钮时触发画布的选中/拖拽
+        pageActions.addEventListener('mousedown', (e) => e.stopPropagation());
+        pageActions.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-act]');
+            if (!btn) return;
+            e.stopPropagation();
+            const act = btn.dataset.act;
+            
+            if (act === 'delete') {
+                if (state.pages.length <= 1) {
+                    if (typeof showBgToast === 'function') showBgToast('至少保留一页');
+                    return;
+                }
+                if (!confirm(`确定删除「${page.title}」吗？`)) return;
+                state.pages = state.pages.filter(p => p.id !== page.id);
+                if (state.currentPageId === page.id) state.currentPageId = state.pages[0].id;
+                state.saveState();
+                renderAll();
+            } else if (act === 'export') {
+                const fn = (window.EXPORT && window.EXPORT.exportElementToPNG) || window.exportElementToPNG;
+                if (fn && canvasEl) {
+                    if (typeof showBgToast === 'function') showBgToast('正在导出…');
+                    fn(canvasEl, `${page.title}.png`, 3).then(() => {
+                        if (typeof showBgToast === 'function') showBgToast('导出成功 ✓');
+                    });
+                }
+            }
+        });
+        pageWrapper.appendChild(pageActions);
         container.appendChild(pageWrapper);
         if (window.BG && typeof BG.applyBackgroundToCanvases === 'function') {
             BG.applyBackgroundToCanvases(state.background);
@@ -1354,19 +1371,10 @@ if (bgBoxEffectId) {
         BG.applyBackgroundToCanvases(state.background);
     }
 
-    // ✅ 逐页背景覆盖：如果页自带 bg（AI 多方案应用后每页 bg 可不同），用页的 bg 再刷一次//    避免 state.background 被别的代码（BackgroundLayersUI / 面板同步 / 历史恢复）改回旧值导致整页回退
+    // ✅ 逐页背景覆盖：页自带 bg（AI 多方案 / 一键成图）优先于全局背景
+    //    唯一实现在 background-core.js → applyPageBackgrounds（含遮罩合成 + 清理图片遗留滤镜）
     try {
-        state.pages.forEach((page) => {
-            if (!page.bg) return;
-            const pageEl = document.querySelector(`.canvas-page-wrapper[data-page-id="${page.id}"] .canvas-bg`);
-            if (!pageEl) return;
-            const css = (typeof backgroundToCss === 'function') ? backgroundToCss(page.bg) : '';
-            if (css) {
-                pageEl.style.background = css;
-                if (page.bg.texture === 'grid') pageEl.style.backgroundSize = '22px 22px, 22px 22px, 100% 100%';
-                else if (page.bg.texture === 'dots') pageEl.style.backgroundSize = '14px 14px, 100% 100%';
-            }
-        });
+        if (typeof applyPageBackgrounds === 'function') applyPageBackgrounds();
     } catch (e) {
         if (window.Utils && Utils.log) Utils.log.warn('[renderCanvas] 逐页背景覆盖失败', e);
     }
@@ -1377,6 +1385,11 @@ if (bgBoxEffectId) {
         if (typeof refreshEffectParamsPanel === 'function' && !window.__effectParamsDragging) {
             refreshEffectParamsPanel();
         }
+    }
+
+    // ✅ 在这里加上安全区的挂载（因为此时所有的 canvasEl 都生成好了）
+    if (window.Features && typeof window.Features.renderSafeAreaDOM === 'function') {
+        try { window.Features.renderSafeAreaDOM(); } catch (e) {}
     }
 
     // 恢复滚动位置（见函数开头注释）
@@ -1614,12 +1627,8 @@ function applyFavImageEntry(key) {
     if (typeof showBgToast === 'function') showBgToast('已应用收藏的图片背景 🖼️');
 }
 
-function hashString(str) {
-    let h = 5381;
-    for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
-    return (h >>> 0).toString(36);
-}
-/* ✅ 图片背景收藏夹 v3 已恢复（BG_FavImageDB / saveFavImageEntry / applyFavImageEntry / hashString） */
+// ✅ hashString 唯一实现在 utils.js（window.hashString → Utils.string.hash）
+/* ✅ 图片背景收藏夹 v3（BG_FavImageDB / saveFavImageEntry / applyFavImageEntry） */
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(async () => {
         try {

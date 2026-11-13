@@ -126,13 +126,33 @@ const FloatingToolbar = (function () {
         hostEl.style.top = '0px';
 
         const tipRect = hostEl.getBoundingClientRect();
-        // 位置：右上角贴住图层，浮在图层上方 8px
+        
+        // 1. 恢复原有的合理定位方式：默认在图层右上方，向上偏移 8px
         let left = rect.right - tipRect.width;
         let top = rect.top - tipRect.height - 8;
 
-        // 顶部溢出 → 放到图层下方
-        if (top < 8) top = rect.bottom + 8;
-        // 左右越界 → 靠边
+        // 2. 获取真实 DOM 中的旋转按钮位置，判断是否重叠
+        const rotateBtn = layerEl.querySelector('.rotate-handle');
+        if (rotateBtn && rotateBtn.offsetParent !== null) {
+            const rotRect = rotateBtn.getBoundingClientRect();
+            // 检查两个矩形是否相交
+            const isOverlap = !(left + tipRect.width <= rotRect.left || 
+                                left >= rotRect.right || 
+                                top + tipRect.height <= rotRect.top || 
+                                top >= rotRect.bottom);
+            
+            if (isOverlap) {
+                // 发生重叠时，将工具条向左水平移动，直到不挡旋转按钮
+                left = rotRect.left - tipRect.width - 12;
+            }
+        }
+
+        // 3. 顶部空间不足的兜底：如果顶部放不下，放到图层下方
+        if (top < 8) {
+            top = rect.bottom + 12;
+        }
+
+        // 4. 左右越界兜底：确保不超出屏幕左右边缘
         if (left < 8) left = 8;
         if (left + tipRect.width > window.innerWidth - 8) {
             left = window.innerWidth - tipRect.width - 8;

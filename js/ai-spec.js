@@ -22,6 +22,171 @@ window.__AI_SPEC_READY__ = true;
 /* ============================================================
    1. 校验器
    ============================================================ */
+function collectBrandPalette(spec) {
+    const out = [];
+    const add = c => {
+        if (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c)) out.push(c.toUpperCase());
+    };
+    try {
+        if (window.BrandManager) {
+            const active = (BrandManager.getActiveColors && BrandManager.getActiveColors()) || [];
+            const all = (BrandManager.getAllColors && BrandManager.getAllColors()) || [];
+            (active.length ? active : all).forEach(add);
+        }
+    } catch (e) {}
+    if (!out.length && spec && Array.isArray(spec.pages)) {
+        // BrandManager 没配时，退化为“从页面自身颜色推导”，保证仍有可用基准
+        spec.pages.forEach(page => {
+            if (!page) return;
+            if (page.bg) {
+                add(page.bg.color1);
+                add(page.bg.color2);
+                if (page.bg.presetId && Array.isArray(window.BG_PRESETS)) {
+                    const preset = window.BG_PRESETS.find(p => p && p.id === page.bg.presetId);
+                    if (preset) { add(preset.color1); add(preset.color2); }
+                }
+            }
+            (page.layers || []).forEach(l => {
+                if (!l) return;
+                // 只收文字色作为“用户确实在用的颜色”参考；
+                // bgColor/backdrop 可能是 AI 自己发明的金色块，不能拿它当品牌基准。
+                add(l.color);
+            });
+        });
+    }
+    return Array.from(new Set(out));
+}
+
+/**
+ * 统一品牌色守卫：特效参数默认色 / 渲染 CSS 硬编码色 / 行内 span 颜色
+ * - strict=true：硬编码强色 / 行内非品牌色 → errors
+ * - strict=false：特效参数品牌化；硬编码特效禁用；行内颜色替换为最近品牌色
+ * 预览、质量分、应用前都应调用它，避免“预览金色、应用才变”的错觉。
+ */
+function sanitizeSpecBrand(spec, options) {
+    options = options || {};
+    const out = { palette: [], warnings: [], errors: [] };
+    if (!spec || !Array.isArray(spec.pages) || !window.EffectBrandGuard) return out;
+    const pal = (options.palette && options.palette.length ? options.palette : collectBrandPalette(spec))
+        .map(c => String(c || '').toUpperCase())
+        .filter(c => /^#[0-9A-F]{6}$/.test(c));
+    out.palette = Array.from(new Set(pal));
+    if (!out.palette.length) return out;
+    const strict = options.strict === true;
+
+    spec.pages.forEach((page, pi) => {
+        const where = '第 ' + (pi + 1) + ' 页';
+        (page && page.layers || []).forEach((layer, li) => {
+            if (!layer || layer.type !== 'text') return;
+            const lw = where + ' 图层 ' + (li + 1);
+            try {
+                // 图层文字色 / 色块底色 / 底衬色：大面积颜色必须精确品牌色或中性色
+                ['color', 'bgColor', 'backdrop.color'].forEach(key => {
+                    let val;
+                    if (key === 'backdrop.color') val = layer.backdrop && layer.backdrop.color;
+                    else val = layer[key];
+                    if (!val || String(val).toLowerCase() === 'transparent') return;
+                    const parsed = EffectBrandGuard.parseColor(val);
+                    if (!parsed) return;
+                    if (EffectBrandGuard.acceptable(parsed.hex, out.palette, 0)) return;
+                    const near = EffectBrandGuard.nearest(parsed.hex, out.palette);
+                    if (!near) return;
+                    const msg = lw + '：' + key + ' ' + val + ' 不在品牌色板（最近 ' + near.hex + '）';
+                    // 文字色保留严格模式语义（自测里有反例）；色块/底衬属于大面积装饰，直接规整
+                    if (key === 'color' && strict) {
+                        out.errors.push(msg);
+                        return;
+                    }
+                    if (key === 'backdrop.color') layer.backdrop.color = near.hex;
+                    else layer[key] = near.hex;
+                    out.warnings.push(msg + '；已替换为品牌色');
+                });
+
+                if (layer.effectClass) {
+                    const current = (layer.effectParams && layer.effectParams[layer.effectClass]) || {};
+                    const audit = EffectBrandGuard.auditEffect(layer.effectClass, current, out.palette);
+                    layer.effectParams = layer.effectParams || {};
+                    layer.effectParams[layer.effectClass] = audit.resolved;
+                    if (audit.changes.length) {
+                        out.warnings.push(lw + '：特效 ' + layer.effectClass + ' 的颜色参数已改用品牌色（' +
+                            audit.changes.map(c => c.key + ' ' + (c.from || '默认') + '→' + c.to).join('；') + '）');
+                    }
+                    if (audit.offenders.length) {
+                        const msg = lw + '：特效 ' + layer.effectClass + ' 内含硬编码非品牌色 ' +
+                            audit.offenders.map(o => o.raw + '（最近品牌色 ' + o.nearest + '）').join('、');
+                        if (strict) {
+                            out.errors.push(msg);
+                        } else {
+                            out.warnings.push(msg + '；已禁用该特效');
+                            layer.effectClass = null;
+                            delete layer.effectParams[layer.effectClass];
+                        }
+                    }
+                }
+                if (layer.content) {
+                    const ca = EffectBrandGuard.auditContent(layer.content, out.palette);
+                    if (ca.offenders.length) {
+                        const msg = lw + '：文字内容含非品牌色 ' +
+                            ca.offenders.map(o => o.raw + '（最近品牌色 ' + o.nearest + '）').join('、');
+                        const fixed = EffectBrandGuard.replaceContentColors(layer.content, out.palette);
+                        layer.content = fixed.text;
+                        out.warnings.push(msg + '；已替换为最近品牌色');
+                    }
+                }
+                // 底衬颜色（含 mark 的 markColor）统一按品牌语义解析：
+                // 缺省 / 非品牌 HEX → 精确品牌色（大面积装饰直接规整，不报错）
+                if (window.BackdropBrand && layer.backdrop && layer.backdrop.type && layer.backdrop.type !== 'none') {
+                    const bd = BackdropBrand.resolve(layer, out.palette);
+                    if (bd.changes.length) {
+                        layer.backdrop = bd.backdrop;
+                        out.warnings.push(lw + '：底衬颜色已按品牌色解析（' +
+                            bd.changes.map(c => (c.key === 'color' ? '颜色' : '标记色') + ' ' + (c.from || '缺省') + '→' + c.to).join('；') + '）');
+                    }
+                }
+                // 用户偏好：不要描边 → 把 stroke family 的特效替换成品牌色渐变
+                if (window.EffectPrefs && EffectPrefs.getNoStroke && EffectPrefs.getNoStroke()) {
+                    const ids = (Array.isArray(layer.effectClasses) && layer.effectClasses.length)
+                        ? layer.effectClasses.slice()
+                        : (layer.effectClass ? [layer.effectClass] : []);
+                    if (ids.length) {
+                        const replaced = [];
+                        const nextIds = [];
+                        ids.forEach(id => {
+                            let fam = '';
+                            try {
+                                const p = (window.VisualRegistry && VisualRegistry.getPreset) ? VisualRegistry.getPreset(id) : null;
+                                fam = p && p.family;
+                            } catch (e) { }
+                            if (fam === 'stroke') {
+                                replaced.push(id);
+                                if (nextIds.indexOf('effect-gold') < 0) nextIds.push('effect-gold');
+                            } else if (nextIds.indexOf(id) < 0) {
+                                nextIds.push(id);
+                            }
+                        });
+                        if (replaced.length) {
+                            layer.effectClasses = nextIds;
+                            layer.effectClass = nextIds[0] || null;
+                            layer.effectParams = layer.effectParams || {};
+                            replaced.forEach(id => { delete layer.effectParams[id]; });
+                            try {
+                                const a = EffectBrandGuard.auditEffect('effect-gold', {}, out.palette);
+                                layer.effectParams['effect-gold'] = a.resolved || {};
+                            } catch (e) {
+                                layer.effectParams['effect-gold'] = {};
+                            }
+                            out.warnings.push(lw + '：按「不要描边」偏好，已把 ' + replaced.join('、') + ' 替换为 effect-gold');
+                        }
+                    }
+                }
+            } catch (e) {
+                out.warnings.push(lw + '：品牌色守卫失败 ' + (e && e.message ? e.message : e));
+            }
+        });
+    });
+    return out;
+}
+
 function validateSpec(spec) {
     const errors = [];
     const warnings = [];
@@ -75,6 +240,19 @@ function validateSpec(spec) {
     }
 
     const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+    // 统一品牌色守卫：必须在校验/预览/应用之前执行
+    try {
+        const brandSanitize = sanitizeSpecBrand(spec, {
+            palette: Array.from(brandColors),
+            strict: strictColors
+        });
+        brandSanitize.palette.forEach(c => brandColors.add(c));
+        brandSanitize.warnings.forEach(w => warnings.push(w));
+        brandSanitize.errors.forEach(e => errors.push(e));
+    } catch (e) {
+        warnings.push('品牌色守卫失败：' + (e && e.message ? e.message : e));
+    }
 
     spec.pages.forEach((page, pi) => {
         const where = '第 ' + (pi + 1) + ' 页';
@@ -263,18 +441,16 @@ function validateSpec(spec) {
 
             // 2i. 品牌背景白名单（严格色彩模式下硬拦截；非严格模式只要求有 bg）
             try {
-                if (strictColors) {
-                    const allowedBgIds = Array.from(brandBgPresetIds);
-                    if (page.bg) {
+                if (page.bg) {
+                    if (strictColors && brandBgPresetIds.size) {
+                        const allowedBgIds = Array.from(brandBgPresetIds);
                         if (page.bg.presetId && !brandBgPresetIds.has(page.bg.presetId)) {
                             errors.push(where + '：背景 presetId "' + page.bg.presetId + '" 不在当前品牌色板 [' + allowedBgIds.join(', ') + ']');
                         } else if (!page.bg.presetId && (page.bg.color1 || page.bg.color2)) {
                             errors.push(where + '：背景禁止自定义 color1/color2，必须使用品牌预设');
                         }
-                    } else {
-                        errors.push(where + '：缺少 bg.presetId，必须从品牌预设中选择');
                     }
-                } else if (!page.bg) {
+                } else {
                     errors.push(where + '：缺少 bg.presetId');
                 }
             } catch (e) {
@@ -283,7 +459,7 @@ function validateSpec(spec) {
 
             // 2j. 品牌色白名单（严格色彩模式下硬拦截；非严格模式颜色自由）
             try {
-                if (strictColors) {
+                if (strictColors && brandColors.size) {
                     const allowed = Array.from(brandColors);
                     if (layer.color) {
                         const up = String(layer.color).toUpperCase();
@@ -673,34 +849,19 @@ function buildDeepSeekPrompt(rawText, separators, options) {
         '1. 每个 chunk 必须覆盖到（内容过长时按 layout.pagesNeeded 拆页）',
         '2. 封面页（layout=hero 的块）用大字号 + 强特效',
         '3. 给 3 个封面标题候选（titleCandidates）',
-        '4. 背景优先用契约里的 presetId（匹配内容氛围），除非确实没有合适的才自定义 {type,color1,color2,angle,texture}',
+        '4. 背景必须使用契约里列出的品牌 presetId，不要自定义 color1/color2',
         '5. 视觉风格可从以下预设里选一套最贴近的，保持一致：',
         (window.AI_STYLE_PRESETS || []).map(s => '   - ' + s.name + '（' + s.id + '）：关键词 [' + s.keywords.join(', ') + ']，推荐背景 ' + s.bgPresetId).join('\n'),
         '6. 严格只输出 JSON，不要任何解释',
-        '7. 【硬约束·违反视为失败】bg.presetId 只能是 brand-warm-cream / brand-soft-white / brand-soft-gray / brand-light-sage；layer.color 与 layer.bgColor 只能是 [#F5F1E8, #263B32, #7D9274, #C27C5A, #292B27, #FCFAF5, #E6E0D5, #DDE4D7, #D7B66D, #85847C] 或 transparent；effectClass 只能是 effect-black-stroke / effect-gold / null；禁止任何 hot-* / dark-* / neon-* / know-* 背景，禁止 viral / neon / fire 等非白名单特效',
+        '7. 【硬约束·违反视为失败】' + brandConstraintText(),
         '',
-        '## ⚠️ 输出前必须执行的丰富度清单（逐条核对，缺任何一条整份作废）',
+        '## ⚠️ 视觉纪律（比"多上特效"更重要）',
         '',
-        '你即将输出 3 份方案。在写 JSON 之前，**先在脑子里为每份方案数一遍下面 6 个数字**：',
-        '',
-        '1. 这份方案用了 **几种不同的 effectClass**？（必须 ≥4 种）',
-        '2. 封面主标题用的 effectClass 是哪一款？（**禁止** effect-black-stroke，**禁止** effect-gold）',
-        '3. 用了 **几种不同的 backdrop.type**？（必须 ≥3 种）',
-        '4. 有 **几页** 带贴纸/图形元素？（必须 ≥2 页）',
-        '5. 每页是 **几种不同字号**？（每页必须 ≥3 种）',
-        '6. 每页是 **几处行内装饰 span**？（每页必须 ≥1 处）',
-        '',
-        '**核对结果必须是：①≥4 ②非 black-stroke 非 gold ③≥3 ④≥2 ⑤每页≥3 ⑥每页≥1**',
-        '',
-        '如果你数的结果任何一条不达标，**不要交差**——立刻调整方案重写，直到 6 个数字全部达标。',
-        '',
-        '**特效必须真实的多样化**，示例：',
-        '- 封面主标题：`effect-viral` 或 `effect-neon` 或 `effect-fire` 或 `effect-cyber` 或 `effect-3d`',
-        '- 正文标题：`effect-black-stroke`（可）或 `effect-gold`（可），但**不得所有页都是这两款**',
-        '- 标签：`effect-lightning` / `effect-hk` / `effect-cyber`',
-        '- 关键词行内：`effect-glitch` / `effect-purple-mist` / `effect-candy`',
-        '',
-        '**典型错误（会被判定失败）**：全部页面都用 effect-black-stroke 或 effect-gold。这是最常见的偷懒做法，禁止。',
+        '- 冲击力来自**字号对比、留白、层级**，不是特效数量；同一文字图层最多 1 个主特效。',
+        '- 不要为了"显得丰富"给每页都加装饰：没有明确设计目的就不加。',
+        '- 长文按语义分页，每页只承载一个信息中心；不要为了塞进一页把字号缩到不可读。',
+        '- 背景只能用上面列出的品牌预设；文字色 / 底色只能引用上面列出的品牌色或 transparent。',
+        '- 特效 id 必须真实存在；拿不准就留 null，宁可干净也不要堆砌。',
         '',
         '## ⚠️ 最终强制命令（违反视为失败）',
         '',
@@ -745,8 +906,23 @@ function buildFallbackSpec(rawText, separators, options) {
 
     let autoBgPreset = null;
     if (options.autoBg !== false && typeof pickBackgroundForText === 'function') {
-        try { autoBgPreset = pickBackgroundForText(heroChunk.text || ''); } catch (e) {}
+        try { autoBgPreset = pickBackgroundForText(heroChunk.text || ''); } catch (e) { }
     }
+
+    // ✅ 兜底方案也必须用「当前品牌」的颜色，不能写死某个品牌的色值，
+    //    否则严格模式下连自带的自测都会判自己违规。
+    const brandStyle = (typeof getBrandTextAndBg === 'function')
+        ? getBrandTextAndBg()
+        : { text: '#111111', bgPresetId: null, bgColor1: '#F5F1E8', colors: [], bgIds: [] };
+    const makeBrandBg = () => brandStyle.bgPresetId
+        ? { presetId: brandStyle.bgPresetId }
+        : {
+            presetId: null,
+            type: 'solid',
+            color1: brandStyle.bgColor1 || '#F5F1E8',
+            color2: brandStyle.bgColor1 || '#F5F1E8'
+        };
+    const brandTextColor = brandStyle.text || '#111111';
 
     const pages = [];
     chunks.forEach((c, ci) => {
@@ -757,10 +933,9 @@ function buildFallbackSpec(rawText, separators, options) {
 
         if (!isLong) {
             const fx = 'effect-black-stroke';
-            const col = isHero ? '#263B32' : '#292B27';
             pages.push({
                 title: '第 ' + (pages.length + 1) + ' 页',
-                bg: { presetId: 'brand-warm-cream' },
+                bg: makeBrandBg(),
                 layers: [
                     buildTextLayer({
                         content: c.text,
@@ -768,7 +943,7 @@ function buildFallbackSpec(rawText, separators, options) {
                         align: L.align,
                         bold: true,
                         effectClass: fx,
-                        color: col,
+                        color: brandTextColor,
                         y: isHero ? 140 : 120,
                         height: isHero ? 180 : 140
                     })
@@ -784,7 +959,7 @@ function buildFallbackSpec(rawText, separators, options) {
             if (!buffer.length) return;
             pages.push({
                 title: '第 ' + (pages.length + 1) + ' 页',
-                bg: { presetId: 'brand-soft-white' },
+                bg: makeBrandBg(),
                 layers: [
                     buildTextLayer({
                         content: buffer.join('\n'),
@@ -792,7 +967,7 @@ function buildFallbackSpec(rawText, separators, options) {
                         align: 'left',
                         bold: false,
                         effectClass: null,
-                        color: '#292B27',
+                        color: brandTextColor,
                         y: 100,
                         height: 60 + buffer.length * 34,
                         width: 320
@@ -808,9 +983,9 @@ function buildFallbackSpec(rawText, separators, options) {
         flushPage();
     });
 
-    // ✅ 兜底 spec 本身必须合规：所有页强制走品牌背景，不再用 autoBgPreset
+    // ✅ 兜底 spec 本身必须合规：缺背景的页统一补当前品牌背景
     pages.forEach(p => {
-        if (!p.bg) p.bg = { presetId: 'brand-warm-cream' };
+        if (!p.bg) p.bg = makeBrandBg();
     });
 
     return { format: 'douyin-cover-spec', version: 1, titleCandidates, pages };
@@ -976,6 +1151,17 @@ async function applyCoverSpec(spec, options) {
 
     const newPages = (spec.pages || []).map((p, i) => normalizeSpecPage(p, i));
 
+    // ✅ 页码规则：单页不加；多页每页加 "01 / 07"
+    try {
+        if (window.PageNumbers && typeof window.PageNumbers.ensurePageNumbers === 'function') {
+            const pn = window.PageNumbers.ensurePageNumbers(newPages);
+            if (pn.added > 0) warnings.push('多页方案已自动加页码（01 / ' + String(pn.total).padStart(2, '0') + '）');
+            if (pn.removed > 0 && pn.total <= 1) warnings.push('单页方案已移除多余页码');
+        }
+    } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[AiSpec] 页码处理失败', e);
+    }
+
     if (dryRun) {
         return { ok: true, errors, warnings, pages: newPages, applied: false };
     }
@@ -1044,6 +1230,13 @@ async function applyCoverSpec(spec, options) {
         state.pages = newPages;
         state.currentPageId = newPages[0] ? newPages[0].id : null;
     }
+    // ✅ 页码按最终画布页数统一处理（append 时也要把旧页算进总数）
+    try {
+        if (window.PageNumbers && window.PageNumbers.ensurePageNumbers) {
+            window.PageNumbers.ensurePageNumbers(state.pages);
+        }
+    } catch (e) { }
+
     state.selectedLayerId = null;
     state.selectedLayerIds = [];
     state.editingLayerId = null;
@@ -1359,10 +1552,159 @@ function _measureTextHeight(layer) {
 }
 window._measureTextHeight = _measureTextHeight;
 
+/**
+ * 把 spec 里所有文字图层的 height 同步为「实测渲染高度」。
+ * 为什么必须是唯一实现：validateSpec / enforce* 都用 Math.max(实测, 声明) 判定，
+ * 如果只改了 y 不改 height，会被旧的声明高度顶回去，出现 596/597 反复差 1px。
+ * 历史重复：autoFitToSafeArea 尾部、ai-import-ui.doPreview、ai-import-ui 候选预览各写了一份。
+ * @param {object} spec
+ * @returns {number} 被同步的图层数
+ */
+function syncSpecTextHeights(spec) {
+    let changed = 0;
+    if (!spec || !Array.isArray(spec.pages)) return changed;
+    if (typeof _measureTextHeight !== 'function') return changed;
+    try {
+        spec.pages.forEach(page => {
+            (page.layers || []).forEach(layer => {
+                if (!layer || layer.type !== 'text') return;
+                const measured = _measureTextHeight(layer);
+                if (measured > 0 && measured !== layer.height) {
+                    layer.height = measured;
+                    changed++;
+                }
+            });
+        });
+    } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[AiSpec] syncSpecTextHeights 失败', e);
+    }
+    return changed;
+}
+window.syncSpecTextHeights = syncSpecTextHeights;
+
+/**
+ * 把 spec 的一页渲染成 DOM 节点（背景 + 文字图层 + 特效 + 色块标签）。
+ * 用途：候选对比 / 预览浮层 / 历史缩略图 / A-B 对比，全都复用这一份。
+ * 历史重复：ai-import-ui.js 3 份 + ai-spec.js 2 份，共 5 份几乎相同的实现。
+ *
+ * @param {object} page   spec.pages[i]
+ * @param {object} [options]
+ * @param {number} [options.scale=1]      视觉缩放（内部坐标一律乘 scale）
+ * @param {object} [options.background]   该页没有 bg 时的兜底背景
+ * @param {boolean} [options.fixedHeight] 是否按 layer.height 固定高度（缩略图用）
+ * @param {number} [options.zIndex]       图层容器 z-index
+ * @returns {HTMLElement}
+ */
+function buildSpecPageNode(page, options) {
+    options = options || {};
+    const scale = Number(options.scale) > 0 ? Number(options.scale) : 1;
+    const fallbackBg = ('background' in options)
+        ? options.background
+        : ((window.state && state.background) || null);
+    const px = v => (Number(v) || 0) * scale;
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:absolute;inset:0;overflow:hidden;';
+
+    // ---- 背景 ----
+    const bg = document.createElement('div');
+    bg.style.cssText = 'position:absolute;inset:0;z-index:1;';
+    let bgCss = '';
+    try {
+        const bgSrc = (page && page.bg) ? page.bg : fallbackBg;
+        if (bgSrc && typeof backgroundToCss === 'function') bgCss = backgroundToCss(bgSrc) || '';
+    } catch (e) {
+        bgCss = '';
+    }
+    bg.style.background = bgCss || 'linear-gradient(135deg, #ff2442, #2575fc)';
+    wrap.appendChild(bg);
+
+    // ---- 图层 ----
+    const layersWrap = document.createElement('div');
+    layersWrap.style.cssText = 'position:absolute;inset:0;' +
+        (options.zIndex != null ? ('z-index:' + options.zIndex + ';') : '');
+    (page && page.layers || []).forEach(layer => {
+        if (!layer || layer.type !== 'text') return;
+
+        const el = document.createElement('div');
+        el.style.cssText = 'position:absolute;box-sizing:border-box;padding:2px 6px;';
+        el.style.left = px(layer.x) + 'px';
+        el.style.top = px(layer.y) + 'px';
+        el.style.width = (px(layer.width) || 100 * scale) + 'px';
+        if (options.fixedHeight) el.style.height = (px(layer.height) || 60 * scale) + 'px';
+        if (layer.rotation) el.style.transform = 'rotate(' + layer.rotation + 'deg)';
+        if (layer.opacity !== undefined) el.style.opacity = String(layer.opacity);
+
+        const inner = document.createElement('div');
+        inner.innerHTML = layer.content || '';
+        inner.style.cssText = 'width:100%;white-space:pre-wrap;word-break:break-word;';
+        const fsMatch = String(layer.fontSize || '20px').match(/^([\d.]+)/);
+        const fsPx = fsMatch ? parseFloat(fsMatch[1]) : 20;
+        inner.style.fontSize = (fsPx * scale) + 'px';
+        inner.style.fontFamily = (typeof window._safeFontFamily === 'function')
+            ? window._safeFontFamily(layer.fontFamily || 'sans-serif')
+            : (layer.fontFamily || 'sans-serif');
+        inner.style.fontWeight = layer.bold ? 'bold' : 'normal';
+        inner.style.fontStyle = layer.italic ? 'italic' : 'normal';
+        inner.style.textAlign = layer.align || 'left';
+        inner.style.lineHeight = layer.lineHeight || 1.2;
+        inner.style.color = layer.color || '#ffffff';
+
+        // 色块标签（bgColor）
+        if (layer.bgColor && layer.bgColor !== 'transparent') {
+            inner.style.background = layer.bgColor;
+            inner.style.borderRadius = px(layer.bgRadius) + 'px';
+            inner.style.padding = px(layer.bgPadding) + 'px';
+        }
+        // 特效 CSS
+        if (layer.effectClass && typeof renderEffectCss === 'function') {
+            const cssText = renderEffectCss(layer.effectClass, (layer.effectParams && layer.effectParams[layer.effectClass]) || {});
+            Utils.dom.applyCssText(inner, cssText);
+        }
+
+        el.appendChild(inner);
+        layersWrap.appendChild(el);
+    });
+    wrap.appendChild(layersWrap);
+
+    // ---- 页码（仅预览用；应用时由 PageNumbers.ensurePageNumbers 写入真实图层） ----
+    try {
+        const PN = window.PageNumbers;
+        const pageNo = Number(options.pageNumber);
+        const totalPages = Number(options.totalPages);
+        const hasOwn = !!(PN && (page && page.layers || []).some(l => PN.isPageNumberLayer(l)));
+        if (PN && pageNo > 0 && totalPages > 1 && !hasOwn) {
+            const style = PN.pickStyle([page], {});
+            const num = document.createElement('div');
+            num.className = 'spec-page-number';
+            num.textContent = String(pageNo).padStart(2, '0') + ' / ' + String(totalPages).padStart(2, '0');
+            num.style.cssText = 'position:absolute;box-sizing:border-box;pointer-events:none;z-index:3;' +
+                'text-align:right;white-space:nowrap;';
+            num.style.left = px(28) + 'px';
+            num.style.top = px(562) + 'px';
+            num.style.width = px(304) + 'px';
+            num.style.height = px(16) + 'px';
+            num.style.fontSize = px(12) + 'px';
+            num.style.lineHeight = '1.1';
+            num.style.letterSpacing = px(1) + 'px';
+            num.style.opacity = '0.5';
+            num.style.color = style.color;
+            num.style.fontFamily = (typeof window._safeFontFamily === 'function')
+                ? window._safeFontFamily(style.fontFamily)
+                : style.fontFamily;
+            wrap.appendChild(num);
+        }
+    } catch (e) { }
+
+    return wrap;
+}
+window.buildSpecPageNode = buildSpecPageNode;
+
 function autoFitToSafeArea(spec, options) {
     options = options || {};
     const SAFE_TOP = 30;
-    const SAFE_BOTTOM = 596;
+    // 底部：平台安全区 62 + 一行正文 32 → 内容底 546
+    const SAFE_BOTTOM = (window.DesignConstants && DesignConstants.SAFE && DesignConstants.SAFE.contentBottom) || 546;
     const MIN_FONT = options.minFont || 14;
     if (!spec || !Array.isArray(spec.pages)) return { ok: false, fixed: 0, reason: 'spec 无效' };
 
@@ -1436,33 +1778,57 @@ function autoFitToSafeArea(spec, options) {
         });
     });
 
-    // ✅ 关键修复：修完后把每层 height 同步成实测高度
-    //    否则 validateSpec 用 Math.max(_measureTextHeight(l), declaredH) 会取到旧的 declaredH，
-    //    y 已被压到 596 - declaredH，Math.max 又把高度顶回 declaredH，导致 597 差 1 过不了
-    try {
-        spec.pages.forEach(page => {
-            (page.layers || []).forEach(layer => {
-                if (!layer || layer.type !== 'text') return;
-                const measured = (typeof _measureTextHeight === 'function') ? _measureTextHeight(layer) : 0;
-                if (measured > 0) {
-                    layer.height = measured;
-                }
+    // ✅ 文字层之间保持最小可视间距：重叠自动推开，装不下整体上移/压缩
+    let spacing = null;
+    if (window.LayoutSpacing && typeof window.LayoutSpacing.resolveSpec === 'function') {
+        try {
+            spacing = window.LayoutSpacing.resolveSpec(spec, {
+                gap: options.gap != null ? options.gap : 20,
+                minGap: options.minGap != null ? options.minGap : 6,
+                safeTop: SAFE_TOP,
+                safeBottom: SAFE_BOTTOM,
+                measure: function (layer) { return _estimateTextRenderHeight(layer); }
             });
-        });
-    } catch (e) {
-        if (window.Utils && Utils.log) Utils.log.warn('[AiSpec] autoFit 后同步 height 失败', e);
+            if (spacing.fixed > 0) {
+                fixed += spacing.fixed;
+                Array.prototype.push.apply(details, spacing.details);
+            }
+        } catch (e) {
+            if (window.Utils && Utils.log) Utils.log.warn('[AiSpec] 图层间距修复失败', e);
+        }
     }
 
-    return { ok: true, fixed, skipped, details };
+    // ✅ 修完后把每层 height 同步成实测高度（唯一实现：syncSpecTextHeights）
+    const synced = syncSpecTextHeights(spec);
+    if (synced > 0) console.log('[AiSpec] autoFit 后同步 ' + synced + ' 个图层高度');
+
+    return { ok: true, fixed, skipped, details, spacing };
 }
 window.autoFitToSafeArea = autoFitToSafeArea;
+
+/** 供外部单独调用：修复文字图层重叠 / 保证最小间距 */
+function enforceTextLayerSpacing(spec, options) {
+    if (!window.LayoutSpacing || typeof window.LayoutSpacing.resolveSpec !== 'function') {
+        return { ok: false, fixed: 0, pages: [], details: [], reason: 'LayoutSpacing 未加载' };
+    }
+    const opts = Object.assign({
+        measure: function (layer) { return _estimateTextRenderHeight(layer); },
+        gap: 20,
+        minGap: 6,
+        safeTop: SAFE_TOP_HARD,
+        safeBottom: SAFE_BOTTOM_HARD
+    }, options || {});
+    return window.LayoutSpacing.resolveSpec(spec, opts);
+}
+window.enforceTextLayerSpacing = enforceTextLayerSpacing;
 
 /* ============================================================
    硬约束：物理钳制 / 预算拒绝（不是建议，是强制执行）
    ============================================================ */
-const PAGE_HEIGHT_BUDGET = 566;  // 640 - 30(上) - 44(下)
-const SAFE_BOTTOM_HARD = 596;
 const SAFE_TOP_HARD = 30;
+// 底部：平台安全区 62 + 一行正文 32 → 546；预算 = 546 - 30
+const SAFE_BOTTOM_HARD = (window.DesignConstants && DesignConstants.SAFE && DesignConstants.SAFE.contentBottom) || 546;
+const PAGE_HEIGHT_BUDGET = SAFE_BOTTOM_HARD - SAFE_TOP_HARD;
 
 // 硬约束 A：所有图层 y + 真实渲染高度 必须 ≤ 596。超了物理上移；上移撞顶/撞图层 → 返回失败
 // ✅ 根因修复：_measureTextHeight 内部已优先用离屏 DOM 真实测量，只有 DOM 不可用时才回退字符估算
@@ -2523,54 +2889,12 @@ async function renderSpecThumbnail(spec, maxWidth) {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'position:fixed;left:-99999px;top:0;width:360px;height:640px;background:#000;overflow:hidden;';
 
-    const bg = document.createElement('div');
-    bg.style.cssText = 'position:absolute;inset:0;z-index:1;';
-    if (page.bg && typeof backgroundToCss === 'function') {
-        try { bg.style.background = backgroundToCss(page.bg); } catch (e) {}
-    } else if (window.state && state.background && typeof backgroundToCss === 'function') {
-        try { bg.style.background = backgroundToCss(state.background); } catch (e) {}
-    } else {
-        bg.style.background = 'linear-gradient(135deg, #ff2442, #2575fc)';
-    }
-    wrap.appendChild(bg);
-
-    const layers = document.createElement('div');
-    layers.style.cssText = 'position:absolute;inset:0;z-index:2;';
-    (page.layers || []).forEach(layer => {
-        if (!layer || layer.type !== 'text') return;
-        const el = document.createElement('div');
-        el.style.cssText = 'position:absolute;box-sizing:border-box;padding:2px 6px;';
-        el.style.left = (layer.x || 0) + 'px';
-        el.style.top = (layer.y || 0) + 'px';
-        el.style.width = (layer.width || 100) + 'px';
-        el.style.height = (layer.height || 60) + 'px';
-        const inner = document.createElement('div');
-        inner.innerHTML = layer.content || '';
-        inner.style.cssText = 'width:100%;height:100%;white-space:pre-wrap;word-break:break-word;';
-        inner.style.fontSize = layer.fontSize || '28px';
-        inner.style.fontFamily = (typeof window._safeFontFamily === 'function')
-            ? window._safeFontFamily(layer.fontFamily || 'sans-serif')
-            : (layer.fontFamily || 'sans-serif');
-        inner.style.fontWeight = layer.bold ? 'bold' : 'normal';
-        inner.style.fontStyle = layer.italic ? 'italic' : 'normal';
-        inner.style.textAlign = layer.align || 'center';
-        inner.style.lineHeight = layer.lineHeight || 1.2;
-        inner.style.color = layer.color || '#ffffff';
-        if (layer.effectClass && typeof renderEffectCss === 'function') {
-            const cssText = renderEffectCss(layer.effectClass, (layer.effectParams && layer.effectParams[layer.effectClass]) || {});
-            cssText.split(';').forEach(rule => {
-                const idx = rule.indexOf(':');
-                if (idx === -1) return;
-                const prop = rule.slice(0, idx).trim();
-                const val = rule.slice(idx + 1).trim();
-                if (!prop || !val) return;
-                try { inner.style.setProperty(prop, val); } catch (e) {}
-            });
-        }
-        el.appendChild(inner);
-        layers.appendChild(el);
-    });
-    wrap.appendChild(layers);
+    // ✅ 页面渲染统一走 buildSpecPageNode（背景 / 图层 / 特效 / 色块标签一份实现）
+    wrap.appendChild(buildSpecPageNode(page, {
+        scale: 1,
+        fixedHeight: true,
+        background: (window.state && state.background) || null
+    }));
     document.body.appendChild(wrap);
 
     try {
@@ -3646,12 +3970,17 @@ function estimateCoverReadability(spec) {
     const textColor = primary.color || '#ffffff';
 
     // 背景色估算：优先 page.bg 的 color1/color2，其次 state.background
+    // ✅ 预设查询走唯一入口 getAllBgPresets()（含品牌 brand-* 预设），
+    //    直接读 window.BG_PRESETS 会漏掉品牌背景，导致 AI 方案的可读性恒为 unknown
     let bgColor = null;
     try {
         const bg = (page && page.bg) || (window.state && state.background) || null;
         if (bg) {
             if (bg.presetId) {
-                const p = (window.BG_PRESETS || []).find(x => x.id === bg.presetId);
+                const allPresets = (typeof getAllBgPresets === 'function')
+                    ? getAllBgPresets()
+                    : (window.BG_PRESETS || []);
+                const p = allPresets.find(x => x.id === bg.presetId);
                 if (p) bgColor = p.color1 || p.color2 || null;
             }
             if (!bgColor && bg.color1) bgColor = bg.color1;
@@ -3661,26 +3990,10 @@ function estimateCoverReadability(spec) {
     if (!bgColor) { result.risk = 'unknown'; return result; }
 
     try {
-        const toRgb = (hex) => {
-            let h = String(hex).replace('#', '');
-            if (h.length === 3) h = h.split('').map(c => c + c).join('');
-            if (h.length !== 6) return null;
-            return {
-                r: parseInt(h.slice(0, 2), 16),
-                g: parseInt(h.slice(2, 4), 16),
-                b: parseInt(h.slice(4, 6), 16)
-            };
-        };
-        const lum = (rgb) => {
-            const f = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
-            return 0.2126 * f(rgb.r) + 0.7152 * f(rgb.g) + 0.0722 * f(rgb.b);
-        };
-        const t = toRgb(textColor);
-        const b = toRgb(bgColor);
-        if (t && b) {
-            const lt = lum(t), lb = lum(b);
-            const lighter = Math.max(lt, lb), darker = Math.min(lt, lb);
-            const ratio = (lighter + 0.05) / (darker + 0.05);
+        // ✅ 对比度算法唯一实现在 utils.js → Utils.color（ai-spec 内曾复制 3 份 toRgb/lum）
+        if (!Utils.hex.isValid(textColor) || !Utils.hex.isValid(bgColor)) return result;
+        const ratio = Utils.color.contrastRatio(textColor, bgColor);
+        if (isFinite(ratio) && ratio > 0) {
             result.contrast = Math.round(ratio * 100) / 100;
             result.textColor = textColor;
             result.bgColor = bgColor;
@@ -3714,17 +4027,9 @@ function fixCoverContrast(spec, options) {
     if (cr.risk === 'low') return { ok: true, changed: 0, reason: '对比度已良好' };
 
     // 用 WCAG 选黑或白：亮度更高的背景用黑色文字，更暗的用白色
-    const toRgb = (hex) => {
-        let h = String(hex).replace('#', '');
-        if (h.length === 3) h = h.split('').map(c => c + c).join('');
-        return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
-    };
-    const lum = (rgb) => {
-        const f = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
-        return 0.2126 * f(rgb.r) + 0.7152 * f(rgb.g) + 0.0722 * f(rgb.b);
-    };
-    const bg = toRgb(cr.bgColor);
-    const text = lum(bg) > 0.5 ? '#000000' : '#FFFFFF';
+    // ✅ 亮度算法唯一实现在 utils.js → Utils.color.relativeLuminance
+    const bgLum = Utils.color.relativeLuminance(cr.bgColor);
+    const text = bgLum > 0.5 ? '#000000' : '#FFFFFF';
 
     let changed = 0;
     (page.layers || []).forEach(l => {
@@ -3803,26 +4108,35 @@ function selfTestAiSpecPipeline() {
     });
 
     // ===== 品牌护栏反例：不合规 spec 必须被 validateSpec 拦成 error =====
+    // 注意：品牌色/背景检查只在「严格色彩模式」下生效，而该开关存在用户品牌包里。
+    // 为了让自测结果与用户设置无关，这里临时打开严格模式，跑完还原。
     const guardCases = [
         { name: '反例·非品牌背景（hot-01）', mutate: (s) => { s.pages[0].bg = { presetId: 'hot-01' }; } },
         { name: '反例·非品牌文字色（#ffff00）', mutate: (s) => { s.pages[0].layers[0].color = '#ffff00'; } },
-        { name: '反例·非白名单特效（effect-viral）', mutate: (s) => { s.pages[0].layers[0].effectClass = 'effect-viral'; } }
+        { name: '反例·不存在的特效（effect-not-exist）', mutate: (s) => { s.pages[0].layers[0].effectClass = 'effect-not-exist'; } }
     ];
-    guardCases.forEach(gc => {
-        const row = { name: gc.name, steps: {} };
-        try {
-            const base = buildFallbackSpec('普通人如何逆袭');
-            gc.mutate(base);
-            const v = validateSpec(base);
-            row.steps.valid = v.ok;
-            row.steps.errors = (v.errors || []).length;
-            row.ok = (v.ok === false) && ((v.errors || []).length > 0);
-        } catch (e) {
-            row.ok = false;
-            row.error = e.message;
-        }
-        results.push(row);
-    });
+    const _bm = window.BrandManager;
+    const _prevStrict = (_bm && _bm.data) ? _bm.data.strictColors : undefined;
+    if (_bm && _bm.data) _bm.data.strictColors = true;
+    try {
+        guardCases.forEach(gc => {
+            const row = { name: gc.name, steps: {} };
+            try {
+                const base = buildFallbackSpec('普通人如何逆袭');
+                gc.mutate(base);
+                const v = validateSpec(base);
+                row.steps.valid = v.ok;
+                row.steps.errors = (v.errors || []).length;
+                row.ok = (v.ok === false) && ((v.errors || []).length > 0);
+            } catch (e) {
+                row.ok = false;
+                row.error = e.message;
+            }
+            results.push(row);
+        });
+    } finally {
+        if (_bm && _bm.data && _prevStrict !== undefined) _bm.data.strictColors = _prevStrict;
+    }
 
     const allOk = results.every(r => r.ok);
     return { ok: allOk, results };
@@ -5675,50 +5989,12 @@ async function compareTwoSpecsAb(specA, specB, labelA, labelB) {
         const card = document.createElement('div');
         card.style.cssText = 'position:relative;width:360px;height:640px;background:#000;border-radius:8px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,0.6);';
 
-        const bg = document.createElement('div');
-        bg.className = 'canvas-bg';
-        bg.style.cssText = 'position:absolute;inset:0;z-index:1;';
-        try {
-            const css = (typeof backgroundToCss === 'function') ? backgroundToCss(firstPage.bg || (window.state && state.background) || {}) : '';
-            if (css) bg.style.background = css;
-        } catch (e) {}
-        card.appendChild(bg);
-
-        const layers = document.createElement('div');
-        layers.style.cssText = 'position:absolute;inset:0;z-index:2;';
-        (firstPage.layers || []).forEach(layer => {
-            if (!layer || layer.type !== 'text') return;
-            const el = document.createElement('div');
-            el.style.cssText = 'position:absolute;box-sizing:border-box;padding:2px 6px;';
-            el.style.left = (layer.x || 0) + 'px';
-            el.style.top = (layer.y || 0) + 'px';
-            el.style.width = (layer.width || 100) + 'px';
-            el.style.height = 'auto';
-            const inner = document.createElement('div');
-            inner.innerHTML = layer.content || '';
-            inner.style.cssText = 'width:100%;white-space:pre-wrap;word-break:break-word;';
-            inner.style.fontSize = layer.fontSize || '28px';
-            inner.style.fontFamily = (typeof window._safeFontFamily === 'function') ? window._safeFontFamily(layer.fontFamily || 'sans-serif') : (layer.fontFamily || 'sans-serif');
-            inner.style.fontWeight = layer.bold ? 'bold' : 'normal';
-            inner.style.fontStyle = layer.italic ? 'italic' : 'normal';
-            inner.style.textAlign = layer.align || 'center';
-            inner.style.lineHeight = layer.lineHeight || 1.2;
-            inner.style.color = layer.color || '#ffffff';
-            if (layer.effectClass && typeof renderEffectCss === 'function') {
-                const cssText = renderEffectCss(layer.effectClass, (layer.effectParams && layer.effectParams[layer.effectClass]) || {});
-                cssText.split(';').forEach(rule => {
-                    const idx = rule.indexOf(':');
-                    if (idx === -1) return;
-                    const prop = rule.slice(0, idx).trim();
-                    const val = rule.slice(idx + 1).trim();
-                    if (!prop || !val) return;
-                    try { inner.style.setProperty(prop, val); } catch (e) {}
-                });
-            }
-            el.appendChild(inner);
-            layers.appendChild(el);
-        });
-        card.appendChild(layers);
+        // ✅ 页面渲染统一走 buildSpecPageNode（背景 / 图层 / 特效 / 色块标签一份实现）
+        card.appendChild(buildSpecPageNode(firstPage, {
+            scale: 1,
+            zIndex: 2,
+            background: (window.state && state.background) || null
+        }));
         col.appendChild(card);
 
         const btn = document.createElement('button');
@@ -5749,9 +6025,65 @@ window.compareTwoSpecsAb = compareTwoSpecsAb;
 /* ============================================================
    87. 依赖自检：缺失关键依赖时给出可读提示
    ============================================================ */
+/* ============================================================
+   86b. 品牌约束文本（单一真源）
+   ------------------------------------------------------------
+   提示词里的品牌色 / 背景 / 特效清单必须从 BrandManager 实时派生，
+   不能再写死某个品牌的色值：换品牌时提示词要跟着变，否则 AI 永远
+   在按旧品牌输出，然后被校验器判违规。
+   ============================================================ */
+function getBrandTextAndBg() {
+    const out = { text: '#111111', bgPresetId: null, bgColor1: null, colors: [], bgIds: [] };
+    try {
+        const bm = window.BrandManager;
+        if (!bm) return out;
+        out.colors = (bm.getActiveColors && bm.getActiveColors()) || [];
+        out.bgIds = (bm.getActiveBgPresetIds && bm.getActiveBgPresetIds()) || [];
+        const bgs = (bm.getActiveBgPresets && bm.getActiveBgPresets()) || [];
+        out.bgPresetId = out.bgIds[0] || null;
+        out.bgColor1 = (bgs[0] && bgs[0].color1) || null;
+        if (out.colors.length) {
+            // 选与背景对比度最高的品牌色做正文色（浅底深字 / 深底浅字都成立）
+            let best = out.colors[0], bestRatio = -1;
+            out.colors.forEach(c => {
+                let r = 1;
+                try {
+                    if (out.bgColor1 && window.Utils && Utils.color) {
+                        r = Utils.color.contrastRatio(c, out.bgColor1);
+                    }
+                } catch (e) {}
+                if (r > bestRatio) { bestRatio = r; best = c; }
+            });
+            out.text = best;
+        }
+    } catch (e) {
+        if (window.Utils && Utils.log) Utils.log.warn('[AiSpec] 读取品牌约束失败', e);
+    }
+    return out;
+}
+window.getBrandTextAndBg = getBrandTextAndBg;
+
+/** 生成"硬约束"那一段提示词文本（动态，不写死品牌值） */
+function brandConstraintText() {
+    const b = getBrandTextAndBg();
+    const parts = [];
+    if (b.bgIds.length) {
+        parts.push('bg.presetId 只能是 ' + b.bgIds.join(' / '));
+    } else {
+        parts.push('bg 必须给出可渲染的 presetId 或 color1');
+    }
+    if (b.colors.length) {
+        parts.push('layer.color 与 layer.bgColor 只能是 [' + b.colors.join(', ') + '] 或 transparent');
+    }
+    parts.push('effectClass 必须是当前特效库里真实存在的 id（拿不准就留 null，不要发明）');
+    return parts.join('；');
+}
+window.brandConstraintText = brandConstraintText;
+
 function checkAiSpecDependencies() {
     const missing = [];
-    const checks = [
+    // 必需依赖：缺了会直接影响 AI 方案应用
+    const required = [
         ['state', !!window.state],
         ['normalizeBackground', typeof normalizeBackground === 'function'],
         ['applyBackgroundToCanvases', typeof applyBackgroundToCanvases === 'function'],
@@ -5760,11 +6092,17 @@ function checkAiSpecDependencies() {
         ['renderEffectCss', typeof renderEffectCss === 'function'],
         ['BG_PRESETS', Array.isArray(window.BG_PRESETS)],
         ['BACKDROP_PRESETS', typeof BACKDROP_PRESETS !== 'undefined'],
-        ['_normalizeTemplateLayer', typeof _normalizeTemplateLayer === 'function'],
         ['backgroundToCss', typeof backgroundToCss === 'function']
     ];
-    checks.forEach(([name, ok]) => { if (!ok) missing.push(name); });
-    return { ok: missing.length === 0, missing };
+    // 可选依赖：缺了走 ai-spec.js 内置兜底，不算故障
+    //   _normalizeTemplateLayer：cover-templates.js 已移除，normalizeSpecLayer 内部有等价实现
+    const optional = [
+        ['_normalizeTemplateLayer', typeof _normalizeTemplateLayer === 'function']
+    ];
+    const optionalMissing = [];
+    required.forEach(([name, ok]) => { if (!ok) missing.push(name); });
+    optional.forEach(([name, ok]) => { if (!ok) optionalMissing.push(name); });
+    return { ok: missing.length === 0, missing, optionalMissing };
 }
 window.checkAiSpecDependencies = checkAiSpecDependencies;
 
@@ -7975,30 +8313,15 @@ function smartFixContrast(spec, options) {
         }
     } catch (e) {}
 
-    // 计算每个候选色与背景的对比度，取最高
+    // 计算每个候选色与背景的对比度，取最高（算法唯一实现：Utils.color）
     const bgHex = cr.bgColor || '#000000';
-    const bgRgb = (function (h) {
-        let x = String(h).replace('#', '');
-        if (x.length === 3) x = x.split('').map(c => c + c).join('');
-        if (x.length !== 6) return null;
-        return { r: parseInt(x.slice(0, 2), 16), g: parseInt(x.slice(2, 4), 16), b: parseInt(x.slice(4, 6), 16) };
-    })(bgHex);
-    if (!bgRgb) return { ok: false, reason: '背景色无法解析' };
+    if (!Utils.hex.isValid(bgHex)) return { ok: false, reason: '背景色无法解析' };
 
-    const lum = (rgb) => {
-        const f = (c) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
-        return 0.2126 * f(rgb.r) + 0.7152 * f(rgb.g) + 0.0722 * f(rgb.b);
-    };
-    const lb = lum(bgRgb);
     let bestColor = '#FFFFFF';
     let bestRatio = 0;
     candidates.forEach(c => {
-        let hex = c.replace('#', '');
-        if (hex.length !== 6) return;
-        const rgb = { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
-        const lc = lum(rgb);
-        const lighter = Math.max(lc, lb), darker = Math.min(lc, lb);
-        const ratio = (lighter + 0.05) / (darker + 0.05);
+        if (!Utils.hex.isValid(c)) return;
+        const ratio = Utils.color.contrastRatio(c, bgHex);
         if (ratio > bestRatio) { bestRatio = ratio; bestColor = c; }
     });
 

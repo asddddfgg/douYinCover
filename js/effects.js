@@ -180,6 +180,44 @@ window.getEffectParamsDef = getEffectParamsDef;
 window.isParametricEffect = isParametricEffect;
 
 /* ============================================================
+   「背景框类特效」判定 —— 全站唯一实现
+   ------------------------------------------------------------
+   判定语义：特效 CSS 里出现 background（非渐变文字）、padding、
+   border-radius 任意一条，就视为「给文字套背景框」，必须单独拆属性
+   应用，否则 background 会撑满整个图层。
+   历史重复：app.js 内联了 2 份、effect-params-panel.js 1 份、
+   exporter.js 1 份（_isBgBoxEffectClass）。统一收口到这里。
+   ============================================================ */
+const _effectBgBoxCache = new Map();
+
+function isEffectBgBox(effectId, userParams) {
+    if (!effectId) return false;
+    let css = '';
+    try {
+        css = (typeof renderEffectCss === 'function') ? renderEffectCss(effectId, userParams || {}) : '';
+    } catch (e) {
+        css = '';
+    }
+    if (!css) return false;
+
+    // 参数会改变 padding / background 的取值，因此缓存按「渲染后的 CSS」比对
+    const cached = _effectBgBoxCache.get(effectId);
+    if (cached && cached.css === css) return cached.result;
+
+    const lower = css.toLowerCase();
+    const hasBg = /(^|;|\s)background(-color)?\s*:/.test(lower)
+        && !lower.includes('background-clip')
+        && !lower.includes('-webkit-text-fill-color');
+    const hasPadding = /(^|;|\s)padding\s*:/.test(lower);
+    const hasRadius = lower.includes('border-radius');
+    const result = hasBg || hasPadding || hasRadius;
+
+    _effectBgBoxCache.set(effectId, { css, result });
+    return result;
+}
+window.isEffectBgBox = isEffectBgBox;
+
+/* ============================================================
    特效语义层 v1：让 AI 理解「是什么、适合什么」
    两大来源：
      1) EFFECT_SEMANTIC_OVERRIDES —— 内置 14 个精准手写
@@ -384,7 +422,7 @@ const DEFAULT_ART_EFFECTS = [
             color2: { type: 'color', label: '颜色2', default: '#feb47b' },
             angle:  { type: 'range', label: '角度', min: 0, max: 360, default: 135, step: 5 }
         },
-        template: 'background: linear-gradient({angle}deg, {color1}, {color2}); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+        template: 'background-image: linear-gradient({angle}deg, {color1}, {color2}); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
     },
     {
         id: 'effect-neon', name: '霓虹发光',
@@ -431,7 +469,7 @@ const DEFAULT_ART_EFFECTS = [
             color1: { type: 'color', label: '亮金', default: '#d4af37' },
             color2: { type: 'color', label: '暗金', default: '#aa771c' }
         },
-        template: 'background: linear-gradient(to bottom, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8));'
+        template: 'background-image: linear-gradient(to bottom, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.8));'
     },
     {
         id: 'effect-fire', name: '烈火熔岩',
@@ -440,7 +478,7 @@ const DEFAULT_ART_EFFECTS = [
             c2: { type: 'color', label: '橙', default: '#ff8c00' },
             c3: { type: 'color', label: '黄', default: '#ffff00' }
         },
-        template: 'background: linear-gradient(to bottom, {c1} 0%, {c2} 50%, {c3} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 10px rgba(255,69,0,0.6);'
+        template: 'background-image: linear-gradient(to bottom, {c1} 0%, {c2} 50%, {c3} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 10px rgba(255,69,0,0.6);'
     },
     {
         id: 'effect-ice', name: '寒冰霜冻',
@@ -473,7 +511,7 @@ const DEFAULT_ART_EFFECTS = [
             color1: { type: 'color', label: '橙色', default: '#ff512f' },
             color2: { type: 'color', label: '玫红', default: '#dd2476' }
         },
-        template: 'background: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+        template: 'background-image: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
     },
     {
         id: 'effect-deep-sea', name: '深海湛蓝',
@@ -481,7 +519,7 @@ const DEFAULT_ART_EFFECTS = [
             color1: { type: 'color', label: '深蓝', default: '#2b5876' },
             color2: { type: 'color', label: '紫蓝', default: '#4e4376' }
         },
-        template: 'background: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+        template: 'background-image: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
     },
     {
         id: 'effect-jade', name: '翡翠绿光',
@@ -489,7 +527,7 @@ const DEFAULT_ART_EFFECTS = [
             color1: { type: 'color', label: '翠绿', default: '#11998e' },
             color2: { type: 'color', label: '荧光绿', default: '#38ef7d' }
         },
-        template: 'background: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+        template: 'background-image: linear-gradient(135deg, {color1} 0%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
     },
     {
         id: 'effect-candy', name: '梦幻糖果',
@@ -497,7 +535,7 @@ const DEFAULT_ART_EFFECTS = [
             color1: { type: 'color', label: '粉', default: '#ff9a9e' },
             color2: { type: 'color', label: '奶白', default: '#fecfef' }
         },
-        template: 'background: linear-gradient(135deg, {color1} 0%, {color2} 50%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
+        template: 'background-image: linear-gradient(135deg, {color1} 0%, {color2} 50%, {color2} 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'
     },
     {
         id: 'effect-metal', name: '重金属风',

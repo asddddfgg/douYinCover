@@ -282,17 +282,13 @@ console.log('[EffectParamsPanel] P3 骨架就位，等待 IIFE 迁移');
                 : (layer.effectClass ? [layer.effectClass] : []);
             const effectParams = layer.effectParams || {};
 
-            // 3. 判断是否有背景框类（背景框类需要拆 props，普通特效直接 setProperty）
+            // 3. 判断是否有背景框类（判定逻辑已收口到 effects.js → isEffectBgBox）
             let bgBoxId = null;
             for (const eid of effectList) {
-                const cssText = window.renderEffectCss ? window.renderEffectCss(eid, effectParams[eid] || {}) : '';
-                const c = cssText.toLowerCase();
-                const hasBg = /(^|;|\s)background(-color)?\s*:/.test(c)
-                           && !c.includes('background-clip')
-                           && !c.includes('-webkit-text-fill-color');
-                const hasPadding = /(^|;|\s)padding\s*:/.test(c);
-                const hasRadius = c.includes('border-radius');
-                if (hasBg || hasPadding || hasRadius) { bgBoxId = eid; break; }
+                if (typeof isEffectBgBox === 'function' && isEffectBgBox(eid, effectParams[eid])) {
+                    bgBoxId = eid;
+                    break;
+                }
             }
 
             // 4. 清掉旧特效样式（避免叠加时前一次的值残留）
@@ -316,36 +312,16 @@ console.log('[EffectParamsPanel] P3 骨架就位，等待 IIFE 迁移');
             if (bgBoxId) {
                 // 背景框类：只套 bgBoxId 这一个（避免多个 background 冲突）
                 const cssText = window.renderEffectCss ? window.renderEffectCss(bgBoxId, effectParams[bgBoxId] || {}) : '';
-                cssText.split(';').forEach(rule => {
-                    const idx = rule.indexOf(':');
-                    if (idx === -1) return;
-                    const prop = rule.slice(0, idx).trim().toLowerCase();
-                    const val = rule.slice(idx + 1).trim();
-                    if (!prop || !val) return;
-                    if (prop === 'background' || prop === 'background-color'
-                        || prop === 'padding' || prop === 'border-radius'
-                        || prop === 'border' || prop === 'color'
-                        || prop === 'font-weight' || prop === 'font-style') {
-                        try { textInner.style.setProperty(prop, val); } catch (e) {
-                            if (window.Utils && Utils.log) Utils.log.warn('[EffectParams] 应用背景框属性失败', prop, val, e);
-                        }
-                    }
-                });
+                Utils.dom.applyCssText(textInner, cssText, [
+                    'background', 'background-color', 'padding', 'border-radius',
+                    'border', 'color', 'font-weight', 'font-style'
+                ]);
             } else {
                 // 普通特效叠加
                 effectList.forEach(eid => {
                     const cssText = window.renderEffectCss ? window.renderEffectCss(eid, effectParams[eid] || {}) : '';
                     if (!cssText) return;
-                    cssText.split(';').forEach(rule => {
-                        const idx = rule.indexOf(':');
-                        if (idx === -1) return;
-                        const prop = rule.slice(0, idx).trim();
-                        const val = rule.slice(idx + 1).trim();
-                        if (!prop || !val) return;
-                        try { textInner.style.setProperty(prop, val); } catch (e) {
-                            if (window.Utils && Utils.log) Utils.log.warn('[EffectParams] 应用普通特效属性失败', prop, val, e);
-                        }
-                    });
+                    Utils.dom.applyCssText(textInner, cssText);
                 });
             }
 

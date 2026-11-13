@@ -27,6 +27,18 @@ window.Utils = (function () {
             return hex.normalize(raw) !== null;
         },
 
+        // '#rrggbb' / 'rgb(...)' → { r, g, b }，非法返回 null
+        // 全站唯一实现：ai-spec.js / auto-contrast.js / background-core.js 曾各自复制一份
+        toRgb(raw) {
+            const h = hex.normalize(raw);
+            if (!h) return null;
+            return {
+                r: parseInt(h.slice(1, 3), 16),
+                g: parseInt(h.slice(3, 5), 16),
+                b: parseInt(h.slice(5, 7), 16)
+            };
+        },
+
         // '#rrggbb' + alpha(0~1) → 'rgba(r,g,b,a)'
         toRgba(raw, alpha) {
             const h = hex.normalize(raw);
@@ -147,6 +159,38 @@ window.Utils = (function () {
             }
             if (!/^#[0-9a-fA-F]{6}$/.test(v)) v = fallback || '#000000';
             try { el.value = v; } catch (e) {}
+        },
+
+        /**
+         * 把 "a: 1; b: 2" 形态的 CSS 文本逐条写入元素内联样式。
+         * 全站唯一实现：app.js / effect-params-panel.js / ai-import-ui.js /
+         * ai-spec.js 原来各自 split(';') 复制了 6 份。
+         * @param {HTMLElement} el
+         * @param {string} cssText
+         * @param {string[]} [allowedProps] 允许写入的属性白名单（不传=全部）
+         * @returns {number} 成功写入的条数
+         */
+        applyCssText(el, cssText, allowedProps) {
+            if (!el || !cssText) return 0;
+            const allow = Array.isArray(allowedProps)
+                ? allowedProps.map(p => String(p).toLowerCase())
+                : null;
+            let applied = 0;
+            String(cssText).split(';').forEach(rule => {
+                const idx = rule.indexOf(':');
+                if (idx === -1) return;
+                const prop = rule.slice(0, idx).trim();
+                const val = rule.slice(idx + 1).trim();
+                if (!prop || !val) return;
+                if (allow && allow.indexOf(prop.toLowerCase()) === -1) return;
+                try {
+                    el.style.setProperty(prop, val);
+                    applied++;
+                } catch (e) {
+                    if (window.Utils && Utils.log) Utils.log.warn('[Utils] applyCssText 写入失败', prop, val, e);
+                }
+            });
+            return applied;
         }
     };
 
@@ -200,6 +244,12 @@ window.Utils = (function () {
             log._push('warn', Array.from(arguments));
             console.warn.apply(console, arguments);
         },
+        // ✅ 补齐 log()：此前 ai-spec.js 调用了不存在的 Utils.log.log，
+        //    异常被外层 try/catch 吞掉，日志与真实错误混在一起
+        log() {
+            log._push('log', Array.from(arguments));
+            console.log.apply(console, arguments);
+        },
         error() {
             log._push('error', Array.from(arguments));
             console.error.apply(console, arguments);
@@ -208,6 +258,31 @@ window.Utils = (function () {
 
     return { hex, color, clipboard, svg, string, dom, async, log };
 })();
+
+/* ============================================================
+   跨模块兼容别名（全站唯一实现）
+   ------------------------------------------------------------
+   历史代码里散落着 4 份 hexToRgba、2 份 hashString、2 份 escapeHtml、
+   3 份 safeSetColorInput。这里统一挂成全局别名，
+   旧调用点（features.js / background-image.js / background-core.js /
+   ai-spec.js）无需改一行即可复用同一份实现。
+   ============================================================ */
+window.hexToRgba = function hexToRgba(hexColor, alpha) {
+    if (!hexColor) return 'transparent';
+    return Utils.hex.toRgba(hexColor, alpha === undefined ? 1 : alpha);
+};
+window.hashString = function hashString(str) {
+    return Utils.string.hash(str === undefined || str === null ? '' : String(str));
+};
+window.escapeHtml = function escapeHtml(str) {
+    return Utils.string.escapeHtml(str);
+};
+window.safeSetColorInput = function safeSetColorInput(id, value, fallback) {
+    return Utils.dom.safeSetColorInput(id, value, fallback);
+};
+window.applyCssTextToElement = function applyCssTextToElement(el, cssText, allowedProps) {
+    return Utils.dom.applyCssText(el, cssText, allowedProps);
+};
 
 console.log('[Utils] ✅ 公共工具层已就位');
 
@@ -359,6 +434,36 @@ window.AppSelfTest = window.AppSelfTest || {
     return window.__APP_SELF_TEST__;
   }
 };
+
+/* ---------- 公共层自检（本次去重后新增的唯一实现全部挂到这里） ---------- */
+try {
+  window.AppSelfTest.register('shared-helpers', function () {
+    var rows = [];
+    function check(name, pass, detail) {
+      rows.push({ name: name, pass: !!pass, detail: detail || '' });
+    }
+    check('Utils.hex.toRgba', Utils.hex.toRgba('#abc', 0.5) === 'rgba(170, 187, 204, 0.5)');
+    check('Utils.hex.toRgb', (function () {
+      var c = Utils.hex.toRgb('#0000ff');
+      return !!c && c.r === 0 && c.g === 0 && c.b === 255;
+    })());
+    check('window.hexToRgba 别名', window.hexToRgba('#ff0000', 1) === 'rgba(255, 0, 0, 1)');
+    check('window.hashString 别名', window.hashString('abc') === Utils.string.hash('abc'));
+    check('window.escapeHtml 别名', window.escapeHtml('<a>') === '&lt;a&gt;');
+    check('Utils.dom.applyCssText', (function () {
+      var el = document.createElement('div');
+      var n = Utils.dom.applyCssText(el, 'color: red; padding: 4px', ['color']);
+      return n === 1 && el.style.color === 'red';
+    })());
+    check('Utils.log.log 存在', typeof Utils.log.log === 'function');
+    check('isEffectBgBox 存在', typeof window.isEffectBgBox === 'function');
+    check('buildSpecPageNode 存在', typeof window.buildSpecPageNode === 'function');
+    check('syncSpecTextHeights 存在', typeof window.syncSpecTextHeights === 'function');
+    return rows;
+  });
+} catch (e) {
+  console.warn('[Utils] 注册 shared-helpers 自检失败', e);
+}
 
 document.addEventListener('DOMContentLoaded', function () {
   if (!window.AppSelfTest || typeof AppSelfTest.run !== 'function') return;

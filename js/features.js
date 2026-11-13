@@ -116,7 +116,11 @@ const Features = (function () {
         }
         // 其它 6 种走 backdrop 盒子
         if (!layer.backdrop) {
-            layer.backdrop = { type: 'none', color: '#fff8dc', opacity: 1, padding: 12, rotate: 0 };
+            let seedColor = null;
+            try {
+                if (window.BackdropBrand && BackdropBrand.defaultColor) seedColor = BackdropBrand.defaultColor('mark', layer);
+            } catch (e) { }
+            layer.backdrop = { type: 'none', color: seedColor || 'transparent', opacity: 1, padding: 12, rotate: 0 };
         }
         const bd = layer.backdrop;
         bd.type = 'mark';
@@ -211,29 +215,235 @@ const Features = (function () {
     // ============================================================
     // 6. 安全区参考线
     // ============================================================
+    // 安全区默认边距（抖音标准：左右 10%，顶部 12%，底部 16%）
+    const SAFE_AREA_DEFAULT_MARGINS = Object.freeze({ top: 12, right: 10, bottom: 16, left: 10 });
+    const SAFE_AREA_STORAGE_KEY = 'douyin_safe_area_margins_v1';
+    const SAFE_AREA_EDGES = ['top', 'bottom', 'left', 'right'];
+    const SAFE_AREA_MIN = 0;
+    const SAFE_AREA_MAX = 40;
+    const SAFE_AREA_HANDLE_SIZE = 12;
+
     let safeAreaVisible = false;
-    function toggleSafeArea() {
-        safeAreaVisible = !safeAreaVisible;
+
+    function _sanitizeSafeAreaMargins(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const out = {};
+        for (const edge of SAFE_AREA_EDGES) {
+            const n = Number(raw[edge]);
+            if (!Number.isFinite(n)) return null;
+            out[edge] = Math.max(SAFE_AREA_MIN, Math.min(SAFE_AREA_MAX, n));
+        }
+        return out;
+    }
+
+    // 读取优先级：state（运行时）→ localStorage（刷新后）→ 默认值
+    function _readSafeAreaMargins() {
+        try {
+            const fromState = _sanitizeSafeAreaMargins(state && state.safeAreaMargins);
+            if (fromState) return fromState;
+        } catch (e) { }
+        try {
+            const fromStorage = _sanitizeSafeAreaMargins(
+                JSON.parse(localStorage.getItem(SAFE_AREA_STORAGE_KEY) || 'null')
+            );
+            if (fromStorage) return fromStorage;
+        } catch (e) { }
+        return { ...SAFE_AREA_DEFAULT_MARGINS };
+    }
+
+    let safeAreaMargins = _readSafeAreaMargins();
+
+    function _persistSafeAreaMargins() {
+        const snapshot = { ...safeAreaMargins };
+        try { state.safeAreaMargins = { ...snapshot }; } catch (e) { }
+        try { localStorage.setItem(SAFE_AREA_STORAGE_KEY, JSON.stringify(snapshot)); } catch (e) { }
+        // state.saveState 由 projects.js 挂钩到自动保存；存在时才调用
+        try {
+            if (state && typeof state.saveState === 'function') state.saveState();
+        } catch (e) { }
+    }
+
+    function _resetSafeAreaMargins() {
+        if (!window.confirm('是否将安全区恢复为默认的抖音标准？')) return;
+        safeAreaMargins = { ...SAFE_AREA_DEFAULT_MARGINS };
+        _persistSafeAreaMargins();
+        renderSafeAreaDOM();
+    }
+
+    // 手柄按下时，阻止画布框选 / 参考线 / 图层拖拽的 mousedown 逻辑。
+    // 手柄自身拖拽走 Pointer Events，不依赖 mousedown，因此不会被这里拦住。
+    // 在 features.js 加载阶段注册，早于各模块 init()，可在 capture 阶段先拦截。
+    document.addEventListener('mousedown', (e) => {
+        if (e.target && e.target.closest && e.target.closest('.safe-area-handle')) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    }, true);
+
+    function renderSafeAreaDOM() {
+        // 每次重渲染先清掉旧层，避免多页/多次 renderCanvas 后重复挂载
         document.querySelectorAll('.safe-area-layer').forEach(el => el.remove());
         if (!safeAreaVisible) return;
+
         document.querySelectorAll('.canvas-page-wrapper').forEach(wrapper => {
             const canvas = wrapper.querySelector('.cover-canvas');
             if (!canvas) return;
+
             const layer = document.createElement('div');
             layer.className = 'safe-area-layer';
-            layer.style.cssText = 'position:absolute;left:10%;top:12%;right:10%;bottom:16%;border:2px dashed rgba(0,229,255,0.7);border-radius:4px;pointer-events:none;z-index:60;';
+            layer.style.cssText = [
+                'position:absolute',
+                'box-sizing:border-box',
+                `top:${safeAreaMargins.top}%`,
+                `right:${safeAreaMargins.right}%`,
+                `bottom:${safeAreaMargins.bottom}%`,
+                `left:${safeAreaMargins.left}%`,
+                'border:1px dashed rgba(0,229,255,0.8)',
+                'border-radius:4px',
+                'background:rgba(0,229,255,0.03)',
+                'pointer-events:none',   // 关键：中间透明区域全部穿透到画布图层
+                'z-index:60'
+            ].join(';') + ';';
+
+            SAFE_AREA_EDGES.forEach(edge => {
+                const handle = document.createElement('div');
+                handle.className = `safe-area-handle handle-${edge}`;
+                handle.dataset.edge = edge;
+                handle.title = '拖拽调整安全区，右键恢复默认';
+                handle.style.cssText = [
+                    'position:absolute',
+                    'background:transparent',
+                    'pointer-events:auto',   // 只有 12px 热区吃事件
+                    'touch-action:none',
+                    'user-select:none',
+                    '-webkit-user-select:none',
+                    `cursor:${(edge === 'top' || edge === 'bottom') ? 'ns-resize' : 'ew-resize'}`
+                ].join(';') + ';';
+                const half = SAFE_AREA_HANDLE_SIZE / 2;
+                if (edge === 'top') handle.style.cssText += `top:-${half}px;left:0;right:0;height:${SAFE_AREA_HANDLE_SIZE}px;`;
+                else if (edge === 'bottom') handle.style.cssText += `bottom:-${half}px;left:0;right:0;height:${SAFE_AREA_HANDLE_SIZE}px;`;
+                else if (edge === 'left') handle.style.cssText += `left:-${half}px;top:0;bottom:0;width:${SAFE_AREA_HANDLE_SIZE}px;`;
+                else handle.style.cssText += `right:-${half}px;top:0;bottom:0;width:${SAFE_AREA_HANDLE_SIZE}px;`;
+
+                handle.addEventListener('pointerdown', (e) => {
+                    if (e.pointerType === 'mouse' && e.button !== 0) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const pointerId = e.pointerId;
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const startVal = Number(safeAreaMargins[edge]) || 0;
+                    // 用布局尺寸，不受外层视觉缩放影响
+                    const width = Math.max(1, canvas.offsetWidth || 1);
+                    const height = Math.max(1, canvas.offsetHeight || 1);
+                    let active = true;
+                    let changed = false;
+
+                    const onMove = (ev) => {
+                        if (!active || ev.pointerId !== pointerId) return;
+                        ev.preventDefault();
+                        ev.stopPropagation();
+
+                        let delta = 0;
+                        if (edge === 'top') delta = ((ev.clientY - startY) / height) * 100;
+                        else if (edge === 'bottom') delta = ((startY - ev.clientY) / height) * 100;
+                        else if (edge === 'left') delta = ((ev.clientX - startX) / width) * 100;
+                        else if (edge === 'right') delta = ((startX - ev.clientX) / width) * 100;
+
+                        const next = Math.round(
+                            Math.max(SAFE_AREA_MIN, Math.min(SAFE_AREA_MAX, startVal + delta)) * 10
+                        ) / 10;
+                        if (next === safeAreaMargins[edge]) return;
+                        safeAreaMargins[edge] = next;
+                        changed = true;
+                        // 多页同步：所有页面的安全区一起变化
+                        document.querySelectorAll('.safe-area-layer').forEach(el => {
+                            el.style[edge] = next + '%';
+                        });
+                    };
+
+                    const finish = () => {
+                        if (!active) return;
+                        active = false;
+                        handle.removeEventListener('pointermove', onMove);
+                        handle.removeEventListener('pointerup', finish);
+                        handle.removeEventListener('pointercancel', finish);
+                        handle.removeEventListener('lostpointercapture', finish);
+                        // 清理拖拽期间才存在的 document 兜底监听
+                        document.removeEventListener('pointerup', onGlobalEnd, true);
+                        document.removeEventListener('pointercancel', onGlobalEnd, true);
+                        document.removeEventListener('lostpointercapture', onGlobalEnd, true);
+                        try {
+                            if (handle.hasPointerCapture && handle.hasPointerCapture(pointerId)) {
+                                handle.releasePointerCapture(pointerId);
+                            }
+                        } catch (err) { }
+                        if (changed) _persistSafeAreaMargins();
+                    };
+
+                    // 捕获可能因拖出窗口被浏览器提前释放；document 层兜底保证一定收尾
+                    function onGlobalEnd(ev) {
+                        if (ev.pointerId === pointerId) finish();
+                    }
+                    document.addEventListener('pointerup', onGlobalEnd, true);
+                    document.addEventListener('pointercancel', onGlobalEnd, true);
+                    document.addEventListener('lostpointercapture', onGlobalEnd, true);
+
+                    // 监听挂在 handle 自身；靠 setPointerCapture 保证拖出窗口也能收到 up
+                    handle.addEventListener('pointermove', onMove);
+                    handle.addEventListener('pointerup', finish);
+                    handle.addEventListener('pointercancel', finish);
+                    handle.addEventListener('lostpointercapture', finish);
+                    try { handle.setPointerCapture(pointerId); } catch (err) { }
+                });
+
+                // 手柄上的点击/双击不向画布冒泡，避免取消选中或误进文字编辑
+                ['click', 'dblclick'].forEach(type => {
+                    handle.addEventListener(type, (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    });
+                });
+
+                handle.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    _resetSafeAreaMargins();
+                });
+
+                layer.appendChild(handle);
+            });
+
+            layer.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                _resetSafeAreaMargins();
+            });
+
             const label = document.createElement('div');
-            label.style.cssText = 'position:absolute;top:-18px;left:0;font-size:10px;color:#00e5ff;background:rgba(0,0,0,0.6);padding:1px 6px;border-radius:3px;';
-            label.textContent = '抖音安全区';
+            label.style.cssText = 'position:absolute; top:-24px; left:0; font-size:10px; color:#00e5ff; background:rgba(0,0,0,0.6); padding:2px 6px; border-radius:4px; pointer-events:none; white-space:nowrap;';
+            label.textContent = '安全区（右键可恢复默认）';
             layer.appendChild(label);
+
             canvas.appendChild(layer);
         });
+    }
+
+    function toggleSafeArea() {
+        safeAreaVisible = !safeAreaVisible;
+        renderSafeAreaDOM();
     }
 
     // ============================================================
     // 初始化
     // ============================================================
     function init() {
+        // 安全区边距：优先 state / localStorage，刷新后仍能保留
+        safeAreaMargins = _readSafeAreaMargins();
+        try { state.safeAreaMargins = { ...safeAreaMargins }; } catch (e) { }
+        if (safeAreaVisible) renderSafeAreaDOM();
+
                                // ===== 标记按钮：点一下弹出设置面板，选种类后应用 =====
         const markPopover = document.getElementById('mark-popover');
         const tbMark = document.getElementById('tb-mark');
@@ -357,7 +567,7 @@ const Features = (function () {
         console.log('[Features] 初始化完成：标记 / 主题 / 排版 / 安全区');
     }
 
-        return { init, applyMark, applyInlineMark, toggleSafeArea };
+    return { init, applyMark, applyInlineMark, toggleSafeArea, renderSafeAreaDOM };
 })();
 
 
@@ -385,7 +595,6 @@ const Features = (function () {
 `;
     document.head.appendChild(style);
 })();
-
 
 
 window.Features = Features;

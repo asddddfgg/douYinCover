@@ -255,15 +255,8 @@ function stopsToCss(stops) {
 
 
 
-function hexToRgba(hex, opacity) {
-    if (!hex) return 'transparent';
-    let h = hex.replace('#', '');
-    if (h.length === 3) h = h.split('').map(c => c + c).join('');
-    const r = parseInt(h.substring(0, 2), 16) || 0;
-    const g = parseInt(h.substring(2, 4), 16) || 0;
-    const b = parseInt(h.substring(4, 6), 16) || 0;
-    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-}
+// ✅ hexToRgba 唯一实现已上移到 utils.js（window.hexToRgba）
+//    本文件（含 stopsToCss / 遮罩渲染）直接复用，不再本地声明。
 
 /* ============================================================
    供 app.js 调用的统一入口（图片模式）

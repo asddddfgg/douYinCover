@@ -3,14 +3,19 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background-color: #0f1117;
     color: #e1e4e8;
     height: 100vh;
     overflow: hidden;
+}
+
+/* 表单控件默认不继承字体，显式补上，保持原有 UI 观感 */
+button, input, select, textarea {
+    font-family: inherit;
 }
 
 .app-container {
@@ -3006,4 +3011,163 @@ body.guide-cursor-h { cursor: ns-resize !important; }
     transition: color 0.2s ease;
 }
 
+/* ============================================================
+   画布悬浮操作条（常驻在画布外右上角）
+   ============================================================ */
+.page-actions-bar {
+    position: absolute;
+    top: -32px; /* 和左边的页签齐平 */
+    right: 0;
+    display: flex;
+    gap: 4px;
+    z-index: 100;
+}
+/* 保持原本的按钮高亮，不需要悬浮触发 */
 
+
+
+/* 极简亮色覆盖（直接生效）
+body { background: #F3F4F6 !important; color: #1F2937 !important; }
+.app-header, .sidebar-left, .sidebar-right, .left-rail, .menu-panel { background: #FFF !important; border-color: #E5E7EB !important; }
+.canvas-container { background: #F9FAFB !important; }
+.btn, .tool-btn, .rail-btn { background: #FFF !important; color: #1F2937 !important; border: 1px solid #D1D5DB !important; }
+.btn:hover, .tool-btn:hover { background: #F3F4F6 !important; }
+.btn-primary { background: #6366F1 !important; color: #FFF !important; }
+input, select, textarea { background: #FFF !important; color: #111827 !important; border: 1px solid #D1D5DB !important; }
+.card, .effect-card, .layer-item, .page-item { background: #F9FAFB !important; color: #1F2937 !important; border: 1px solid #E5E7EB !important; }
+.card.active, .effect-card.active, .layer-item.active { background: #EEF2FF !important; border-color: #6366F1 !important; }
+.panel-section h3, .hint { color: #6B7280 !important; }  */
+
+/* ============================================================
+   国际化商业级 UI 质感升级 (Glass & Card Style)
+   ============================================================ */
+
+/* 1. 让所有面板和卡片拥有柔和的圆角与内阴影 */
+.effect-card, .bg-preset-card, .layer-item, .page-item, 
+.backdrop-card, .brand-color-swatch, .brand-logo-item, 
+.page-item.active, .layer-item.active {
+    border-radius: 8px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02) !important;
+    transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+}
+
+/* 悬停时轻微上浮 */
+.effect-card:hover, .bg-preset-card:hover, .layer-item:hover, 
+.page-item:hover, .backdrop-card:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important;
+}
+
+/* 2. 左侧和右侧面板的间距与呼吸感调整 */
+.sidebar-left, .sidebar-right {
+    padding: 16px !important;
+}
+.panel-section {
+    margin-bottom: 24px !important;
+    padding-bottom: 24px !important;
+    border-bottom: 1px solid #EBEBEF !important;
+}
+.panel-section:last-child {
+    border-bottom: none !important;
+}
+
+/* 3. 左侧和右侧面板的标题样式，现代排版感 */
+.panel-section h3 {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #1D1D1F !important;
+    margin-bottom: 12px !important;
+    letter-spacing: 0.02em !important;
+}
+.panel-section .hint {
+    font-size: 11px !important;
+    color: #86868B !important;
+    margin-bottom: 16px !important;
+    line-height: 1.5 !important;
+}
+
+/* 4. 顶栏菜单和所有下拉框的毛玻璃质感 */
+.menu-panel, .context-menu, .dropdown-menu {
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(20px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08) !important;
+}
+.menu-item {
+    border-radius: 6px !important;
+    margin: 2px 4px !important;
+    transition: background 0.15s ease !important;
+}
+.menu-item:hover {
+    background: rgba(0, 0, 0, 0.05) !important;
+}
+
+/* 5. 颜色输入框、文本输入框圆角统一化 */
+input[type="text"], input[type="number"], input[type="color"], select, textarea {
+    border-radius: 6px !important;
+    border: 1px solid #D1D1D6 !important;
+    transition: all 0.2s ease !important;
+}
+input:focus, select:focus, textarea:focus {
+    border-color: #007AFF !important;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
+}
+
+/* 6. 让主画布工作区更柔和 */
+.canvas-container {
+    background: #F5F5F7 !important;
+}
+
+/* 7. 徽章和按钮的统一 */
+.btn-primary {
+    box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2) !important;
+}
+
+/* ============================================================
+   下拉菜单与弹出层清晰度修复
+   ============================================================ */
+.menu-panel {
+    background: #FFFFFF !important; /* 必须是纯白，不能半透明 */
+    border: 1px solid #E5E7EB !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
+}
+
+.menu-item {
+    color: #1F2937 !important; /* 强制深灰色字体 */
+    font-weight: 500 !important;
+}
+
+.menu-item:hover {
+    background: #F3F4F6 !important; /* 悬停时变浅灰 */
+    color: #111827 !important; /* 悬停时字体变黑 */
+}
+
+.menu-divider {
+    background: #E5E7EB !important;
+}
+
+.menu-section-label {
+    color: #9CA3AF !important; /* 分组标题变浅灰 */
+}
+
+/* 修复菜单内部的下拉选择框/滑块数字 */
+.menu-panel select, .menu-panel input[type="number"] {
+    background: #F9FAFB !important;
+    color: #1F2937 !important;
+    border: 1px solid #E5E7EB !important;
+}
+
+/* 修复工具栏里的文字不清晰问题 */
+.top-text-toolbar select {
+    background: #FFFFFF !important;
+    color: #1F2937 !important;
+    border: 1px solid #D1D5DB !important;
+}
+.top-text-toolbar .menu-trigger {
+    color: #374151 !important;
+}
+.top-text-toolbar .menu-trigger:hover {
+    background: #F3F4F6 !important;
+    color: #111827 !important;
+}

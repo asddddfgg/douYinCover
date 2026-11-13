@@ -89,6 +89,9 @@ const AiImportUI = (function () {
             '      <input type="checkbox" id="ai-strict-mode" style="accent-color:#ff2442;cursor:pointer;"> 严格校验（警告也视为错误）',
             '    </label>',
             '    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e;cursor:pointer;margin-bottom:6px;">',
+            '      <input type="checkbox" id="ai-no-stroke" style="accent-color:#ff2442;cursor:pointer;"> 不要描边类特效（提示词排除，粘贴方案自动换品牌渐变）',
+            '    </label>',
+            '    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e;cursor:pointer;margin-bottom:6px;">',
             '      <input type="checkbox" id="ai-auto-decorate" checked style="accent-color:#ff2442;cursor:pointer;"> 自动配贴纸',
             '    </label>',
             '    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">',
@@ -135,6 +138,60 @@ const AiImportUI = (function () {
         el.innerHTML = html;
     }
 
+    /**
+     * 依次执行两条硬约束（安全区越界 / 单页高度预算）。
+     * 失败时统一渲染错误提示并返回 ok:false，成功返回 { ok:true, spec }。
+     * 历史重复：parseSpec 主路径与兜底路径各写了完全相同的一份（共 4 段）。
+     */
+    function applyHardConstraints(spec) {
+        if (typeof enforceSafeAreaHardConstraint === 'function') {
+            const a = enforceSafeAreaHardConstraint(spec);
+            if (!a.ok) {
+                const failures = a.failures || [];
+                const lines = failures.map(f => '· 第 ' + f.page + ' 页图层 ' + f.layer + '：' + f.reason);
+                showResult(
+                    '<div style="color:#f85149;line-height:1.6;"><b>❌ 安全区越界无法自动修复（' + failures.length + ' 处）</b><br>' +
+                    lines.join('<br>') +
+                    '<br><small style="color:#8b949e;">请把上面的提示贴回 AI，让它删减内容或拆页后重新生成。</small></div>',
+                    'error'
+                );
+                return { ok: false, spec: spec };
+            }
+            spec = a.spec;
+        }
+        if (typeof enforceHeightBudget === 'function') {
+            const b = enforceHeightBudget(spec);
+            if (!b.ok) {
+                const pages = b.pages || [];
+                const lines = pages.map(p => '· 第 ' + p.page + ' 页总高 ' + p.total + 'px，超出预算 ' + (p.total - p.budget) + 'px（预算 ' + p.budget + 'px）');
+                showResult(
+                    '<div style="color:#f85149;line-height:1.6;"><b>❌ 单页文字总高度超出预算（' + pages.length + ' 页）</b><br>' +
+                    lines.join('<br>') +
+                    '<br><small style="color:#8b949e;">请让 AI 把超出的页拆成两页，或删减内容后重新生成。</small></div>',
+                    'error'
+                );
+                return { ok: false, spec: spec };
+            }
+        }
+        return { ok: true, spec: spec };
+    }
+
+    /** 把每层 height 同步为实测高度（唯一实现：ai-spec.js → syncSpecTextHeights） */
+    function syncHeights(spec) {
+        if (!spec) return;
+        if (typeof syncSpecTextHeights === 'function') syncSpecTextHeights(spec);
+    }
+
+    function sanitizeBrandInSpec(spec) {
+        if (!spec || typeof sanitizeSpecBrand !== 'function') return spec;
+        let strict = false;
+        try {
+            strict = !!(window.BrandManager && BrandManager.isStrictColors && BrandManager.isStrictColors());
+        } catch (e) {}
+        try { sanitizeSpecBrand(spec, { strict: strict }); } catch (e) {}
+        return spec;
+    }
+
     function parseSpec() {
         const ta = document.getElementById('ai-spec-input');
         if (!ta) return null;
@@ -163,36 +220,10 @@ const AiImportUI = (function () {
             if (typeof fixSpecStructure === 'function') spec = fixSpecStructure(spec);
             if (typeof migrateSpecToLatest === 'function') spec = migrateSpecToLatest(spec);
             if (typeof migrateSpec === 'function') spec = migrateSpec(spec);
-            // ✅ 硬约束 A：物理上移越界图层；修不好直接返回 null
-            if (typeof enforceSafeAreaHardConstraint === 'function') {
-                const a = enforceSafeAreaHardConstraint(spec);
-                if (!a.ok) {
-                    const lines = (a.failures || []).map(f => '· 第 ' + f.page + ' 页图层 ' + f.layer + '：' + f.reason);
-                    showResult(
-                        '<div style="color:#f85149;line-height:1.6;"><b>❌ 安全区越界无法自动修复（' + (a.failures || []).length + ' 处）</b><br>' +
-                        lines.join('<br>') +
-                        '<br><small style="color:#8b949e;">请把上面的提示贴回 AI，让它删减内容或拆页后重新生成。</small></div>',
-                        'error'
-                    );
-                    return null;
-                }
-                spec = a.spec;
-            }
-            // ✅ 硬约束 B：单页总高度预算；超了直接返回 null
-            if (typeof enforceHeightBudget === 'function') {
-                const b = enforceHeightBudget(spec);
-                if (!b.ok) {
-                    const lines = (b.pages || []).map(p => '· 第 ' + p.page + ' 页总高 ' + p.total + 'px，超出预算 ' + (p.total - p.budget) + 'px（预算 ' + p.budget + 'px）');
-                    showResult(
-                        '<div style="color:#f85149;line-height:1.6;"><b>❌ 单页文字总高度超出预算（' + (b.pages || []).length + ' 页）</b><br>' +
-                        lines.join('<br>') +
-                        '<br><small style="color:#8b949e;">请让 AI 把超出的页拆成两页，或删减内容后重新生成。</small></div>',
-                        'error'
-                    );
-                    return null;
-                }
-            }
-            return spec;
+            // ✅ 硬约束 A+B：安全区越界 / 单页高度预算，修不好直接返回 null
+            const guard = applyHardConstraints(spec);
+            if (!guard.ok) return null;
+            return sanitizeBrandInSpec(guard.spec);
         } catch (e) {
             if (typeof extractMultipleSpecs === 'function') {
                 const multi = extractMultipleSpecs(raw);
@@ -202,37 +233,13 @@ const AiImportUI = (function () {
                     if (best) {
                         if (typeof migrateSpec === 'function') best = migrateSpec(best);
                         // 与主路径一致：硬约束不过则整份作废
-                        if (typeof enforceSafeAreaHardConstraint === 'function') {
-                            const a = enforceSafeAreaHardConstraint(best);
-                            if (!a.ok) {
-                                const lines = (a.failures || []).map(f => '· 第 ' + f.page + ' 页图层 ' + f.layer + '：' + f.reason);
-                                showResult(
-                                    '<div style="color:#f85149;line-height:1.6;"><b>❌ 安全区越界无法自动修复（' + (a.failures || []).length + ' 处）</b><br>' +
-                                    lines.join('<br>') +
-                                    '<br><small style="color:#8b949e;">请把上面的提示贴回 AI，让它删减内容或拆页后重新生成。</small></div>',
-                                    'error'
-                                );
-                                return null;
-                            }
-                            best = a.spec;
-                        }
-                        if (typeof enforceHeightBudget === 'function') {
-                            const b = enforceHeightBudget(best);
-                            if (!b.ok) {
-                                const lines = (b.pages || []).map(p => '· 第 ' + p.page + ' 页总高 ' + p.total + 'px，超出预算 ' + (p.total - p.budget) + 'px（预算 ' + p.budget + 'px）');
-                                showResult(
-                                    '<div style="color:#f85149;line-height:1.6;"><b>❌ 单页文字总高度超出预算（' + (b.pages || []).length + ' 页）</b><br>' +
-                                    lines.join('<br>') +
-                                    '<br><small style="color:#8b949e;">请让 AI 把超出的页拆成两页，或删减内容后重新生成。</small></div>',
-                                    'error'
-                                );
-                                return null;
-                            }
-                        }
+                        const guard2 = applyHardConstraints(best);
+                        if (!guard2.ok) return null;
+                        best = guard2.spec;
                         if (multi.length > 1) {
                             showResult('📦 检测到 ' + multi.length + ' 份候选方案，已自动选最高质量的一份。', 'ok');
                         }
-                        return best;
+                        return sanitizeBrandInSpec(best);
                     }
                 }
             }
@@ -327,18 +334,16 @@ const AiImportUI = (function () {
                         if (typeof autoFitToSafeArea === 'function') {
                             try { autoFitToSafeArea(item.spec, {}); } catch (e) {}
                         }
-                        try {
-                            (item.spec.pages || []).forEach(page => {
-                                (page.layers || []).forEach(layer => {
-                                    if (!layer || layer.type !== 'text') return;
-                                    const measured = (typeof _measureTextHeight === 'function') ? _measureTextHeight(layer) : 0;
-                                    if (measured > 0) layer.height = measured;
-                                });
-                            });
-                        } catch (e) {}
+                        syncHeights(item.spec);
                         normalized = (item.spec.pages || []).map((p, i) => normalizeSpecPage(p, i));
                     } catch (e) { normalized = []; }
                     normalized.forEach(p => { p._planLabel = label; });
+                    // ✅ 页码：单页不加；多页每页加 "01 / 07"
+                    try {
+                        if (window.PageNumbers && PageNumbers.ensurePageNumbers) {
+                            PageNumbers.ensurePageNumbers(normalized);
+                        }
+                    } catch (e) {}
                     plansByLabel[label] = normalized;
                     planMeta.push({ label, pageCount: normalized.length, quality: item.quality });
                 });
@@ -374,15 +379,7 @@ const AiImportUI = (function () {
         if (typeof autoFitToSafeArea === 'function') {
             try { autoFitToSafeArea(spec, {}); } catch (e) {}
         }
-        try {
-            (spec.pages || []).forEach(page => {
-                (page.layers || []).forEach(layer => {
-                    if (!layer || layer.type !== 'text') return;
-                    const measured = (typeof _measureTextHeight === 'function') ? _measureTextHeight(layer) : 0;
-                    if (measured > 0) layer.height = measured;
-                });
-            });
-        } catch (e) {}
+        syncHeights(spec);
         const appendCb2 = document.getElementById('ai-append-mode');
         const append2 = !!(appendCb2 && appendCb2.checked);
         const decCb2 = document.getElementById('ai-auto-decorate');
@@ -482,10 +479,22 @@ const AiImportUI = (function () {
             });
         }
 
+        // ✅ 全局方案缓存：记录每个方案被用户修改后的真实页面数据
+        window.__aiPlansCache = window.__aiPlansCache || {};
+
         function applyPlan(label) {
             const pages = plansByLabel[label] || [];
             if (!pages.length) return false;
-            state.pages = JSON.parse(JSON.stringify(pages));
+
+            // ✅ 1. 如果画布现在有已应用的内容，先把用户的最新修改存入上一个方案的缓存
+            if (window.__currentActivePlanLabel && window.__currentActivePlanLabel !== label && window.state && window.state.pages) {
+                window.__aiPlansCache[window.__currentActivePlanLabel] = JSON.parse(JSON.stringify(window.state.pages));
+            }
+
+            // ✅ 2. 优先使用缓存中的修改版，如果没有再用初始模板
+            const targetPages = window.__aiPlansCache[label] || pages;
+
+            state.pages = JSON.parse(JSON.stringify(targetPages));
             state.pages.forEach((p, i) => {
                 p._planLabel = label;
                 p._planPageNo = i + 1;
@@ -499,6 +508,10 @@ const AiImportUI = (function () {
                     state.background = normalizeBackground(state.pages[0].bg);
                 }
             } catch (e) {}
+
+            // ✅ 3. 记录当前画布绑定的是哪个方案
+            window.__currentActivePlanLabel = label;
+
             if (state.history && typeof state.history.record === 'function') state.history.record();
             if (typeof applyBackgroundToCanvases === 'function') applyBackgroundToCanvases(state.background);
             if (typeof renderAll === 'function') renderAll();
@@ -583,7 +596,7 @@ const AiImportUI = (function () {
             try {
                 const fit = autoFitToSafeArea(spec, {});
                 if (fit && fit.fixed > 0) {
-                    showResult('🔧 已自动修复 ' + fit.fixed + ' 处安全区越界：<br>' + (fit.details || []).slice(0, 5).join('<br>'), 'warn');
+                    showResult('🔧 已自动修复 ' + fit.fixed + ' 处排版问题（越界/重叠）：<br>' + (fit.details || []).slice(0, 5).join('<br>'), 'warn');
                     if (_lastChosenSpec) _lastChosenSpec = spec;
                 }
             } catch (e) {
@@ -669,7 +682,7 @@ const AiImportUI = (function () {
 
         ranked.forEach((item, gi) => {
           try {
-            const spec = item.spec || {};
+            const spec = sanitizeBrandInSpec(item.spec || {});
             const q = item.quality != null ? item.quality : 0;
             const pagesArr = (spec.pages || []);
             const pagesCount = pagesArr.length;
@@ -719,28 +732,14 @@ const AiImportUI = (function () {
                     try {
                         const fit = autoFitToSafeArea(item.spec, {});
                         if (fit && fit.fixed > 0) {
-                            showResult('🔧 已自动修复 ' + fit.fixed + ' 处安全区越界，正在应用…', 'warn');
+                            showResult('🔧 已自动修复 ' + fit.fixed + ' 处排版问题（越界/重叠），正在应用…', 'warn');
                         }
                     } catch (e) {
                         if (window.Utils && Utils.log) Utils.log.warn('[CandidatePreview] autoFitToSafeArea 失败', e);
                     }
                 }
-                // ✅ 关键修复：autoFit 修完后把每层 height 同步成实测高度
-                //    否则 validateSpec 的 Math.max(measured, declared) 会取旧的 declared，
-                //    y 被压到 596-declared，Math.max 又把高度顶回 declared，导致 597 差 1 过不了
-                try {
-                    (item.spec.pages || []).forEach(page => {
-                        (page.layers || []).forEach(layer => {
-                            if (!layer || layer.type !== 'text') return;
-                            const measured = (typeof _measureTextHeight === 'function') ? _measureTextHeight(layer) : 0;
-                            if (measured > 0) {
-                                layer.height = measured;
-                            }
-                        });
-                    });
-                } catch (e) {
-                    if (window.Utils && Utils.log) Utils.log.warn('[CandidatePreview] 同步 height 失败', e);
-                }
+                // ✅ autoFit 修完后把每层 height 同步成实测高度（唯一实现：syncSpecTextHeights）
+                syncHeights(item.spec);
                 const check = runValidate(item.spec);
                 if (!check.ok) {
                     renderValidateResult(check);
@@ -786,55 +785,13 @@ const AiImportUI = (function () {
                 const thumb = document.createElement('div');
                 thumb.style.cssText = 'position:relative;width:180px;height:320px;background:#000;border-radius:6px;overflow:hidden;border:1px solid #30363d;';
 
-                const bg = document.createElement('div');
-                bg.style.cssText = 'position:absolute;inset:0;';
-                try {
-                    const css = (typeof backgroundToCss === 'function') ? backgroundToCss(page.bg || (window.state && state.background) || {}) : '';
-                    if (css) bg.style.background = css;
-                } catch (e) {}
-                thumb.appendChild(bg);
-
-                const layersWrap = document.createElement('div');
-                layersWrap.style.cssText = 'position:absolute;inset:0;transform:scale(0.5);transform-origin:top left;width:720px;height:1280px;';
-                (page.layers || []).forEach(layer => {
-                    if (!layer || layer.type !== 'text') return;
-                    const el = document.createElement('div');
-                    el.style.cssText = 'position:absolute;box-sizing:border-box;padding:4px 12px;';
-                    el.style.left = ((layer.x || 0) * 2) + 'px';
-                    el.style.top = ((layer.y || 0) * 2) + 'px';
-                    el.style.width = ((layer.width || 100) * 2) + 'px';
-                    const inner = document.createElement('div');
-                    inner.innerHTML = layer.content || '';
-                    inner.style.cssText = 'width:100%;white-space:pre-wrap;word-break:break-word;';
-                    const _fsMatch = String(layer.fontSize || '20px').match(/^([\d.]+)/);
-                    const _fsPx = _fsMatch ? parseFloat(_fsMatch[1]) : 20;
-                    inner.style.fontSize = (_fsPx * 2) + 'px';
-                    inner.style.fontFamily = (typeof window._safeFontFamily === 'function') ? window._safeFontFamily(layer.fontFamily || 'sans-serif') : (layer.fontFamily || 'sans-serif');
-                    inner.style.fontWeight = layer.bold ? 'bold' : 'normal';
-                    inner.style.fontStyle = layer.italic ? 'italic' : 'normal';
-                    inner.style.textAlign = layer.align || 'left';
-                    inner.style.lineHeight = layer.lineHeight || 1.2;
-                    inner.style.color = layer.color || '#ffffff';
-                    if (layer.bgColor && layer.bgColor !== 'transparent') {
-                        inner.style.background = layer.bgColor;
-                        inner.style.borderRadius = (layer.bgRadius || 0) + 'px';
-                        inner.style.padding = (layer.bgPadding || 0) + 'px';
-                    }
-                    if (layer.effectClass && typeof renderEffectCss === 'function') {
-                        const cssText = renderEffectCss(layer.effectClass, (layer.effectParams && layer.effectParams[layer.effectClass]) || {});
-                        cssText.split(';').forEach(rule => {
-                            const idx = rule.indexOf(':');
-                            if (idx === -1) return;
-                            const prop = rule.slice(0, idx).trim();
-                            const val = rule.slice(idx + 1).trim();
-                            if (!prop || !val) return;
-                            try { inner.style.setProperty(prop, val); } catch (e) {}
-                        });
-                    }
-                    el.appendChild(inner);
-                    layersWrap.appendChild(el);
-                });
-                thumb.appendChild(layersWrap);
+                // ✅ 页面渲染统一走 buildSpecPageNode（scale 0.5 → 整页正好放进 180×320 缩略图）
+                thumb.appendChild(buildSpecPageNode(page, {
+                    scale: 0.5,
+                    pageNumber: pi + 1,
+                    totalPages: pagesArr.length,
+                    background: (window.state && state.background) || null
+                }));
 
                 const pageBadge = document.createElement('div');
                 pageBadge.style.cssText = 'position:absolute;top:6px;left:6px;background:rgba(0,0,0,0.72);color:#fff;font-size:10px;padding:2px 7px;border-radius:4px;z-index:5;';
@@ -940,57 +897,11 @@ const AiImportUI = (function () {
             thumbWrap.style.cssText = 'position:relative;width:100%;aspect-ratio:9/16;background:#000;overflow:hidden;';
             const firstPage = (spec.pages || [])[0];
             if (firstPage) {
-                const bg = document.createElement('div');
-                bg.style.cssText = 'position:absolute;inset:0;';
-                try {
-                    const css = (typeof backgroundToCss === 'function') ? backgroundToCss(firstPage.bg || (window.state && state.background) || {}) : '';
-                    if (css) bg.style.background = css;
-                } catch (e) {}
-                thumbWrap.appendChild(bg);
-
-                const layersWrap = document.createElement('div');
-                layersWrap.style.cssText = 'position:absolute;inset:0;';
-                (firstPage.layers || []).forEach(layer => {
-                    if (!layer || layer.type !== 'text') return;
-                    const el = document.createElement('div');
-                    el.style.cssText = 'position:absolute;box-sizing:border-box;padding:2px 6px;';
-                    el.style.left = (layer.x || 0) + 'px';
-                    el.style.top = (layer.y || 0) + 'px';
-                    el.style.width = (layer.width || 100) + 'px';
-                    const inner = document.createElement('div');
-                    inner.innerHTML = layer.content || '';
-                    inner.style.cssText = 'width:100%;white-space:pre-wrap;word-break:break-word;';
-                    inner.style.fontSize = layer.fontSize || '20px';
-                    inner.style.fontFamily = (typeof window._safeFontFamily === 'function') ? window._safeFontFamily(layer.fontFamily || 'sans-serif') : (layer.fontFamily || 'sans-serif');
-                    inner.style.fontWeight = layer.bold ? 'bold' : 'normal';
-                    inner.style.fontStyle = layer.italic ? 'italic' : 'normal';
-                    inner.style.textAlign = layer.align || 'left';
-                    inner.style.lineHeight = layer.lineHeight || 1.2;
-                    inner.style.color = layer.color || '#ffffff';
-                    if (layer.bgColor && layer.bgColor !== 'transparent') {
-                        inner.style.background = layer.bgColor;
-                        inner.style.borderRadius = (layer.bgRadius || 0) + 'px';
-                        inner.style.padding = (layer.bgPadding || 0) + 'px';
-                    }
-                    if (layer.effectClass && typeof renderEffectCss === 'function') {
-                        const cssText = renderEffectCss(layer.effectClass, (layer.effectParams && layer.effectParams[layer.effectClass]) || {});
-                        cssText.split(';').forEach(rule => {
-                            const idx = rule.indexOf(':');
-                            if (idx === -1) return;
-                            const prop = rule.slice(0, idx).trim();
-                            const val = rule.slice(idx + 1).trim();
-                            if (!prop || !val) return;
-                            try { inner.style.setProperty(prop, val); } catch (e) {}
-                        });
-                    }
-                    el.appendChild(inner);
-                    layersWrap.appendChild(el);
-                });
-                thumbWrap.appendChild(layersWrap);
-                thumbWrap.querySelectorAll(':scope > div:last-child > div').forEach(d => {
-                    d.style.transform = 'scale(' + (280/360).toFixed(3) + ')';
-                    d.style.transformOrigin = 'top left';
-                });
+                // ✅ 页面渲染统一走 buildSpecPageNode（按卡片基准宽度 280 等比缩放）
+                thumbWrap.appendChild(buildSpecPageNode(firstPage, {
+                    scale: 280 / 360,
+                    background: (window.state && state.background) || null
+                }));
             }
 
             const badge = document.createElement('div');
@@ -1146,50 +1057,14 @@ const AiImportUI = (function () {
             badge.textContent = '第 ' + (i + 1) + ' 页 · ' + (page.title || '');
             card.appendChild(badge);
 
-            const bg = document.createElement('div');
-            bg.className = 'canvas-bg';
-            bg.style.cssText = 'position:absolute;inset:0;z-index:1;';
-            try {
-                const sp = page.bg || (window.state && state.background);
-                const css = (typeof backgroundToCss === 'function') ? backgroundToCss(sp) : '';
-                if (css) bg.style.background = css;
-            } catch (e) {}
-            card.appendChild(bg);
-
-            const layersWrap = document.createElement('div');
-            layersWrap.style.cssText = 'position:absolute;inset:0;z-index:2;';
-            (page.layers || []).forEach(layer => {
-                if (!layer || layer.type !== 'text') return;
-                const el = document.createElement('div');
-                el.style.cssText = 'position:absolute;box-sizing:border-box;padding:2px 6px;';
-                el.style.left = (layer.x || 0) + 'px';
-                el.style.top = (layer.y || 0) + 'px';
-                el.style.width = (layer.width || 100) + 'px';
-                const inner = document.createElement('div');
-                inner.innerHTML = layer.content || '';
-                inner.style.cssText = 'width:100%;white-space:pre-wrap;word-break:break-word;';
-                inner.style.fontSize = layer.fontSize || '20px';
-                inner.style.fontFamily = (typeof window._safeFontFamily === 'function') ? window._safeFontFamily(layer.fontFamily || 'sans-serif') : (layer.fontFamily || 'sans-serif');
-                inner.style.fontWeight = layer.bold ? 'bold' : 'normal';
-                inner.style.fontStyle = layer.italic ? 'italic' : 'normal';
-                inner.style.textAlign = layer.align || 'left';
-                inner.style.lineHeight = layer.lineHeight || 1.2;
-                inner.style.color = layer.color || '#ffffff';
-                if (layer.effectClass && typeof renderEffectCss === 'function') {
-                    const cssText = renderEffectCss(layer.effectClass, (layer.effectParams && layer.effectParams[layer.effectClass]) || {});
-                    cssText.split(';').forEach(rule => {
-                        const idx = rule.indexOf(':');
-                        if (idx === -1) return;
-                        const prop = rule.slice(0, idx).trim();
-                        const val = rule.slice(idx + 1).trim();
-                        if (!prop || !val) return;
-                        try { inner.style.setProperty(prop, val); } catch (e) {}
-                    });
-                }
-                el.appendChild(inner);
-                layersWrap.appendChild(el);
-            });
-            card.appendChild(layersWrap);
+            // ✅ 页面渲染统一走 buildSpecPageNode（360×640 1:1 预览）
+            card.appendChild(buildSpecPageNode(page, {
+                scale: 1,
+                zIndex: 2,
+                pageNumber: i + 1,
+                totalPages: pages.length,
+                background: (window.state && state.background) || null
+            }));
             stage.appendChild(card);
         });
     }
@@ -1718,6 +1593,15 @@ const AiImportUI = (function () {
                 icon.style.fontSize = '9px';
             }
         });
+
+        // 用户级特效偏好：不要描边（提示词 + 粘贴方案都生效）
+        const noStrokeCb = document.getElementById('ai-no-stroke');
+        if (noStrokeCb) {
+            if (window.EffectPrefs) noStrokeCb.checked = EffectPrefs.getNoStroke();
+            noStrokeCb.addEventListener('change', () => {
+                if (window.EffectPrefs) EffectPrefs.setNoStroke(!!noStrokeCb.checked);
+            });
+        }
 
         // 高级选项里的功能
         bind('ai-fallback-apply', doFallbackApply);

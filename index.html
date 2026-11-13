@@ -150,6 +150,7 @@
 
             <div class="actions">
                 <span id="project-title" style="font-size:12px;color:#8b949e;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                <button id="btn-layer-inspector" class="btn" title="图层检查器（Alt+I）"><i class="fa-solid fa-magnifying-glass-chart"></i> 检查器</button>
                 <button id="btn-history" class="btn" title="设计历史"><i class="fa-solid fa-clock-rotate-left"></i></button>
                 <button id="btn-export" class="btn btn-primary"><i class="fa-solid fa-download"></i> 导出封面</button>
             </div>
@@ -500,6 +501,7 @@
         <ul>
             <li id="ctx-clear-inline-effect"><i class="fa-solid fa-eraser"></i> 清除所选文字特效</li>
             <li id="ctx-clear-layer-effect"><i class="fa-solid fa-broom"></i> 清除整层特效</li>
+            <li id="ctx-layer-inspector"><i class="fa-solid fa-magnifying-glass-chart"></i> 图层检查器</li>
             <li class="divider"></li>
             <li id="ctx-copy"><i class="fa-solid fa-copy"></i> 复制图层</li>
             <li id="ctx-copy-style"><i class="fa-solid fa-wand-magic"></i> 复制样式</li>
@@ -624,6 +626,8 @@
     <script src="js/backdrop-textures.js"></script>
     <script src="js/state.js"></script>
     <script src="js/effects.js"></script>
+    <script src="js/effect-brand-guard.js"></script>
+    <script src="js/backdrop-brand.js"></script>
     <script src="js/text-layers.js"></script>
     <script src="js/doodle.js"></script>
     <script src="js/stickers.js"></script>
@@ -642,7 +646,12 @@
     <script src="js/bgimage-migrate.js"></script>
     <script src="js/backdrop-panel.js"></script>
     <script src="js/features.js"></script>
+    <script src="js/design-constants.js"></script>
+<script src="js/layout-spacing.js"></script>
+<script src="js/page-numbers.js"></script>
     <script src="js/brand-manager.js"></script>
+    <script src="js/ai-v2-brand.js"></script>
+    <script src="js/ai-v2-layout.js"></script>
     <script src="js/batch-edit.js"></script>
     <script src="js/history-panel.js"></script>
     <script src="js/align-distribute.js"></script>
@@ -654,10 +663,22 @@
     <script src="js/shapes.js"></script>
     <script src="js/ai-spec-generator.js"></script>
     <script src="js/ai-spec.js"></script>
+    <script src="js/effect-semantics.js"></script>
     <script src="js/visual-registry.js"></script>
     <script src="js/ai-v2-schema.js"></script>
     <script src="js/ai-v2-validator.js"></script>
     <script src="js/ai-v2-adapter.js"></script>
     <script src="js/ai-import-ui.js"></script>
+<!-- 一键成图（本地设计引擎，纯函数核心 + 浏览器面板；无外部 AI 依赖） -->
+<script src="js/auto-design-core.js"></script>
+<script src="js/ai-v2-analyzer.js"></script>
+<script src="js/ai-v2-selector.js"></script>
+<script src="js/ai-v2-prompt.js"></script>
+<script src="js/ai-v2-orchestrator.js"></script>
+<script src="js/rich-text-runs.js"></script>
+<script src="js/effect-stack.js"></script>
+<script src="js/effect-prefs.js"></script>
+<script src="js/layer-inspector.js"></script>
+<script src="js/auto-design-ui.js"></script>
 </body>
 </html>

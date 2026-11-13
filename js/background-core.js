@@ -53,23 +53,20 @@ function normalizeBackground(bg) {
       const base = Object.assign({}, migrated.base);
       let changed = false;
 
+      // ✅ 表驱动：需要从「外层扁平字段」回填到 __v2.base 的字段名
+      //    （原来这里是 19 行几乎完全相同的 if，改一次要改 19 处）
+      const SYNC_TO_V2_BASE = [
+        'color1', 'color2', 'angle', 'imageUrl', 'customImageId', 'fit', 'scale',
+        'positionX', 'positionY', 'blur', 'colorFilter',
+        'overlayColor', 'overlayOpacity', 'overlayType', 'overlayAngle', 'presetId'
+      ];
+      SYNC_TO_V2_BASE.forEach(key => {
+        if (bg[key] !== undefined && base[key] !== bg[key]) {
+          base[key] = bg[key];
+          changed = true;
+        }
+      });
       if (bg.type && base.kind !== wantKind) { base.kind = wantKind; changed = true; }
-      if (bg.color1 !== undefined && base.color1 !== bg.color1) { base.color1 = bg.color1; changed = true; }
-      if (bg.color2 !== undefined && base.color2 !== bg.color2) { base.color2 = bg.color2; changed = true; }
-      if (bg.angle !== undefined && base.angle !== bg.angle) { base.angle = bg.angle; changed = true; }
-      if (bg.imageUrl !== undefined && base.imageUrl !== bg.imageUrl) { base.imageUrl = bg.imageUrl; changed = true; }
-      if (bg.customImageId !== undefined && base.customImageId !== bg.customImageId) { base.customImageId = bg.customImageId; changed = true; }
-      if (bg.fit !== undefined && base.fit !== bg.fit) { base.fit = bg.fit; changed = true; }
-      if (bg.scale !== undefined && base.scale !== bg.scale) { base.scale = bg.scale; changed = true; }
-      if (bg.positionX !== undefined && base.positionX !== bg.positionX) { base.positionX = bg.positionX; changed = true; }
-      if (bg.positionY !== undefined && base.positionY !== bg.positionY) { base.positionY = bg.positionY; changed = true; }
-      if (bg.blur !== undefined && base.blur !== bg.blur) { base.blur = bg.blur; changed = true; }
-      if (bg.colorFilter !== undefined && base.colorFilter !== bg.colorFilter) { base.colorFilter = bg.colorFilter; changed = true; }
-      if (bg.overlayColor !== undefined && base.overlayColor !== bg.overlayColor) { base.overlayColor = bg.overlayColor; changed = true; }
-      if (bg.overlayOpacity !== undefined && base.overlayOpacity !== bg.overlayOpacity) { base.overlayOpacity = bg.overlayOpacity; changed = true; }
-      if (bg.overlayType !== undefined && base.overlayType !== bg.overlayType) { base.overlayType = bg.overlayType; changed = true; }
-      if (bg.overlayAngle !== undefined && base.overlayAngle !== bg.overlayAngle) { base.overlayAngle = bg.overlayAngle; changed = true; }
-      if (bg.presetId !== undefined && base.presetId !== bg.presetId) { base.presetId = bg.presetId; changed = true; }
 
       if (changed) {
         migrated = { version: 2, base, layers: migrated.layers };
@@ -295,9 +292,81 @@ function syncBgPanelInputs(bg) {
 
 function updateBackgroundView() {
     applyBackgroundToCanvases(state.background);
+    // ✅ 顺序修正：applyBackgroundToCanvases 会把所有 .canvas-bg 刷回全局背景，
+    //    逐页 bg（AI 方案 / 一键成图）必须在它之后重新刷一遍，否则永远看不到。
+    applyPageBackgrounds();
     syncBgPanelInputs(state.background);
     renderBgPresetGrid();
 }
+
+/* ============================================================
+   逐页背景覆盖（唯一实现）
+   ------------------------------------------------------------
+   为什么必须有这一层：renderAll 的调用顺序是
+     renderCanvas → renderPageList → updateBackgroundView
+   而 updateBackgroundView 内部会把全局背景刷到每一页，
+   所以「页自带 bg」必须在最后一步再覆盖一次，否则会被打回。
+   遮罩在这里自己合成（不依赖引擎），保证 image / 纯色 / 渐变三种 base 都一致。
+   ============================================================ */
+function pageBgCss(page) {
+    if (!page || !page.bg) return '';
+    const bg = page.bg;
+    const rgbaOf = (hex, a) => {
+        try {
+            if (window.Utils && Utils.hex && Utils.hex.toRgba) return Utils.hex.toRgba(hex, a);
+        } catch (e) {}
+        return 'rgba(0,0,0,' + a + ')';
+    };
+    // 先让引擎算 base（临时把遮罩关掉，避免引擎和本函数各画一次）
+    const base = Object.assign({}, bg, { overlayOpacity: 0 });
+    let css = '';
+    try { css = backgroundToCss(base) || ''; } catch (e) { css = ''; }
+    const opacity = Number(bg.overlayOpacity) || 0;
+    if (opacity > 0 && bg.overlayColor) {
+        if (bg.overlayType === 'linear' && Array.isArray(bg.overlayStops) && bg.overlayStops.length) {
+            const stops = bg.overlayStops.map(s =>
+                rgbaOf(s.color, s.opacity)).join(', ');
+            css = `linear-gradient(${bg.overlayAngle || 180}deg, ${stops}), ` + css;
+        } else {
+            const veil = rgbaOf(bg.overlayColor, opacity);
+            css = `linear-gradient(${veil}, ${veil}), ` + css;
+        }
+    }
+    return css;
+}
+
+function applyPageBackgrounds() {
+    if (!window.state || !Array.isArray(state.pages)) return;
+    state.pages.forEach(page => {
+        if (!page.bg) return;
+        const bgEl = document.querySelector(
+            `.canvas-page-wrapper[data-page-id="${page.id}"] .canvas-bg`);
+        if (!bgEl) return;
+        const css = pageBgCss(page);
+        if (!css) return;
+        bgEl.style.background = css;
+        // 清掉图片模式遗留的滤镜/变换，否则纯色页会被上一张图的效果串味
+        bgEl.style.filter = '';
+        bgEl.style.transform = '';
+        bgEl.style.transformOrigin = '';
+        bgEl.style.backgroundSize = '';
+        bgEl.style.backgroundPosition = '';
+        bgEl.style.backgroundRepeat = '';
+        if (page.bg.texture === 'grid') {
+            bgEl.style.backgroundSize = '22px 22px, 22px 22px, 100% 100%';
+        } else if (page.bg.texture === 'dots') {
+            bgEl.style.backgroundSize = '14px 14px, 100% 100%';
+        }
+        // background-image.js 的遮罩 DOM 只在全局图片模式下创建，逐页覆盖时移除
+        if (page.bg.type !== 'image') {
+            const overlay = bgEl.parentNode &&
+                bgEl.parentNode.querySelector('.canvas-bg-overlay');
+            if (overlay) overlay.remove();
+        }
+    });
+}
+window.applyPageBackgrounds = applyPageBackgrounds;
+if (window.BG) BG.applyPageBackgrounds = applyPageBackgrounds;
 
 function getFavPresetIds() {
     const BG_FAV_KEY = 'douyin_bg_favs_v2';

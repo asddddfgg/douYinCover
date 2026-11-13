@@ -67,7 +67,19 @@ const MultiSelect = (function () {
             if (!canvas) return;
             if (state.editingLayerId) return;
 
+            // ✅ 抢在 drag.js 前面接管，防止 drag.js 抢先清空选中
             e.preventDefault();
+            e.stopPropagation();
+
+            // ✅ 如果已经有多选，点击空白处先执行取消全选
+            if (window.state.selectedLayerIds && window.state.selectedLayerIds.length > 0) {
+                window.state.selectedLayerIds = [];
+                window.state.selectedLayerId = null;
+                if (typeof renderCanvas === 'function') renderCanvas();
+                if (typeof renderLayerList === 'function') renderLayerList();
+                if (typeof updateTopToolbarUI === 'function') updateTopToolbarUI(null);
+            }
+
             isBoxSelecting = true;
 
             const rect = canvas.getBoundingClientRect();
@@ -82,8 +94,8 @@ const MultiSelect = (function () {
             boxEl.style.height = '0px';
 
             document.addEventListener('mousemove', onBoxMove);
-            document.addEventListener('mouseup', onBoxUp);
-        });
+                       document.addEventListener('mouseup', onBoxUp);
+        }, true); // ← 加上 capture: true
     }
 
     function onBoxMove(e) {

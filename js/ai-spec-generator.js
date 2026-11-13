@@ -16,9 +16,17 @@ window.__AI_SPEC_GENERATOR_READY__ = true;
  * @returns {object}
  */
 function generateAiSpecDoc() {
+    const noStrokePref = !!(window.EffectPrefs && EffectPrefs.getNoStroke && EffectPrefs.getNoStroke());
     const effects = (typeof getAllEffectsMaster === 'function')
         ? getAllEffectsMaster()
             .filter(e => e && !e.hidden)   // ✅ 隐藏的特效不再进入 AI 契约（用户预期：隐藏=从候选中移除）
+            .filter(e => {
+                if (!noStrokePref) return true;
+                try {
+                    const p = (window.VisualRegistry && VisualRegistry.getPreset) ? VisualRegistry.getPreset(e.id) : null;
+                    return !(p && p.family === 'stroke');
+                } catch (err) { return true; }
+            })
             .map(e => {
                 let sem = null;
                 try {
@@ -100,6 +108,7 @@ window.generateAiSpecDoc = generateAiSpecDoc;
  */
 function generateAiSpecMarkdown() {
     const doc = generateAiSpecDoc();
+    const noStrokePref = !!(window.EffectPrefs && EffectPrefs.getNoStroke && EffectPrefs.getNoStroke());
     const lines = [];
 
     lines.push('# 抖音封面设计器 · AI 输出契约 v1');
@@ -193,6 +202,7 @@ function generateAiSpecMarkdown() {
     lines.push('## 2. 画布几何约束');lines.push('- 画布尺寸：' + doc.canvas.width + ' × ' + doc.canvas.height);
     lines.push('- 字号范围：' + doc.canvas.minFontSize + 'px ~ ' + doc.canvas.maxFontSize + 'px');
     lines.push('- x 范围：0 ~ ' + doc.canvas.width + '，y 范围：0 ~ ' + doc.canvas.height);
+    lines.push('- **相邻文字层垂直间距 ≥ 20px**（底衬 padding / 旋转后的包围盒也算进去），禁止文字框重叠');
     lines.push('- 页数上限：20 页');
     lines.push('');
     lines.push('## 3. 可用特效列表（effectClass 只能从这里选）');
@@ -226,6 +236,9 @@ function generateAiSpecMarkdown() {
     lines.push('- 对话 / 引用：用 container 类的气泡或纸张');
     lines.push('- 局部标注：用 annotation 类，只作用于关键词而不是整段');
     lines.push('- applyMode 为 inline-only 的特效不能整层应用；applyMode 为 layer-only 的特效不能只作用于部分文字');
+    if (noStrokePref) {
+        lines.push('- 用户明确不喜欢描边类特效：禁止输出 family=stroke 的特效（如 effect-black-stroke / effect-red-stroke）');
+    }
     lines.push('');
     lines.push('## 4. 可用背景预设（presetId 只能从这里选，或自定义 {type,color1,color2,angle,texture}）');
     doc.backgrounds.forEach(b => {
@@ -333,7 +346,7 @@ function generateAiSpecMarkdown() {
     lines.push('### 档位 C · 炸裂档（爆款 / 逆袭 / 娱乐 / 副业 / 警示 / 搞笑）');
     lines.push('- 特效覆盖率：60% ~ 90%');
     lines.push('- 4 ~ 6 种特效同时出现');
-    lines.push('- 特效完全自由：effect-viral / effect-neon / effect-3d / effect-fire / effect-cyber / effect-glitch 等任意组合均可');
+    lines.push('- 特效从品牌安全集合里选：effect-neon / effect-gradient / effect-cyber / effect-3d / effect-red-stroke / effect-black-stroke / effect-gold / effect-sunset / effect-deep-sea / effect-jade / effect-candy / effect-metal / effect-chalk；不要用 effect-viral / effect-fire / effect-ice / effect-hk / effect-lightning / effect-glitch（模板含硬编码非品牌色）');
     lines.push('- 主标题必须带特效，副标题也要带（可以是不同特效）');
     lines.push('- 关键词加行内高亮（见 6h）');
     lines.push('');
@@ -341,7 +354,8 @@ function generateAiSpecMarkdown() {
     lines.push('- 封面主标题必须带特效，不允许纯变色');
     lines.push('- 副标题可带描边或加底衬');
     lines.push('- 正文优先不用特效（effectClass: null），保证可读性');
-    lines.push('- 特效 / 底衬 / 贴纸完全自由，不受品牌约束；品牌约束只作用于颜色（和可选字体）');
+    lines.push('- 特效 id / 底衬 / 贴纸可以自由选；但 effectParams 里的颜色参数、行内 span 的 color/背景色/下划线色都必须来自品牌色板；渐变特效必须显式给 color1/color2，禁止留空吃默认色');
+    lines.push('- 品牌约束作用于所有可见颜色（图层、行内 span、特效参数、特效渲染结果），不只 layer.color');
     lines.push('');
     lines.push('## 6g-2. 强制丰富度规则（硬性，违反视为失败，不是建议）');
     lines.push('');
@@ -350,9 +364,9 @@ function generateAiSpecMarkdown() {
     lines.push('### 强制 A：特效多样化（effectClass）');
     lines.push('- 同一份方案（多页）里，必须使用 **至少 4 种不同的 effectClass**');
     lines.push('- 禁止 100% 页面都用同一个特效；同一特效在所有文字图层中的占比不得超过 60%');
-    lines.push('- 封面主标题必须用高冲击特效（effect-viral / effect-neon / effect-fire / effect-cyber / effect-3d / effect-glitch 之一），**禁止用 effect-black-stroke 或 effect-gold 当封面主特效**');
+    lines.push('- 封面主标题必须用高冲击且品牌安全的特效（effect-neon / effect-cyber / effect-3d / effect-red-stroke / effect-gradient 之一），**禁止用 effect-black-stroke 或 effect-gold 当封面主特效**');
     lines.push('- 正文标题可用 effect-black-stroke 或 effect-gold 保可读，但**不得所有页正文标题都是同一款**');
-    lines.push('- 标签 / 数字 / 强调词必须用 effect-gold / effect-neon / effect-cyber / effect-lightning / effect-hk 之一做点缀，不得全部无特效');
+    lines.push('- 标签 / 数字 / 强调词必须用 effect-gold / effect-neon / effect-cyber 之一做点缀（并给品牌色参数），不得全部无特效');
     lines.push('- 每页至少有 1 个文字图层带特效，不得整页无特效');
     lines.push('');
     lines.push('### 强制 B：底衬多样化（backdrop）');
@@ -583,9 +597,9 @@ function generateAiSpecMarkdown() {
     } else {
         lines.push('- □ 品牌严格色彩模式未开启，颜色/背景自由，跳过色彩校验');
     }
-    lines.push('- □ 特效（effectClass）、底衬（backdrop）、贴纸（sticker）、上传素材：**完全自由，不受品牌约束**');
+    lines.push('- □ 特效 id（effectClass）、底衬、贴纸可以自由选；但 effectParams 的颜色与行内 span 颜色必须来自品牌色板');
     lines.push('');
-    lines.push('**只锁颜色（可选锁字体），永远不锁特效/底衬/贴纸。**');
+    lines.push('**锁所有可见颜色（含特效参数与行内颜色）；可选锁字体；不限制特效 id 本身。**');
     lines.push('');
     lines.push('### 6l-11. AI 自检流程（生成前跑 3 遍）');
     lines.push('');
